@@ -109,6 +109,9 @@ importers:
 
   packages/core:
     dependencies:
+      diff:
+        specifier: 7.0.0
+        version: 7.0.0
       yaml:
         specifier: 2.6.1
         version: 2.6.1
@@ -116,6 +119,9 @@ importers:
         specifier: 3.23.8
         version: 3.23.8
     devDependencies:
+      '@types/diff':
+        specifier: 6.0.0
+        version: 6.0.0
       '@types/node':
         specifier: 22.10.2
         version: 22.10.2

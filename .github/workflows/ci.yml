@@ -63,3 +63,32 @@ jobs:
           node packages/cli/dist/index.js pack export examples/pr-quality \
             --target claude-code --profile full --out /tmp/ci-determ-b
           diff -r /tmp/ci-determ-a /tmp/ci-determ-b
+
+      - name: Phase 2 smoke (install / verify / verify --chain / history / uninstall)
+        run: |
+          set -euo pipefail
+          SMOKE="${RUNNER_TEMP:-/tmp}/agentpack-phase2-smoke"
+          rm -rf "$SMOKE"
+          mkdir -p "$SMOKE"
+          node packages/cli/dist/index.js install examples/pr-quality \
+            --target generic --profile safe --project "$SMOKE" --yes
+          test -f "$SMOKE/AGENTPACK.lock"
+          test -f "$SMOKE/.workgraph/installed/workgraph.pr-quality.json"
+          test -f "$SMOKE/.workgraph/history.jsonl"
+          node packages/cli/dist/index.js verify workgraph.pr-quality --project "$SMOKE"
+          node packages/cli/dist/index.js verify workgraph.pr-quality --project "$SMOKE" --chain
+          node packages/cli/dist/index.js history --project "$SMOKE" --limit 5
+          node packages/cli/dist/index.js uninstall workgraph.pr-quality --project "$SMOKE" --yes
+          test ! -e "$SMOKE/.workgraph/installed/workgraph.pr-quality.json"
+
+      - name: Lockfile determinism (Phase 2)
+        run: |
+          set -euo pipefail
+          A="${RUNNER_TEMP:-/tmp}/agentpack-lock-a"
+          B="${RUNNER_TEMP:-/tmp}/agentpack-lock-b"
+          rm -rf "$A" "$B"; mkdir -p "$A" "$B"
+          node packages/cli/dist/index.js install examples/pr-quality \
+            --target generic --profile safe --project "$A" --yes
+          node packages/cli/dist/index.js install examples/pr-quality \
+            --target generic --profile safe --project "$B" --yes
+          diff "$A/AGENTPACK.lock" "$B/AGENTPACK.lock"

@@ -1,6 +1,6 @@
 {
   "name": "@workgraph/registry",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Workgraph Registry — the web UI for AgentPacks.",
   "license": "MIT",

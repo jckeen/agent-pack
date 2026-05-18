@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.2.0 — 2026-05-18 (Phase 2 — local install / uninstall / verify)
+
+Phase 2 of the implementation plan: extend the standard from "compile to native files" to "install into a project root with full provenance, drift detection, and reversibility." 74 new ISCs land (ISC-69..ISC-142, plus ISC-143..ISC-150 from the advisor-driven WAL pass).
+
+**Core engine (`@workgraph/core/install/`)**
+
+- `planInstall()` — classifies every target path against the user's project: `created` / `modified` / `unchanged` / `conflict` (no-marker-existing-content or other-pack-marker). Computes the lockfile inline.
+- `applyInstall()` — write-ahead log to `.workgraph/history.jsonl`: append `install_begin` (with `plannedFiles[]` + SHA-256), backup overwritten files to `.workgraph/backups/<pack>/<ts>.<nonce>/`, atomic write of every adapter file (tmp + rename), write `AGENTPACK.lock` at project root, write install manifest at `.workgraph/installed/<pack>.json`, append `install_commit`.
+- `uninstall()` — read install manifest, restore backups, delete created files, prune empty parent dirs, delete manifest, append `uninstall` history entry. Refuses without `--force` when user has edited a tracked file since install.
+- `verifyInstall()` — recompute SHA-256 of every tracked file vs. the install manifest's recorded hash. Reports `drift[]` / `missing[]`. `--chain` also verifies the history hash chain.
+- `rollback()` — undo the most recent install, or with `--to <historyId>`, undo everything after that entry. Refuses superseded installs without `--cascade`.
+- `recoverIncomplete()` — sweep for dangling `install_begin` entries on every install. Roll forward (write missing commit) when staged files match the planned SHA-256s, roll back (delete partial files) otherwise.
+
+**Lockfile (`AGENTPACK.lock`, deterministic, committed)**
+
+- Per-atom + per-file SHA-256 — per-file granularity is the unlock primitive for Phase 4 signature verification (cosign signs file digests, not logical atoms).
+- `manifestChecksum`: SHA-256 of the raw `AGENTPACK.yaml` bytes (not parsed-then-stringified).
+- `canonicalization: { algorithm, encoding, lineEndings }` pinned explicitly.
+- `signatures` / `dependencies` reserved (empty in Phase 2) to avoid a v2 bump when Phase 3/4 land.
+- **No `installedAt` field** — timestamps would break determinism. Two clean installs at the same version produce byte-identical lockfiles.
+
+**History (`.workgraph/history.jsonl`, append-only, hash-chained)**
+
+- ULID-style monotonic `id`, `previousEntryId` + `entryChecksum` form a hash chain.
+- `entryChecksum = sha256(canonicalJson(entry minus entryChecksum))` — canonical JSON with recursively-sorted keys.
+- mtime-based file lock around every append (single-writer guarantee under concurrent CLI invocations).
+- WAL semantics: `install_begin` (with `plannedFiles[]`) before any file write; `install_commit` last; absence of commit is the crash signal.
+- Rotation NOT supported in Phase 2 — file grows monotonically (documented in `docs/install.md`).
+
+**CLI (six new subcommands)**
+
+- `workgraph install <pack> --target X --profile Y --project <dir>` — diff + prompt + write. `--dry-run`, `--yes`, `--force`.
+- `workgraph uninstall <packId>` — `--yes`, `--force`, `--force-restore`.
+- `workgraph diff <pack>` — unified diff between current project and install plan.
+- `workgraph history` — list, `--pack`, `--limit`, `--json`.
+- `workgraph rollback [historyId]` — `--to`, `--pack`, `--cascade`, `--yes`.
+- `workgraph verify <packId>` — drift report. `--chain` validates hash chain. Exit codes: 0 clean, 2 drift, 3 chain broken.
+
+**Registry web app**
+
+- `InstallCommandBox` surfaces `install`, `pack export`, `verify`, and `validate` with explanatory copy.
+- `/docs` documents Phase 2 install / uninstall / verify / rollback surface.
+
+**Docs**
+
+- New `docs/install.md` — full reference for the Phase 2 surface.
+- README quickstart includes install/verify/uninstall/rollback/history examples.
+
+**Tests**
+
+- 48 new tests (39 core + 9 CLI) across 7 new files. **Total: 172 tests passing.**
+- Core coverage: 88.32% lines / 76.04% branches / 96.39% functions / 88.32% statements (thresholds met).
+
 ## 0.1.1 — 2026-05-18 (hardening pass)
 
 Multi-agent security review (security-reviewer, Silas, code-reviewer, silent-failure-hunter, type-design-analyzer) closed four critical attack chains and seven high/medium findings against the v0.1 MVP.

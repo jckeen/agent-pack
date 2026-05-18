@@ -18,8 +18,13 @@ const SECTIONS = [
   },
   {
     title: "CLI",
-    body: "The workgraph CLI: init, validate, inspect, plan, pack export, doctor. Plan and export are pure — they never touch your project tree outside the --out directory.",
+    body: "The workgraph CLI: init, validate, inspect, plan, pack export, doctor, install, uninstall, diff, history, rollback, verify. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.workgraph/history.jsonl` (hash-chained, WAL-protected).",
     link: "/docs#cli",
+  },
+  {
+    title: "Install / uninstall / verify (Phase 2)",
+    body: "`workgraph install` is the local install flow: diff against project root → permission summary → confirm → backup → write → install manifest at `.workgraph/installed/<pack>.json` → AGENTPACK.lock → history append. `workgraph uninstall` reverses it (delete created, restore backups). `workgraph verify` computes on-disk SHA-256 against the lockfile and reports drift. `workgraph rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
+    link: "/docs#install",
   },
 ];
 

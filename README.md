@@ -47,12 +47,24 @@ pnpm cli validate examples/pr-quality
 # Plan an install for Claude Code, safe profile
 pnpm cli plan examples/pr-quality --target claude-code --profile safe
 
-# Compile to native files
+# Compile to native files (export-only — writes under --out, never touches your project)
 pnpm cli pack export examples/pr-quality --target claude-code --profile safe --out dist/claude
 pnpm cli pack export examples/pr-quality --target codex      --profile safe --out dist/codex
 pnpm cli pack export examples/pr-quality --target cursor     --profile safe --out dist/cursor
 pnpm cli pack export examples/pr-quality --target chatgpt    --profile safe --out dist/chatgpt
 pnpm cli pack export examples/pr-quality --target generic    --profile safe --out dist/generic
+
+# Install into a project (Phase 2): diff → confirm → backup → write → lockfile + history
+pnpm cli install examples/pr-quality --target claude-code --profile safe --project /path/to/project --dry-run
+pnpm cli install examples/pr-quality --target claude-code --profile safe --project /path/to/project
+
+# Drift detection
+pnpm cli verify workgraph.pr-quality --project /path/to/project
+
+# Undo
+pnpm cli uninstall workgraph.pr-quality --project /path/to/project
+pnpm cli rollback --project /path/to/project
+pnpm cli history --project /path/to/project
 
 # Browse the registry
 pnpm dev
