@@ -1,6 +1,6 @@
 {
   "name": "@workgraph/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "workgraph CLI — validate, inspect, plan, and export AgentPacks.",
   "license": "MIT",

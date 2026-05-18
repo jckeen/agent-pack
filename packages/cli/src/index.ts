@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("workgraph")
   .description("AgentPack CLI — validate, inspect, plan, and export agent packs.")
-  .version("0.1.0", "-v, --version", "Show CLI version")
+  .version("0.1.1", "-v, --version", "Show CLI version")
   .showHelpAfterError(true);
 
 registerInit(program);

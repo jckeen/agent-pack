@@ -51,10 +51,10 @@ afterAll(async () => {
 });
 
 describe("workgraph CLI — invocation", () => {
-  it("--version returns 0.1.0 and exits 0", async () => {
+  it("--version returns 0.1.1 and exits 0", async () => {
     const r = await run(["--version"]);
     expect(r.code).toBe(0);
-    expect(r.stdout.trim()).toBe("0.1.0");
+    expect(r.stdout.trim()).toBe("0.1.1");
   });
 
   it("--help lists every command", async () => {

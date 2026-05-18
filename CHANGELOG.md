@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — 2026-05-18 (hardening pass)
+## 0.1.1 — 2026-05-18 (hardening pass)
 
-Multi-agent security review (security-reviewer, Silas, code-reviewer, silent-failure-hunter, type-design-analyzer) closed four critical attack chains and seven high/medium findings against the v0.1 MVP. Folds into 0.1.1 when tagged.
+Multi-agent security review (security-reviewer, Silas, code-reviewer, silent-failure-hunter, type-design-analyzer) closed four critical attack chains and seven high/medium findings against the v0.1 MVP.
 
 **Security**
 
