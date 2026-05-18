@@ -1,0 +1,24 @@
+id: github
+name: GitHub MCP
+transport: stdio
+command: npx
+args:
+  - -y
+  - "@modelcontextprotocol/server-github"
+env:
+  GITHUB_TOKEN:
+    required: true
+    description: GitHub token with appropriate repository permissions.
+permissions:
+  - network.access
+  - secrets.env
+  - external_api.access
+  - repo.modification
+risk_level: high
+tools_exposed:
+  - github.get_pull_request
+  - github.list_pull_request_files
+  - github.create_comment
+warnings:
+  - "Requires GITHUB_TOKEN. Use the least-privileged token possible."
+  - "Do not enable write/comment tools without explicit approval."

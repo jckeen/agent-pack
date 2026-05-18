@@ -1,0 +1,276 @@
+agentpack: "1.0"
+
+metadata:
+  id: "workgraph.pr-quality"
+  name: "Pull Request Quality Pack"
+  slug: "pr-quality"
+  description: "Cross-platform pull request review workflow with code review, security review, formatting, and PR summary generation."
+  version: "0.1.0"
+  license: "MIT"
+  publisher: "workgraph"
+  authors:
+    - name: "Workgraph"
+      email: "hello@workgraph.dev"
+  tags:
+    - pull-request
+    - code-review
+    - security
+    - developer-workflow
+
+compatibility:
+  targets:
+    claude-code:
+      status: supported
+      notes: "Generates CLAUDE.md, .claude/skills, .claude/agents, and .claude/settings.json."
+    codex:
+      status: supported
+      notes: "Generates AGENTS.md, .codex/config.toml, .codex/hooks.json, and skills."
+    cursor:
+      status: supported
+      notes: "Generates .cursor/rules, .cursor/mcp.json, and AGENTS.md. Hook output is conservative."
+    chatgpt:
+      status: experimental
+      notes: "Generates MCP app skeleton and project-instructions.md only."
+    generic:
+      status: supported
+      notes: "Generates AGENTS.md, skills/, README-agent.md, and agentpack.json."
+
+permissions:
+  filesystem:
+    read:
+      - "."
+    write:
+      - "."
+  shell:
+    execution: optional
+    commands:
+      - "npm run format"
+      - "npm run lint"
+  network:
+    access: optional
+    domains:
+      - "api.github.com"
+  secrets:
+    required:
+      - name: "GITHUB_TOKEN"
+        description: "Required only for the optional GitHub MCP server."
+        required_for:
+          - "mcp_server:github"
+  mcp:
+    servers:
+      - "github"
+  external_apis:
+    - "github"
+  browser_access: false
+  repo_modification: true
+  git_operations:
+    - "status"
+    - "diff"
+    - "log"
+  package_installation: false
+  user_data_access: false
+  private_context_access: false
+  model_provider_key_access: false
+
+security:
+  risk_level: high
+  risk_summary: "Safe profile is low risk. Full profile is high risk because it adds shell hook execution and GitHub MCP access."
+  requires_review: true
+  signed: false
+  sandbox_recommended: true
+  checksums:
+    enabled: true
+    file: "signatures/checksums.json"
+  provenance:
+    enabled: true
+    file: "signatures/provenance.json"
+
+profiles:
+  safe:
+    description: "Instruction, rule, skill, and command only. No shell hooks, MCP, secrets, or external APIs."
+    include:
+      - "instruction:pr-review-standards"
+      - "rule:security-review-required"
+      - "skill:code-review"
+      - "command:pr-summary"
+    exclude:
+      - "hook:*"
+      - "mcp_server:*"
+      - "subagent:*"
+  standard:
+    description: "Adds the security reviewer subagent. Still no hooks, MCP, or secrets."
+    include:
+      - "instruction:pr-review-standards"
+      - "rule:security-review-required"
+      - "skill:code-review"
+      - "command:pr-summary"
+      - "subagent:security-reviewer"
+    exclude:
+      - "hook:*"
+      - "mcp_server:*"
+  full:
+    description: "Adds formatting hook and optional GitHub MCP connector."
+    include:
+      - "*"
+  enterprise:
+    description: "Full install with signature, lockfile, and admin approval required."
+    include:
+      - "*"
+    policy:
+      require_signature: true
+      require_lockfile: true
+      require_admin_approval: true
+
+dependencies:
+  tools:
+    - name: "git"
+      required: true
+    - name: "node"
+      required: false
+  packs: []
+  mcp_servers:
+    - id: "github"
+      package: "@modelcontextprotocol/server-github"
+      optional: true
+      version: "^1.0.0"
+
+atoms:
+  - id: "instruction:pr-review-standards"
+    type: instruction
+    name: "PR Review Standards"
+    description: "Persistent standards for reviewing pull requests."
+    path: "atoms/instructions/pr-review-standards.md"
+    risk_level: low
+    permissions: []
+    platforms:
+      claude-code: supported
+      codex: supported
+      cursor: supported
+      chatgpt: partial
+      generic: supported
+
+  - id: "rule:security-review-required"
+    type: rule
+    name: "Security Review Required"
+    description: "Flags security-sensitive code changes for explicit review."
+    path: "atoms/rules/security-review-required.yaml"
+    risk_level: low
+    permissions: []
+    scope:
+      file_globs:
+        - "**/auth/**"
+        - "**/api/**"
+        - "**/*.env*"
+        - "**/middleware/**"
+
+  - id: "skill:code-review"
+    type: skill
+    name: "Code Review"
+    description: "Reusable pull request review procedure with quality, maintainability, bug, and test coverage checks."
+    path: "atoms/skills/code-review"
+    skill_format: "agentskills"
+    risk_level: low
+    permissions:
+      - filesystem.read
+
+  - id: "command:pr-summary"
+    type: command
+    name: "PR Summary"
+    description: "Generates a clear PR summary, risk notes, and testing notes."
+    path: "atoms/commands/pr-summary.yaml"
+    risk_level: low
+    permissions:
+      - filesystem.read
+      - git.operations
+    invocation:
+      slash: "/pr-summary"
+      cli: "pr-summary"
+
+  - id: "subagent:security-reviewer"
+    type: subagent
+    name: "Security Reviewer"
+    description: "Specialized security review agent for auth, secrets, input validation, permissions, and data exposure."
+    path: "atoms/subagents/security-reviewer.yaml"
+    risk_level: medium
+    permissions:
+      - filesystem.read
+
+  - id: "hook:post-edit-format"
+    type: hook
+    name: "Post Edit Format"
+    description: "Runs project formatter after agent file edits."
+    path: "atoms/hooks/post-edit-format.yaml"
+    risk_level: high
+    permissions:
+      - shell.execution
+      - filesystem.write
+    lifecycle:
+      events:
+        generic:
+          - after_edit
+        claude-code:
+          - PostToolUse
+        codex:
+          - PostToolUse
+
+  - id: "mcp_server:github"
+    type: mcp_server
+    name: "GitHub MCP"
+    description: "Optional GitHub MCP connector for PR metadata, comments, issue links, and repository context."
+    path: "atoms/mcp/github.yaml"
+    risk_level: high
+    permissions:
+      - network.access
+      - external_api.access
+      - secrets.env
+      - repo.modification
+    transport: stdio
+    command: "npx"
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-github"
+    env:
+      GITHUB_TOKEN:
+        required: true
+
+exports:
+  default_profile: safe
+  output_dir: "dist"
+  lockfile: "AGENTPACK.lock"
+  include_readme: true
+
+adapters:
+  claude-code:
+    enabled: true
+    output:
+      instructions: "CLAUDE.md"
+      skills: ".claude/skills"
+      subagents: ".claude/agents"
+      settings: ".claude/settings.json"
+  codex:
+    enabled: true
+    output:
+      instructions: "AGENTS.md"
+      config: ".codex/config.toml"
+      hooks: ".codex/hooks.json"
+      skills: ".codex/skills"
+  cursor:
+    enabled: true
+    output:
+      rules: ".cursor/rules"
+      mcp: ".cursor/mcp.json"
+      instructions: "AGENTS.md"
+  chatgpt:
+    enabled: true
+    experimental: true
+    output:
+      mcp_server: "mcp-server"
+      app_manifest: "app-manifest.json"
+      instructions: "project-instructions.md"
+  generic:
+    enabled: true
+    output:
+      instructions: "AGENTS.md"
+      skills: "skills"
+      manifest: "agentpack.json"
+      readme: "README-agent.md"

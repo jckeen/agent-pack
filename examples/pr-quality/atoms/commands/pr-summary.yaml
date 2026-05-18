@@ -1,0 +1,12 @@
+id: pr-summary
+name: PR Summary
+invocation:
+  slash: "/pr-summary"
+  cli: "pr-summary"
+arguments:
+  - name: base
+    type: string
+    default: main
+prompt: atoms/commands/prompts/pr-summary.md
+output:
+  format: markdown

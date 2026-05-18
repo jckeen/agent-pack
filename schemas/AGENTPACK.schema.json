@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workgraph.dev/schemas/agentpack.schema.json",
+  "title": "AgentPack Manifest",
+  "type": "object",
+  "required": [
+    "agentpack",
+    "metadata",
+    "compatibility",
+    "profiles",
+    "atoms"
+  ],
+  "properties": {
+    "agentpack": {
+      "type": "string",
+      "pattern": "^1\\.0"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "slug",
+        "description",
+        "version",
+        "publisher"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "license": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "authors": {
+          "type": "array"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object"
+    },
+    "permissions": {
+      "type": "object"
+    },
+    "security": {
+      "type": "object"
+    },
+    "profiles": {
+      "type": "object"
+    },
+    "dependencies": {
+      "type": "object"
+    },
+    "atoms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "name",
+          "description",
+          "path",
+          "risk_level"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "instruction",
+              "rule",
+              "skill",
+              "hook",
+              "command",
+              "subagent",
+              "mcp_server",
+              "plugin",
+              "workflow",
+              "context_pack",
+              "template",
+              "eval"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "risk_level": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "exports": {
+      "type": "object"
+    },
+    "adapters": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+id: security-review-required
+name: Security Review Required
+severity: required
+scope:
+  file_globs:
+    - "**/auth/**"
+    - "**/api/**"
+    - "**/*.env*"
+    - "**/middleware/**"
+    - "**/permissions/**"
+behavior:
+  must:
+    - "Explicitly flag security-sensitive changes."
+    - "Check authentication, authorization, input validation, secrets handling, and data exposure."
+    - "Call out missing tests for security-sensitive code."
+  must_not:
+    - "Approve changes to authentication or authorization without noting validation steps."
+    - "Ignore added environment variables or secrets."

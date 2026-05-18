@@ -1,0 +1,8 @@
+<!-- BEGIN AGENTPACK: {{packId}} -->
+# {{packName}}
+
+{{instructions}}
+
+Installed atoms:
+{{atoms}}
+<!-- END AGENTPACK: {{packId}} -->

@@ -1,0 +1,15 @@
+# Agent Instructions: {{packName}}
+
+Generated from AgentPack `{{packId}}`.
+
+## Atoms
+
+{{atoms}}
+
+## Permissions
+
+{{permissions}}
+
+## Warnings
+
+{{warnings}}

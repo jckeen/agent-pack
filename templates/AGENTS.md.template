@@ -1,0 +1,13 @@
+<!-- BEGIN AGENTPACK: {{packId}} -->
+# {{packName}}
+
+{{instructions}}
+
+## Rules
+
+{{rules}}
+
+## Workflows
+
+{{workflows}}
+<!-- END AGENTPACK: {{packId}} -->

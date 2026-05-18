@@ -1,0 +1,257 @@
+// Static seed pack registry — used by the Workgraph Registry web app in MVP.
+// Source of truth for seed-pack metadata. The structural shape mirrors
+// `seed/seed-packs.json` at the repo root, but with TypeScript types and one
+// fully populated example (PR-Quality) so the registry can render a real
+// detail page without a database.
+
+import type {
+  CompatibilityStatus,
+  RiskLevel,
+  TargetPlatform,
+} from "../schema/types.js";
+
+export interface SeedPack {
+  id: string;
+  publisher: string;
+  slug: string;
+  name: string;
+  version: string;
+  description: string;
+  riskLevel: RiskLevel;
+  tags: string[];
+  platforms: Record<TargetPlatform, CompatibilityStatus>;
+  atomTypes: string[];
+  /** Where the live AGENTPACK.yaml example lives in the monorepo, when available. */
+  examplePath?: string;
+  /** Whether this seed is wired to a real manifest in the repo. */
+  hasExample?: boolean;
+}
+
+export const SEED_PACKS: SeedPack[] = [
+  {
+    id: "workgraph.pr-quality",
+    publisher: "workgraph",
+    slug: "pr-quality",
+    name: "Pull Request Quality Pack",
+    version: "0.1.0",
+    description:
+      "Cross-platform PR review, security review, formatting, and summary workflow.",
+    riskLevel: "high",
+    tags: ["code-review", "pull-requests", "security"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "supported",
+      cursor: "supported",
+      chatgpt: "experimental",
+      generic: "supported",
+    },
+    atomTypes: [
+      "instruction",
+      "rule",
+      "skill",
+      "command",
+      "subagent",
+      "hook",
+      "mcp_server",
+    ],
+    examplePath: "examples/pr-quality",
+    hasExample: true,
+  },
+  {
+    id: "workgraph.claude-code-starter",
+    publisher: "workgraph",
+    slug: "claude-code-starter",
+    name: "Claude Code Starter Pack",
+    version: "0.1.0",
+    description:
+      "Starter project instructions, skills, hooks, and settings for Claude Code.",
+    riskLevel: "high",
+    tags: ["claude-code", "starter", "skills"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "partial",
+      cursor: "partial",
+      chatgpt: "unsupported",
+      generic: "supported",
+    },
+    atomTypes: ["instruction", "skill", "hook", "rule", "template"],
+  },
+  {
+    id: "workgraph.codex-agents-starter",
+    publisher: "workgraph",
+    slug: "codex-agents-starter",
+    name: "Codex AGENTS.md Starter Pack",
+    version: "0.1.0",
+    description: "Starter AGENTS.md, Codex config, skills, and hooks.",
+    riskLevel: "medium",
+    tags: ["codex", "agents-md", "starter"],
+    platforms: {
+      "claude-code": "partial",
+      codex: "supported",
+      cursor: "partial",
+      chatgpt: "unsupported",
+      generic: "supported",
+    },
+    atomTypes: ["instruction", "skill", "rule", "template", "hook"],
+  },
+  {
+    id: "workgraph.cursor-rules-starter",
+    publisher: "workgraph",
+    slug: "cursor-rules-starter",
+    name: "Cursor Rules Starter Pack",
+    version: "0.1.0",
+    description:
+      "Project rules, frontend/testing standards, and MCP config for Cursor.",
+    riskLevel: "medium",
+    tags: ["cursor", "rules", "mcp"],
+    platforms: {
+      "claude-code": "partial",
+      codex: "partial",
+      cursor: "supported",
+      chatgpt: "unsupported",
+      generic: "supported",
+    },
+    atomTypes: ["rule", "mcp_server", "template"],
+  },
+  {
+    id: "workgraph.newsroom-editorial",
+    publisher: "workgraph",
+    slug: "newsroom-editorial",
+    name: "Newsroom Editorial Workflow Pack",
+    version: "0.1.0",
+    description:
+      "Editorial standards, fact-checking workflow, headline/social command, and human approval rules.",
+    riskLevel: "medium",
+    tags: ["newsroom", "editorial", "fact-checking"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "supported",
+      cursor: "supported",
+      chatgpt: "experimental",
+      generic: "supported",
+    },
+    atomTypes: [
+      "instruction",
+      "rule",
+      "workflow",
+      "command",
+      "skill",
+      "eval",
+    ],
+  },
+  {
+    id: "workgraph.grant-research",
+    publisher: "workgraph",
+    slug: "grant-research",
+    name: "Grant Research Workflow Pack",
+    version: "0.1.0",
+    description:
+      "Prospect research, fit scoring, LOI drafting, budget narrative, and review checklist.",
+    riskLevel: "medium",
+    tags: ["fundraising", "grants", "research"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "supported",
+      cursor: "supported",
+      chatgpt: "experimental",
+      generic: "supported",
+    },
+    atomTypes: ["workflow", "skill", "command", "template", "eval"],
+  },
+  {
+    id: "workgraph.hr-sensitive-comms",
+    publisher: "workgraph",
+    slug: "hr-sensitive-comms",
+    name: "HR-Sensitive Communications Pack",
+    version: "0.1.0",
+    description:
+      "Cautious tone, legal review flags, no-admissions rules, documentation discipline, and approval requirements.",
+    riskLevel: "low",
+    tags: ["hr", "legal-risk", "communications"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "supported",
+      cursor: "supported",
+      chatgpt: "partial",
+      generic: "supported",
+    },
+    atomTypes: ["instruction", "rule", "workflow", "command", "eval"],
+  },
+  {
+    id: "workgraph.frontend-qa",
+    publisher: "workgraph",
+    slug: "frontend-qa",
+    name: "Frontend QA Pack",
+    version: "0.1.0",
+    description:
+      "Visual QA, accessibility checks, component review, responsive testing, and optional lint hook.",
+    riskLevel: "high",
+    tags: ["frontend", "qa", "accessibility"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "supported",
+      cursor: "supported",
+      chatgpt: "unsupported",
+      generic: "supported",
+    },
+    atomTypes: ["skill", "workflow", "command", "hook"],
+  },
+  {
+    id: "workgraph.conference-followup",
+    publisher: "workgraph",
+    slug: "conference-followup",
+    name: "Conference Follow-Up Pack",
+    version: "0.1.0",
+    description:
+      "Contact capture, follow-up emails, note synthesis, and action plan generation.",
+    riskLevel: "medium",
+    tags: ["conference", "follow-up", "crm"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "supported",
+      cursor: "supported",
+      chatgpt: "partial",
+      generic: "supported",
+    },
+    atomTypes: [
+      "workflow",
+      "skill",
+      "command",
+      "template",
+      "context_pack",
+    ],
+  },
+  {
+    id: "workgraph.github-mcp-connector",
+    publisher: "workgraph",
+    slug: "github-mcp-connector",
+    name: "MCP GitHub Connector Pack",
+    version: "0.1.0",
+    description:
+      "GitHub MCP config, permission declarations, secret requirements, and install warnings.",
+    riskLevel: "high",
+    tags: ["mcp", "github", "connector"],
+    platforms: {
+      "claude-code": "supported",
+      codex: "supported",
+      cursor: "supported",
+      chatgpt: "experimental",
+      generic: "partial",
+    },
+    atomTypes: ["mcp_server", "instruction", "rule", "template", "eval"],
+  },
+];
+
+export function getSeedPackById(id: string): SeedPack | undefined {
+  return SEED_PACKS.find((p) => p.id === id);
+}
+
+export function getSeedPack(publisher: string, slug: string): SeedPack | undefined {
+  return SEED_PACKS.find((p) => p.publisher === publisher && p.slug === slug);
+}
+
+export function allTags(): string[] {
+  const set = new Set<string>();
+  for (const p of SEED_PACKS) for (const t of p.tags) set.add(t);
+  return [...set].sort();
+}

@@ -1,0 +1,10 @@
+---
+description: {{description}}
+globs:
+{{globs}}
+alwaysApply: false
+---
+
+# {{name}}
+
+{{content}}
