@@ -19,17 +19,13 @@ export interface CreateInstallPlanOptions {
   onlyAtoms?: string[];
 }
 
-const RISK_ORDER: Record<RiskLevel, number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-  critical: 3,
-};
-
 /**
  * End-to-end planner: resolves atoms for the given profile, computes risk +
  * permissions, runs the adapter to produce a file plan, and surfaces
  * warnings (atom-level and adapter-level) in one object.
+ *
+ * Warning ordering is stable: declared security risk_summary → risk reasons
+ * (only when overall risk is medium+) → adapter warnings → secret requirements.
  */
 export async function createInstallPlan(
   options: CreateInstallPlanOptions,
@@ -48,11 +44,23 @@ export async function createInstallPlan(
 
   const warnings: string[] = [];
   if (manifest.security?.risk_summary) warnings.push(manifest.security.risk_summary);
-  warnings.push(...risk.reasons.filter((r) => RISK_ORDER[risk.level] >= 2 ? true : false));
+
+  // Include risk reasons only when the overall plan is non-trivial. For
+  // `low` plans the reasons list is just "atom X is low" noise; for medium+
+  // plans the reasons explain why the level rose. We surface every reason
+  // (no dedupe — the audit trail is the value) when level is medium or above.
+  const RISK_ORDER: Record<RiskLevel, number> = {
+    low: 0,
+    medium: 1,
+    high: 2,
+    critical: 3,
+  };
+  if (RISK_ORDER[risk.level] >= RISK_ORDER.medium) {
+    warnings.push(...risk.reasons);
+  }
+
   warnings.push(...adapterResult.warnings);
 
-  // Surface secret requirements as warnings (so a `plan` command at the CLI
-  // can show them prominently).
   for (const s of permissions.secrets) {
     warnings.push(
       `Secret \`${s.name}\` required${s.requiredFor.length ? ` for ${s.requiredFor.join(", ")}` : ""}.`,

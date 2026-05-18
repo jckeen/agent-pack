@@ -24,10 +24,16 @@ const PERMISSION_DESCRIPTIONS: Record<string, { label: string; risk: RiskLevel }
   "model_provider_key.access": { label: "Use model provider API keys", risk: "critical" },
 };
 
+export const KNOWN_PERMISSION_CATEGORIES: ReadonlyArray<string> =
+  Object.freeze(Object.keys(PERMISSION_DESCRIPTIONS));
+
+const MCP_SHELL_SHAPES = /^(sh|bash|zsh|dash|fish|node|python(?:3)?|ruby|perl|deno|bun)$/i;
+const MCP_SHELL_FLAGS = /^-c$|^-e$|^--eval$|^--command$/i;
+
 function describe(category: string): { label: string; risk: RiskLevel } {
   return (
     PERMISSION_DESCRIPTIONS[category] ?? {
-      label: category,
+      label: `${category} (unknown category)`,
       risk: "medium" as RiskLevel,
     }
   );
@@ -42,10 +48,16 @@ function describe(category: string): { label: string; risk: RiskLevel } {
  * UI and inspect view); the *active* surface for any given profile is
  * determined by which atoms are actually included.
  *
- * Atom-type implicit permissions:
+ * Atom-type implicit permissions (cannot be hidden by omitting `permissions:`):
  *  - `hook` atom always implies `shell.execution` + `filesystem.write`.
- *  - `mcp_server` atom with `env` always implies `secrets.env` and (when
- *    declared) `network.access` + `external_api.access`.
+ *  - `mcp_server` atom always implies `mcp.server` (hard implication of
+ *    out-of-process code), `secrets.env` when `env:` is present, and
+ *    `shell.execution` when the command looks like a shell escape
+ *    (`sh`/`bash`/`node`/`python` invoked with `-c`/`-e`/`--eval`).
+ *  - `command` / `skill` / `subagent` / `workflow` atoms always imply
+ *    `filesystem.read` (their body file is read into the agent's context).
+ *  - `package` install / model-provider-key access on the pack-level block
+ *    is always surfaced when declared (these are big-deal categories).
  */
 export function summarizePermissions(
   manifest: AgentPackManifest,
@@ -80,19 +92,38 @@ export function summarizePermissions(
       ensure("filesystem.write", r.atom.id);
     }
     if (r.atom.type === "mcp_server") {
-      const a = r.atom as { env?: Record<string, unknown> };
+      ensure("mcp.server", r.atom.id);
+      const a = r.atom as {
+        env?: Record<string, unknown>;
+        command?: string;
+        args?: string[];
+      };
       if (a.env && Object.keys(a.env).length > 0) {
         ensure("secrets.env", r.atom.id);
       }
-      ensure("mcp.server", r.atom.id);
+      const cmdBase = (a.command ?? "").split(/[\\/]/).pop() ?? "";
+      if (MCP_SHELL_SHAPES.test(cmdBase)) {
+        const hasEvalFlag = (a.args ?? []).some((arg) =>
+          MCP_SHELL_FLAGS.test(arg),
+        );
+        if (hasEvalFlag) {
+          ensure("shell.execution", r.atom.id);
+        }
+      }
+    }
+    if (
+      r.atom.type === "command" ||
+      r.atom.type === "skill" ||
+      r.atom.type === "subagent" ||
+      r.atom.type === "workflow"
+    ) {
+      ensure("filesystem.read", r.atom.id);
     }
   }
 
   // Pack-level signals that are conditional on which atoms made it in:
   const perms = manifest.permissions ?? {};
 
-  // Network domains / external_apis — only surface when an atom needing
-  // network is actually included.
   const networkConsumers = resolved.filter(
     (r) =>
       (r.atom.permissions ?? []).some(
@@ -108,7 +139,6 @@ export function summarizePermissions(
     if (externalApis.length > 0) ensure("external_api.access");
   }
 
-  // Shell commands — only surface if any active atom uses shell.execution.
   const hasShellAtom = resolved.some(
     (r) =>
       r.atom.type === "hook" ||
@@ -116,7 +146,6 @@ export function summarizePermissions(
   );
   const shellCommands = hasShellAtom ? perms.shell?.commands ?? [] : [];
 
-  // Repo modification — only if an atom needs it.
   if (
     perms.repo_modification &&
     resolved.some((r) =>
@@ -125,33 +154,17 @@ export function summarizePermissions(
   ) {
     ensure("repo.modification");
   }
-  if (
-    perms.package_installation &&
-    resolved.some((r) =>
-      (r.atom.permissions ?? []).includes("package.installation"),
-    )
-  ) {
-    ensure("package.installation");
-  }
-  if (
-    perms.model_provider_key_access &&
-    resolved.some((r) =>
-      (r.atom.permissions ?? []).includes("model_provider_key.access"),
-    )
-  ) {
-    ensure("model_provider_key.access");
-  }
-  if (
-    perms.browser_access &&
-    resolved.some((r) =>
-      (r.atom.permissions ?? []).includes("browser.access"),
-    )
-  ) {
-    ensure("browser.access");
-  }
+
+  // High-impact pack-level flags — always surface when declared, regardless
+  // of which atom backs them. These are big-deal categories (#3 from agent
+  // review: previously user_data_access and private_context_access were
+  // silently dropped).
+  if (perms.package_installation) ensure("package.installation");
+  if (perms.model_provider_key_access) ensure("model_provider_key.access");
+  if (perms.user_data_access) ensure("user_data.access");
+  if (perms.private_context_access) ensure("private_context.access");
+  if (perms.browser_access) ensure("browser.access");
   if (perms.git_operations?.length) {
-    // git ops are read-only and harmless; surface whenever at least one atom
-    // requests git.operations (e.g. command:pr-summary).
     if (
       resolved.some((r) =>
         (r.atom.permissions ?? []).includes("git.operations"),
@@ -161,8 +174,6 @@ export function summarizePermissions(
     }
   }
 
-  // Filesystem read/write hint from pack-level only if some atom actually
-  // declares the permission OR is of a writing type (hook).
   if (perms.filesystem?.read?.length) {
     if (
       resolved.some((r) =>

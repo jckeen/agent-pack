@@ -26,6 +26,9 @@ const metadataSchema = z.object({
   id: z
     .string()
     .min(3)
+    // publisher.slug — alphanumerics, dot, underscore, hyphen. Case-folded
+    // via the validator's duplicate-id check; the regex stays case-insensitive
+    // for human ergonomics, but `validateManifest` lowercases for uniqueness.
     .regex(/^[a-z0-9][a-z0-9._-]*\.[a-z0-9][a-z0-9._-]*$/i, {
       message: "Pack id must be `publisher.slug` (lowercase letters, digits, ._-)",
     }),
@@ -172,22 +175,53 @@ const atomPlatformsSchema = z
   .record(targetPlatformSchema, compatibilityStatusSchema)
   .optional();
 
+/**
+ * `atom.path` is the on-disk file or directory backing the atom. It must be:
+ *  - a non-empty relative path
+ *  - not absolute (no leading `/` or `C:\`)
+ *  - not contain any `..` traversal segment
+ *  - not start with `~`
+ *
+ * Symlink-escape (where the path is in-pack lexically but resolves outside)
+ * is enforced at I/O time in adapters/types.ts via realpath comparison.
+ */
+const atomPathSchema = z
+  .string()
+  .min(1)
+  .refine((p) => !p.startsWith("~"), {
+    message: "atom.path must not start with `~` (no home expansion)",
+  })
+  .refine((p) => !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(p), {
+    message: "atom.path must be a relative path inside the pack (not absolute)",
+  })
+  .refine((p) => !p.split(/[\\/]+/).includes(".."), {
+    message: "atom.path must not contain `..` traversal segments",
+  });
+
 const baseAtomFields = {
-  id: z.string().regex(/^[a-z_]+:[a-z0-9][a-z0-9._-]*$/i, {
-    message: "Atom id must be `<type>:<slug>`",
-  }),
+  id: z
+    .string()
+    .regex(/^[a-z_]+:[a-z0-9][a-z0-9._-]*$/i, {
+      message: "Atom id must be `<type>:<slug>` (slug = lowercase letters, digits, ._-)",
+    })
+    // Reject `..` inside the slug — although the slug can't contain `/`, the
+    // slug is interpolated into file paths (e.g. `.claude/skills/<slug>/`)
+    // and a slug of `..` would walk up the output tree.
+    .refine((id) => !id.split(":")[1]!.split(".").includes(""), {
+      message: "Atom id slug must not contain empty segments (e.g. `..`)",
+    }),
   type: atomTypeSchema,
   name: z.string().min(1),
   description: z.string().min(1),
-  path: z.string().min(1),
+  path: atomPathSchema,
   risk_level: riskLevelSchema,
   permissions: z.array(z.string()).optional(),
   platforms: atomPlatformsSchema,
 };
 
-// Atom schema is intentionally permissive on type-specific extras so the
-// example pack's hook/mcp/skill/rule/command atoms validate without losing
-// fields. We do strong typing in TypeScript; zod just ensures the base shape.
+// Atom schema is permissive on type-specific extras so the example pack's
+// hook/mcp/skill/rule/command atoms validate without losing fields. We do
+// strong typing in TypeScript; zod just ensures the base shape.
 const atomSchema = z
   .object({
     ...baseAtomFields,
@@ -225,7 +259,7 @@ export const agentPackManifestSchema = z
     security: securitySchema,
     profiles: z.record(profileSchema),
     dependencies: dependenciesSchema,
-    atoms: z.array(atomSchema).min(1),
+    atoms: z.array(atomSchema).min(1).max(10_000),
     exports: exportsSchema,
     adapters: adaptersSchema,
   })

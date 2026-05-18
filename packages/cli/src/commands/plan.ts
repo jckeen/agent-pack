@@ -8,6 +8,7 @@ import {
   type TargetPlatform,
 } from "@workgraph/core";
 import { renderInstallPlan } from "../lib/render.js";
+import { failCleanly } from "../lib/error.js";
 
 const VALID_TARGETS: TargetPlatform[] = [
   "claude-code",
@@ -37,33 +38,54 @@ export function registerPlan(program: Command): void {
           );
           process.exit(2);
         }
-        const source = target ?? process.cwd();
-        const loaded = await loadManifest(source);
-        const validation = validateManifest(loaded.manifest);
-        if (!validation.valid) {
-          console.error(
-            pc.red(`✗ Manifest is invalid — run \`workgraph validate\` first.`),
-          );
-          for (const err of validation.errors) {
+        try {
+          const source = target ?? process.cwd();
+          const loaded = await loadManifest(source);
+          const validation = validateManifest(loaded.manifest);
+          if (!validation.valid) {
             console.error(
-              `  • [${err.code}] ${err.path}: ${err.message}`,
+              pc.red(`✗ Manifest is invalid — run \`workgraph validate\` first.`),
             );
+            for (const err of validation.errors) {
+              console.error(`  • [${err.code}] ${err.path}: ${err.message}`);
+            }
+            process.exit(1);
           }
-          process.exit(1);
+          const requested = options.profile;
+          if (requested && !loaded.manifest.profiles[requested]) {
+            console.error(
+              pc.red(
+                `✗ Unknown profile \`${requested}\`. Declared: ${Object.keys(loaded.manifest.profiles).join(", ")}`,
+              ),
+            );
+            process.exit(2);
+          }
+          const profile =
+            requested ??
+            loaded.manifest.exports?.default_profile ??
+            (loaded.manifest.profiles.safe ? "safe" : undefined);
+          if (!profile) {
+            console.error(
+              pc.red(
+                `✗ No profile specified and pack has no \`exports.default_profile\` or \`safe\` profile. Declared: ${Object.keys(loaded.manifest.profiles).join(", ")}`,
+              ),
+            );
+            process.exit(2);
+          }
+          const adapter = getAdapter(options.target);
+          const onlyAtoms = options.only?.split(",").map((s) => s.trim()).filter(Boolean);
+          const plan = await createInstallPlan({
+            manifest: loaded.manifest,
+            packRoot: loaded.packRoot,
+            target: options.target,
+            profile,
+            adapter,
+            onlyAtoms,
+          });
+          console.log(renderInstallPlan(plan));
+        } catch (err) {
+          failCleanly(err);
         }
-        const profile =
-          options.profile ?? loaded.manifest.exports?.default_profile ?? "safe";
-        const adapter = getAdapter(options.target);
-        const onlyAtoms = options.only?.split(",").map((s) => s.trim()).filter(Boolean);
-        const plan = await createInstallPlan({
-          manifest: loaded.manifest,
-          packRoot: loaded.packRoot,
-          target: options.target,
-          profile,
-          adapter,
-          onlyAtoms,
-        });
-        console.log(renderInstallPlan(plan));
       },
     );
 }

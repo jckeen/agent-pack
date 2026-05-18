@@ -2,7 +2,13 @@
 
 export * from "./schema/types.js";
 export { agentPackManifestSchema } from "./schema/agentpack.schema.js";
-export { loadManifest, resolveManifestPath } from "./parser/loadManifest.js";
+export {
+  loadManifest,
+  parseManifestYaml,
+  resolveManifestPath,
+  MAX_MANIFEST_BYTES,
+  ManifestTooLargeError,
+} from "./parser/loadManifest.js";
 export { validateManifest } from "./validator/validateManifest.js";
 export { resolveAtoms } from "./planner/resolveAtoms.js";
 export { summarizePermissions } from "./permissions/summarizePermissions.js";
@@ -18,7 +24,12 @@ export {
   chatgptAdapter,
   genericAdapter,
 } from "./adapters/index.js";
-export { wrapInstructionBlock } from "./adapters/types.js";
+export {
+  wrapInstructionBlock,
+  AtomPathEscapeError,
+  AtomReadError,
+} from "./adapters/types.js";
+export { KNOWN_PERMISSION_CATEGORIES } from "./permissions/summarizePermissions.js";
 export {
   SEED_PACKS,
   getSeedPackById,

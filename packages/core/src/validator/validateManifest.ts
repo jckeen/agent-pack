@@ -8,6 +8,7 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from "../schema/types.js";
+import { KNOWN_PERMISSION_CATEGORIES } from "../permissions/summarizePermissions.js";
 
 function expandAtomGlob(pattern: string, atomIds: string[]): string[] {
   if (!pattern.includes("*")) return atomIds.includes(pattern) ? [pattern] : [];
@@ -20,8 +21,8 @@ function expandAtomGlob(pattern: string, atomIds: string[]): string[] {
 
 /**
  * Validate a parsed manifest object against the AgentPack schema, plus
- * semantic checks (duplicate atom IDs, profile references, missing files
- * referenced by atom paths).
+ * semantic checks (duplicate atom IDs, profile references, permission
+ * category sanity, atom-implied vs. declared permission consistency).
  */
 export function validateManifest(input: unknown): ValidationResult {
   const errors: ValidationIssue[] = [];
@@ -53,19 +54,21 @@ export function validateManifest(input: unknown): ValidationResult {
 
   const manifest = parsed as unknown as AgentPackManifest;
 
-  // Atom id uniqueness + type-prefix consistency.
+  // Atom id uniqueness (case-insensitive — published packs are referenced
+  // by id, downstream systems may lowercase) + type-prefix consistency.
   const seenIds = new Map<string, number>();
   manifest.atoms.forEach((atom, idx) => {
-    const prior = seenIds.get(atom.id);
+    const normalized = atom.id.toLowerCase();
+    const prior = seenIds.get(normalized);
     if (prior !== undefined) {
       errors.push({
         code: "atom.duplicate_id",
         path: `atoms[${idx}].id`,
-        message: `Duplicate atom id \`${atom.id}\` (first declared at atoms[${prior}]).`,
+        message: `Duplicate atom id \`${atom.id}\` (case-insensitive; first declared at atoms[${prior}]).`,
         severity: "error",
       });
     } else {
-      seenIds.set(atom.id, idx);
+      seenIds.set(normalized, idx);
     }
     const prefix = atom.id.split(":")[0];
     if (prefix !== atom.type) {
@@ -75,6 +78,19 @@ export function validateManifest(input: unknown): ValidationResult {
         message: `Atom id prefix \`${prefix}\` does not match declared type \`${atom.type}\`.`,
         severity: "error",
       });
+    }
+    // Permission category sanity — warn on unknown categories (we don't
+    // hard-fail because future categories may be added by downstream
+    // adapters, but unknown categories are suspicious enough to surface).
+    for (const cat of atom.permissions ?? []) {
+      if (!KNOWN_PERMISSION_CATEGORIES.includes(cat)) {
+        warnings.push({
+          code: "atom.unknown_permission",
+          path: `atoms[${idx}].permissions`,
+          message: `Atom \`${atom.id}\` declares unknown permission category \`${cat}\`. Known: ${KNOWN_PERMISSION_CATEGORIES.join(", ")}`,
+          severity: "warning",
+        });
+      }
     }
   });
 
@@ -117,12 +133,53 @@ export function validateManifest(input: unknown): ValidationResult {
     });
   }
 
+  // Default profile referenced in `exports.default_profile` must exist.
+  const defaultProfile = manifest.exports?.default_profile;
+  if (defaultProfile && !manifest.profiles[defaultProfile]) {
+    errors.push({
+      code: "exports.default_profile_unknown",
+      path: "exports.default_profile",
+      message: `\`exports.default_profile: ${defaultProfile}\` does not match any declared profile.`,
+      severity: "error",
+    });
+  }
+
   // Compatibility targets cannot be empty.
   if (Object.keys(manifest.compatibility.targets).length === 0) {
     warnings.push({
       code: "compatibility.no_targets",
       path: "compatibility.targets",
       message: "No compatibility targets declared — adapters will all warn.",
+      severity: "warning",
+    });
+  }
+
+  // Atom-implied vs. declared permission consistency. If a hook atom or an
+  // mcp_server with env exists, the pack-level `permissions:` block should
+  // also declare the corresponding category. This is a warning, not an
+  // error — packs may legitimately under-declare and rely on the active-
+  // surface engine — but surfacing the gap helps reviewers spot drift.
+  const hookAtoms = manifest.atoms.filter((a) => a.type === "hook");
+  if (hookAtoms.length > 0) {
+    if (!manifest.permissions?.shell || manifest.permissions.shell.execution === "forbidden") {
+      warnings.push({
+        code: "permission.declared_shell_missing",
+        path: "permissions.shell",
+        message: `Pack contains hook atom(s) (${hookAtoms.map((a) => a.id).join(", ")}) but \`permissions.shell\` is missing or forbidden.`,
+        severity: "warning",
+      });
+    }
+  }
+  const mcpWithEnv = manifest.atoms.filter((a) => {
+    if (a.type !== "mcp_server") return false;
+    const env = (a as { env?: Record<string, unknown> }).env;
+    return env && Object.keys(env).length > 0;
+  });
+  if (mcpWithEnv.length > 0 && (manifest.permissions?.secrets?.required ?? []).length === 0) {
+    warnings.push({
+      code: "permission.declared_secrets_missing",
+      path: "permissions.secrets.required",
+      message: `Pack contains MCP server(s) with env (${mcpWithEnv.map((a) => a.id).join(", ")}) but \`permissions.secrets.required\` is empty.`,
       severity: "warning",
     });
   }

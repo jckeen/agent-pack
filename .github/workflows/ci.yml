@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test (with coverage)
+        run: pnpm test:coverage
+
+      - name: Build
+        run: pnpm build
+
+      - name: Smoke CLI (validate example pack)
+        run: |
+          node packages/cli/dist/index.js validate examples/pr-quality
+          node packages/cli/dist/index.js plan examples/pr-quality \
+            --target claude-code --profile safe
+          node packages/cli/dist/index.js pack export examples/pr-quality \
+            --target generic --profile safe --out /tmp/ci-smoke
+          test -f /tmp/ci-smoke/AGENTS.md
+          test -f /tmp/ci-smoke/skills/code-review/SKILL.md
+          test -f /tmp/ci-smoke/agentpack.json

