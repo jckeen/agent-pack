@@ -14,7 +14,7 @@
     "dev": "pnpm --filter @workgraph/registry dev",
     "test": "pnpm -r --filter \"./packages/*\" test",
     "test:coverage": "pnpm -r --filter \"./packages/*\" test:coverage",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter @workgraph/core build && pnpm -r typecheck",
     "lint": "eslint \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\" \"apps/*/{app,components,lib}/**/*.{ts,tsx}\"",
     "format": "prettier --write \"**/*.{ts,tsx,md,json,yaml}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,md,json,yaml}\" --ignore-path .gitignore",

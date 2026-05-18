@@ -14,7 +14,10 @@ const RISK_COLOR: Record<RiskLevel, (s: string) => string> = {
 };
 
 export function riskBadge(level: RiskLevel): string {
-  const colorize = RISK_COLOR[level];
+  // RISK_COLOR is a total record over the RiskLevel union; the lookup is
+  // always defined. `noUncheckedIndexedAccess` widens to `| undefined` so
+  // we narrow with `!`.
+  const colorize = RISK_COLOR[level]!;
   return colorize(` ${level.toUpperCase()} `);
 }
 
@@ -50,13 +53,14 @@ export function renderPermissionSummary(p: PermissionSummary): string {
       (entry.atomIds.length
         ? pc.dim(` (atoms: ${entry.atomIds.join(", ")})`)
         : "");
-    grouped[entry.riskLevel].push(line);
+    grouped[entry.riskLevel]!.push(line);
   }
   const lines: string[] = [];
   for (const level of ["critical", "high", "medium", "low"] as const) {
-    if (grouped[level].length === 0) continue;
+    const bucket = grouped[level]!;
+    if (bucket.length === 0) continue;
     lines.push(`${riskBadge(level)} ${pc.bold(`${level.toUpperCase()} RISK`)}`);
-    lines.push(...grouped[level]);
+    lines.push(...bucket);
   }
   if (p.secrets.length > 0) {
     lines.push("");
