@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   verify:
-    name: typecheck · lint · test · build
+    name: build · typecheck · lint · test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -30,6 +30,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build first — the CLI test suite subprocess-runs the compiled binary,
+      # so dist/ must exist before the test step. Building also forces core
+      # to emit type declarations the CLI and registry typechecks consume.
+      - name: Build
+        run: pnpm build
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -38,9 +44,6 @@ jobs:
 
       - name: Test (with coverage)
         run: pnpm test:coverage
-
-      - name: Build
-        run: pnpm build
 
       - name: Smoke CLI (validate example pack)
         run: |
@@ -52,3 +55,11 @@ jobs:
           test -f /tmp/ci-smoke/AGENTS.md
           test -f /tmp/ci-smoke/skills/code-review/SKILL.md
           test -f /tmp/ci-smoke/agentpack.json
+
+      - name: Determinism check (two consecutive exports byte-identical)
+        run: |
+          node packages/cli/dist/index.js pack export examples/pr-quality \
+            --target claude-code --profile full --out /tmp/ci-determ-a
+          node packages/cli/dist/index.js pack export examples/pr-quality \
+            --target claude-code --profile full --out /tmp/ci-determ-b
+          diff -r /tmp/ci-determ-a /tmp/ci-determ-b
