@@ -378,6 +378,8 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 
 - **2026-05-18 (VERIFY iteration-3) — Cato cross-vendor audit degraded:** codex CLI unavailable in this session's environment (same outcome as Phase 1 iteration-2). Doctrine deviation logged. Self-audit performed against Cato's seven inspection points (determinism leaks, hash-chain stability, race conditions, TOCTOU, schema edge cases, exit codes, Claude-blind-spot review). Findings 1-5 from security-reviewer cover most of what Cato would surface; no Claude-style over-defense remains.
 
+- **2026-05-18 (LEARN iteration-3) — Shipped:** commit `b6db93e` "feat(install): Phase 2 — local install/uninstall/diff/verify/rollback (v0.2.0)" pushed to `origin/master`, tag `v0.2.0` pushed. 38 files changed (5474 insertions, 25 deletions). CI will run the new Phase 2 smoke step on this push.
+
 ## Changelog
 
 - **Conjecture (OBSERVE):** Pack-level `permissions:` block can be surfaced unconditionally as the registry's compatibility view.
