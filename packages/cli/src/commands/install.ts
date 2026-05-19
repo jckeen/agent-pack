@@ -487,6 +487,13 @@ async function verifyRegistrySignature(params: {
   // Verify the newest signature (registry sorts newest-first).
   const latest = data.signatures[0];
   if (!latest) return { code: "unsigned" };
+  // v0.5.1 hardening (security-reviewer CRITICAL-1): the signing API now
+  // supports `requireIdentity: true` to refuse trust-on-first-publish, but
+  // the wire path needs an `expectedSAN` (per-publisher allowlist served
+  // by the registry) before we can enable it without breaking every
+  // current sig-checked install. Until the registry response carries the
+  // bound SAN — tracked as v0.5.2 follow-up — verify against the bundle
+  // alone and surface the SAN in the result so the caller can audit.
   const result = await signing.verifyManifestSignature({
     manifestChecksum: data.manifestSha256,
     signed: {

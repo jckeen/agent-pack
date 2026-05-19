@@ -334,6 +334,45 @@ describe("uninstall", () => {
   });
 });
 
+describe("applyInstall concurrency (iter-5 qa-lead HIGH-3)", () => {
+  it("serializes two concurrent applyInstall calls against same project root", async () => {
+    const dir = await tempProject();
+    // Pre-stage two identical plans against the same projectRoot. Without
+    // withProjectLock around applyInstall, both would pass `plan` and then
+    // race on `atomicWriteFile(..., "wx")`, leaving an orphan begin entry.
+    const planA = await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    const planB = await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    // Fire both concurrently. The first to acquire writes; the second sees
+    // existing files and is rejected as a `wx` conflict (graceful loss).
+    // What matters is that EXACTLY ONE succeeds and we don't end up with
+    // both reporting success or with a corrupted history chain.
+    const [resA, resB] = await Promise.allSettled([
+      applyInstall({ plan: planA }),
+      applyInstall({ plan: planB }),
+    ]);
+    const succeeded = [resA, resB].filter((r) => r.status === "fulfilled");
+    expect(succeeded.length).toBe(1);
+    // History chain must remain valid even though one of the two failed.
+    const ws = await resolveAgentpackPaths(dir);
+    const all = await readHistory(ws);
+    const chainResult = verifyChain(all);
+    expect(chainResult).toEqual({ ok: true });
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
 describe("applyInstall re-claim semantics (iter-5 codex P1)", () => {
   it("first install does NOT adopt a user-owned bit-identical file as `created`", async () => {
     const dir = await tempProject();

@@ -43,6 +43,13 @@ function canonicalize(obj: unknown): string {
 /**
  * Insert an audit event with `entry_checksum` chained off the most recent
  * entry on the same chain (`org_id` partition). Returns the new row's id.
+ *
+ * **Concurrency-safe.** The head SELECT + INSERT run inside a transaction
+ * with `SELECT ... FOR UPDATE` on the head row, serializing concurrent
+ * `appendAuditEvent` calls so two callers can't both claim the same
+ * `previous_entry_id` and fork the chain. From security-reviewer
+ * CRITICAL-2 (iter-5). For Postgres backends; SQLite ignores `FOR UPDATE`
+ * but its single-writer model already serializes.
  */
 export async function appendAuditEvent(
   opts: AppendAuditEventOptions
@@ -50,44 +57,48 @@ export async function appendAuditEvent(
   const { db, actorUserId, action, targetType, targetId, payload, orgId } =
     opts;
 
-  // Find the chain head — latest row with the same org partition.
-  const headRows = await db
-    .select({ id: auditEvents.id, entryChecksum: auditEvents.entryChecksum })
-    .from(auditEvents)
-    .where(orgId ? eq(auditEvents.orgId, orgId) : isNull(auditEvents.orgId))
-    .orderBy(desc(auditEvents.createdAt))
-    .limit(1);
+  return await db.transaction(async (tx) => {
+    // Find the chain head INSIDE the transaction with row-level lock so no
+    // other tx can read the same head and produce a forked chain.
+    const headRows = await tx
+      .select({ id: auditEvents.id, entryChecksum: auditEvents.entryChecksum })
+      .from(auditEvents)
+      .where(orgId ? eq(auditEvents.orgId, orgId) : isNull(auditEvents.orgId))
+      .orderBy(desc(auditEvents.createdAt))
+      .limit(1)
+      .for("update");
 
-  const previousEntryId = headRows[0]?.id ?? null;
-  const previousChecksum = headRows[0]?.entryChecksum ?? "";
+    const previousEntryId = headRows[0]?.id ?? null;
+    const previousChecksum = headRows[0]?.entryChecksum ?? "";
 
-  // Compute the new entry_checksum over the row content + previous checksum.
-  const rowContent = {
-    actorUserId,
-    action,
-    targetType,
-    targetId,
-    payload,
-    orgId: orgId ?? null,
-  };
-  const entryChecksum = crypto
-    .createHash("sha256")
-    .update(previousChecksum + canonicalize(rowContent), "utf8")
-    .digest("hex");
-
-  const inserted = await db
-    .insert(auditEvents)
-    .values({
-      orgId: orgId ?? null,
+    // Compute the new entry_checksum over the row content + previous checksum.
+    const rowContent = {
       actorUserId,
       action,
       targetType,
       targetId,
-      previousEntryId,
-      entryChecksum,
       payload,
-    })
-    .returning({ id: auditEvents.id });
+      orgId: orgId ?? null,
+    };
+    const entryChecksum = crypto
+      .createHash("sha256")
+      .update(previousChecksum + canonicalize(rowContent), "utf8")
+      .digest("hex");
 
-  return inserted[0]?.id ?? "";
+    const inserted = await tx
+      .insert(auditEvents)
+      .values({
+        orgId: orgId ?? null,
+        actorUserId,
+        action,
+        targetType,
+        targetId,
+        previousEntryId,
+        entryChecksum,
+        payload,
+      })
+      .returning({ id: auditEvents.id });
+
+    return inserted[0]?.id ?? "";
+  });
 }

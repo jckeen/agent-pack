@@ -15,7 +15,7 @@ import {
   readInstallManifest,
   writeInstallManifest,
 } from "./manifest.js";
-import { recordHistory, newHistoryId } from "./history.js";
+import { recordHistory, newHistoryId, withProjectLock } from "./history.js";
 import { serializeLockfile, lockfileChecksum } from "./lockfile.js";
 import { sha256Hex, normalizeForHash } from "./checksum.js";
 
@@ -64,6 +64,20 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
   }
   const ws = await resolveAgentpackPaths(plan.projectRoot);
   await ensureAgentpackDirs(ws);
+  // Serialize the entire install (plan → write → commit) against any other
+  // concurrent `agentpack install` running against the same projectRoot.
+  // Without this, two concurrent installs both pass `plan` and clash on
+  // `atomicWriteFile(..., "wx")`, leaving an orphan `install_begin` row.
+  // Reentrant: `recordHistory` calls inside the locked region detect the
+  // outer hold and skip re-acquiring. From qa-lead HIGH-3 (iter-5).
+  return withProjectLock(ws, async () => applyInstallLocked(opts, ws));
+}
+
+async function applyInstallLocked(
+  opts: ApplyInstallOptions,
+  ws: import("./paths.js").AgentpackPaths,
+): Promise<ApplyInstallResult> {
+  const plan = opts.plan;
 
   // 1. WAL begin
   const beginEntry = await recordHistory(ws, {

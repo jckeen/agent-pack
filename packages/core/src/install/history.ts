@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type {
   TargetPlatform,
 } from "../schema/types.js";
@@ -123,7 +124,7 @@ export async function appendHistoryEntry(
   p: AgentpackPaths,
   entry: HistoryEntryV1,
 ): Promise<void> {
-  await withHistoryLock(p, async () => {
+  await withProjectLock(p, async () => {
     const line = JSON.stringify(entry) + "\n";
     await fs.appendFile(p.historyFile, line, { encoding: "utf8" });
   });
@@ -160,7 +161,7 @@ export async function recordHistory(
   p: AgentpackPaths,
   partial: Omit<HistoryEntryV1, "previousEntryId" | "entryChecksum">,
 ): Promise<HistoryEntryV1> {
-  return withHistoryLock(p, async () => {
+  return withProjectLock(p, async () => {
     const tail = await readHistoryTailUnlocked(p);
     const prevId = tail?.id ?? "";
     const sanitized = {
@@ -247,7 +248,34 @@ export function verifyChain(
  * cooperative concurrent CLI invocations." Phase 3 may swap in
  * proper-lockfile if multi-host workflows arrive.
  */
-async function withHistoryLock<T>(
+/**
+ * Per-async-context set of project roots whose lock is currently held by
+ * the calling async flow. Reentrant within the same flow (so an outer
+ * `applyInstall` can call inner `recordHistory` without deadlocking) but
+ * NOT across independent async flows (concurrent `recordHistory` calls in
+ * the same process still serialize through the on-disk mkdir). Same async
+ * context = same logical request; different awaited Promises spawned in
+ * parallel get independent stores.
+ */
+const LOCK_CTX = new AsyncLocalStorage<Set<string>>();
+
+export async function withProjectLock<T>(
+  p: AgentpackPaths,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const key = p.projectRoot;
+  const inherited = LOCK_CTX.getStore();
+  if (inherited && inherited.has(key)) {
+    // Reentrant call within the same async flow — outer scope already
+    // serialized; do NOT re-acquire the file lock (would deadlock).
+    return await fn();
+  }
+  const held = new Set(inherited ?? []);
+  held.add(key);
+  return LOCK_CTX.run(held, () => withFileLock(p, fn));
+}
+
+async function withFileLock<T>(
   p: AgentpackPaths,
   fn: () => Promise<T>,
 ): Promise<T> {

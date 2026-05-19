@@ -46,6 +46,41 @@ const requestSchema = z
     }
   );
 
+/**
+ * Origin/Sec-Fetch-Site CSRF guard for the admin POST. NextAuth v5 only
+ * protects its own `/api/auth/*` endpoints, not arbitrary app POSTs. An
+ * attacker page can auto-POST with `credentials:'include'` and the user's
+ * session cookie tags along. Reject any request whose Origin doesn't match
+ * the deployed registry URL, and require a content-type the simple-request
+ * CORS rules can't construct (application/json). From security-reviewer
+ * HIGH-3 (iter-5).
+ */
+function csrfGuard(req: Request): Response | null {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!/^application\/json(\s*;|$)/i.test(contentType)) {
+    return NextResponse.json(
+      { error: "csrf_content_type", message: "Content-Type must be application/json" },
+      { status: 415 },
+    );
+  }
+  const fetchSite = req.headers.get("sec-fetch-site");
+  if (fetchSite && fetchSite !== "same-origin") {
+    return NextResponse.json(
+      { error: "csrf_origin", message: "Cross-origin admin write rejected" },
+      { status: 403 },
+    );
+  }
+  const origin = req.headers.get("origin");
+  const expected = process.env.NEXT_PUBLIC_REGISTRY_URL?.replace(/\/$/, "");
+  if (origin && expected && origin !== expected) {
+    return NextResponse.json(
+      { error: "csrf_origin", message: "Origin does not match deployed registry" },
+      { status: 403 },
+    );
+  }
+  return null;
+}
+
 export async function POST(
   req: Request,
   {
@@ -54,6 +89,9 @@ export async function POST(
     params: Promise<{ publisher: string; pack: string; version: string }>;
   }
 ): Promise<Response> {
+  const csrf = csrfGuard(req);
+  if (csrf) return csrf;
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
