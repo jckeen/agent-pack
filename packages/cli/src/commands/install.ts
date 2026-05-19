@@ -122,15 +122,21 @@ export function registerInstall(program: Command): void {
               );
               process.exit(2);
             }
-            source = await fetchGitPack({
+            const gitResult = await fetchGitPack({
               source: gitSource,
               fetchImpl: globalThis.fetch,
             });
+            source = gitResult.tmpRoot;
+            const refLabel = gitSource.ref
+              ? gitSource.ref === gitResult.resolvedSha
+                ? gitSource.ref
+                : `${gitSource.ref} → ${gitResult.resolvedSha.slice(0, 12)}`
+              : `(default branch) → ${gitResult.resolvedSha.slice(0, 12)}`;
             console.log(
               pc.dim(
-                `Installed from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}${
-                  gitSource.ref ? "@" + gitSource.ref : " (default branch)"
-                }${gitSource.subpath ? "#" + gitSource.subpath : ""}`
+                `Installed from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}@${refLabel}${
+                  gitSource.subpath ? "#" + gitSource.subpath : ""
+                }`
               )
             );
           }
