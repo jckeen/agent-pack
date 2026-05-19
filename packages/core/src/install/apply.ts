@@ -156,22 +156,43 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
 
     // Carry ownership across a re-install: an `unchanged` file may already
     // be owned by THIS pack from a previous install. If so, the new manifest
-    // must record it so uninstall still removes it; otherwise the prior
-    // install's tracked file becomes an orphan. We only re-claim what the
-    // prior manifest already claimed — user-owned files that happen to be
-    // bit-identical (a separate, valid `unchanged` case) must NOT be adopted.
-    // Confirmed via live probe 2026-05-19 (iter-5 QA finding #1).
-    const priorOwned = await readPriorOwnedPaths(ws, plan.packId);
+    // must record it so uninstall still does the right thing; otherwise the
+    // prior install's tracked file becomes an orphan. We only re-claim what
+    // the prior manifest already claimed — user-owned files that happen to
+    // be bit-identical (a separate, valid `unchanged` case) must NOT be
+    // adopted. Also: if the prior manifest had this path as `modified` with
+    // a backup of the user's original, preserve BOTH the modified status
+    // and the backup record — otherwise uninstall would delete the file
+    // instead of restoring the user's pre-install version.
+    // Confirmed via live probe 2026-05-19 (iter-5 QA finding #1; codex P1).
+    const prior = await readPriorManifest(ws, plan.packId);
+    const priorCreatedSet = new Set(prior?.created.map((c) => c.path) ?? []);
+    const priorModifiedSet = new Set(prior?.modified.map((m) => m.path) ?? []);
     for (const f of plan.unchanged) {
       const rel = f.path;
-      if (!priorOwned.has(rel)) continue;
+      const wasCreated = priorCreatedSet.has(rel);
+      const wasModified = priorModifiedSet.has(rel);
+      if (!wasCreated && !wasModified) continue;
       const abs = path.resolve(ws.projectRoot, rel);
       await realpathContained(ws.projectRoot, abs);
       const content = normalizeForHash(
         f.content.endsWith("\n") ? f.content : `${f.content}\n`,
       );
       const sha = sha256Hex(content);
-      if (!created.some((c) => c.path === rel) && !modifiedRecords.some((m) => m.path === rel)) {
+      const alreadyInCreated = created.some((c) => c.path === rel);
+      const alreadyInModified = modifiedRecords.some((m) => m.path === rel);
+      if (alreadyInCreated || alreadyInModified) continue;
+      if (wasModified) {
+        modifiedRecords.push({ path: rel, sha256: sha });
+        // Carry forward the prior install's backup so uninstall can restore
+        // the user's pre-install content. Without this, the new manifest has
+        // no backup record for this path and `--force-restore` has nothing
+        // to restore from.
+        const priorBackup = prior?.backups.find((b) => b.original === rel);
+        if (priorBackup && !backups.some((b) => b.original === rel)) {
+          backups.push(priorBackup);
+        }
+      } else {
         created.push({ path: rel, sha256: sha });
       }
     }
@@ -277,23 +298,20 @@ async function atomicWriteFile(
 }
 
 /**
- * Read the paths the prior install manifest for `packId` claimed ownership of.
- * Used to preserve cross-install ownership of `plan.unchanged` files without
- * incorrectly claiming user-owned files that happen to be bit-identical.
- * Returns an empty set on first install (no prior manifest).
+ * Read the prior install manifest for `packId` if one exists. Used to preserve
+ * cross-install ownership of `plan.unchanged` files (re-install case) without
+ * incorrectly claiming user-owned files that happen to be bit-identical, and
+ * to carry forward backups for paths previously installed as `modified`.
+ * Returns null on first install (no prior manifest).
  */
-async function readPriorOwnedPaths(
+async function readPriorManifest(
   ws: WorkgraphPaths,
   packId: string,
-): Promise<Set<string>> {
+): Promise<import("./types.js").InstallManifestV1 | null> {
   try {
-    const prior = await readInstallManifest(ws, packId);
-    const owned = new Set<string>();
-    for (const f of prior.created) owned.add(f.path);
-    for (const f of prior.modified) owned.add(f.path);
-    return owned;
+    return await readInstallManifest(ws, packId);
   } catch (err) {
-    if (err instanceof InstallManifestNotFoundError) return new Set();
+    if (err instanceof InstallManifestNotFoundError) return null;
     throw err;
   }
 }
