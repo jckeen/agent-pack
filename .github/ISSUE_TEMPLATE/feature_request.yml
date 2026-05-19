@@ -46,7 +46,7 @@ body:
         - "Phase 4 — Signatures / trust"
         - "Phase 5 — Remote install"
         - "Phase 6 — Enterprise (gated)"
-        - "Phase 7 — Workgraph integration"
+        - "Phase 7 — AgentPack integration"
         - "Unsure / cross-cutting"
     validations:
       required: true

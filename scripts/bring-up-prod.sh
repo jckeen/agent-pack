@@ -176,7 +176,7 @@ color "=== Step 6: Run migrations against Neon ==="
 # -----------------------------------------------------------------------------
 echo "Pushing schema via Drizzle:"
 echo
-DATABASE_URL="$DATABASE_URL" pnpm --filter @workgraph/db db:push
+DATABASE_URL="$DATABASE_URL" pnpm --filter @agentpack/db db:push
 green "✓ Migrations applied"
 
 # -----------------------------------------------------------------------------

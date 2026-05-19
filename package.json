@@ -2,7 +2,7 @@
   "name": "agent-pack",
   "version": "0.2.0",
   "private": true,
-  "description": "AgentPack standard + Workgraph Registry — write once, install anywhere agents work.",
+  "description": "AgentPack standard + AgentPack Registry — write once, install anywhere agents work.",
   "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@9.15.4",
@@ -10,18 +10,18 @@
     "node": ">=18.18.0"
   },
   "scripts": {
-    "build": "pnpm --filter @workgraph/core build && pnpm --filter @workgraph/db build && pnpm --filter @workgraph/cli build && pnpm --filter @workgraph/registry build",
-    "dev": "pnpm --filter @workgraph/registry dev",
+    "build": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm --filter @agentpack/cli build && pnpm --filter @agentpack/registry build",
+    "dev": "pnpm --filter @agentpack/registry dev",
     "test": "pnpm -r --filter \"./packages/*\" test",
     "test:coverage": "pnpm -r --filter \"./packages/*\" test:coverage",
-    "typecheck": "pnpm --filter @workgraph/core build && pnpm --filter @workgraph/db build && pnpm -r typecheck",
+    "typecheck": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm -r typecheck",
     "lint": "eslint \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\" \"apps/*/{app,components,lib}/**/*.{ts,tsx}\"",
     "format": "prettier --write \"**/*.{ts,tsx,md,json,yaml}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,md,json,yaml}\" --ignore-path .gitignore",
-    "cli": "pnpm --filter @workgraph/cli exec workgraph",
+    "cli": "pnpm --filter @agentpack/cli exec agentpack",
     "seed:import": "tsx scripts/seed-import.ts",
-    "db:push": "pnpm --filter @workgraph/db db:push",
-    "db:generate": "pnpm --filter @workgraph/db db:generate",
+    "db:push": "pnpm --filter @agentpack/db db:push",
+    "db:generate": "pnpm --filter @agentpack/db db:generate",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "devDependencies": {

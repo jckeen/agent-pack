@@ -3,7 +3,7 @@ import "./globals.css";
 import { Header } from "@/components/Header";
 
 export const metadata: Metadata = {
-  title: "Workgraph Registry — AgentPacks for every AI surface",
+  title: "AgentPack Registry — AgentPacks for every AI surface",
   description:
     "Atomic packages for AI workflows. Write once. Install anywhere agents work.",
 };
@@ -20,7 +20,7 @@ export default function RootLayout({
         <main className="py-12">{children}</main>
         <footer className="border-t border-ink-100 py-8">
           <div className="container-page flex flex-wrap items-center justify-between gap-4 text-sm text-ink-400">
-            <span>Workgraph Registry · AgentPack standard v1.0</span>
+            <span>AgentPack Registry · AgentPack standard v1.0</span>
             <span>
               <a className="hover:text-ink-600" href="/docs">
                 Docs
@@ -32,9 +32,9 @@ export default function RootLayout({
               ·{" "}
               <a
                 className="hover:text-ink-600"
-                href="https://workgraph.dev"
+                href="https://agentpack.dev"
               >
-                workgraph.dev
+                agentpack.dev
               </a>
             </span>
           </div>

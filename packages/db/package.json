@@ -1,8 +1,8 @@
 {
-  "name": "@workgraph/db",
+  "name": "@agentpack/db",
   "version": "0.3.0",
   "private": true,
-  "description": "Workgraph Registry database schema, queries, and migrations (Drizzle + Postgres).",
+  "description": "AgentPack Registry database schema, queries, and migrations (Drizzle + Postgres).",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

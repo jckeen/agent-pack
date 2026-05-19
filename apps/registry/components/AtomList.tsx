@@ -1,4 +1,4 @@
-import type { Atom, RiskLevel } from "@workgraph/core";
+import type { Atom, RiskLevel } from "@agentpack/core";
 import { RiskBadge } from "./RiskBadge";
 
 const TYPE_LABEL: Record<string, string> = {

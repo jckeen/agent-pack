@@ -14,13 +14,13 @@ primary agent — do not extrapolate.
 
 | Property | Value |
 |---|---|
-| Prefix | `wgp_live_` |
+| Prefix | `agp_live_` |
 | Body | 32 hex chars (16 random bytes, lowercased) |
-| Full shape | `wgp_live_[0-9a-f]{32}` |
+| Full shape | `agp_live_[0-9a-f]{32}` |
 | Total length | 41 chars |
 | Header | `Authorization: Bearer <token>` |
 | Storage | `sha256(token-as-utf-8-bytes)`, hex lowercased (64 chars), stored in `api_tokens.token_sha256` |
-| Prefix retained | First 12 chars (`wgp_live_xxx`) in `api_tokens.token_prefix` for UI display |
+| Prefix retained | First 12 chars (`agp_live_xxx`) in `api_tokens.token_prefix` for UI display |
 | Scopes (jsonb array) | `read:packs`, `read:private`, `publish:packs`, `admin:registry` |
 | Scope expansion | `publish:packs@<publisher>` for publisher-scoped tokens; `read:private@<publisher>` for org-scoped private reads |
 
@@ -31,7 +31,7 @@ primary agent — do not extrapolate.
 4. Update `last_used_at` fire-and-forget.
 5. Return `{ userId, publisherIds, scopes }`.
 
-**Display masking** (CLI must apply): print `wgp_live_xxxx…<last-4>` only — never the full token.
+**Display masking** (CLI must apply): print `agp_live_xxxx…<last-4>` only — never the full token.
 
 ---
 
@@ -115,7 +115,7 @@ post-finalize without changing the wire contract.
 {
   packId: string,
   versionId: string,
-  url: string,            // https://registry.workgraph.dev/packs/<publisher>/<pack>/<version>
+  url: string,            // https://registry.agentpack.dev/packs/<publisher>/<pack>/<version>
 }
 ```
 
@@ -194,7 +194,7 @@ post-finalize without changing the wire contract.
 
 Table names use `snake_case` (Postgres convention). Drizzle column names match.
 Worktree W1 implements full Drizzle schema against these names. Worktree W2
-imports table objects (not raw SQL) from `@workgraph/db`.
+imports table objects (not raw SQL) from `@agentpack/db`.
 
 | Table | Key columns |
 |---|---|
@@ -229,7 +229,7 @@ Pinned for all iteration-4 commands. Workflow scripts depend on these:
 | 3 | History chain integrity broken | Phase 2 |
 | 4 | Signature verification failed | Phase 4 |
 | 5 | Pack is unsigned and `--sig` was required | Phase 4 |
-| 6 | Policy violation (`workgraph.policy.json` enforcement) | Phase 5 |
+| 6 | Policy violation (`agentpack.policy.json` enforcement) | Phase 5 |
 | 7 | Integrity error — fetched bytes' sha256 ≠ registry-declared | Phase 5 |
 | 9 | Conflict — version already exists on publish | Phase 3 |
 
@@ -238,7 +238,7 @@ Pinned for all iteration-4 commands. Workflow scripts depend on these:
 ## 6. Cache layout (Phase 5)
 
 ```
-~/.workgraph/
+~/.agentpack/
 ├── credentials.json       # { registries: { <url>: { token, scopes } } }, 0o600
 ├── policy.json            # optional user-wide default policy
 └── cache/
@@ -258,7 +258,7 @@ into `blobs/<sha[0..2]>/<sha>`. If sha mismatch, delete temp + raise
 
 ---
 
-## 7. `workgraph.policy.json` v1 (Phase 5)
+## 7. `agentpack.policy.json` v1 (Phase 5)
 
 ```typescript
 {

@@ -1,7 +1,7 @@
 export {
   getCachePaths,
   getBlobPath,
-  getWorkgraphHome,
+  getAgentpackHome,
   type CachePaths,
 } from "./paths.js";
 export {

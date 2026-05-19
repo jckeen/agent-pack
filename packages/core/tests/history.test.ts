@@ -9,7 +9,7 @@ import {
   sealEntry,
   newHistoryId,
 } from "../src/install/history.js";
-import { resolveWorkgraphPaths } from "../src/install/paths.js";
+import { resolveAgentpackPaths } from "../src/install/paths.js";
 import type { HistoryEntryV1 } from "../src/install/types.js";
 
 async function tempDir(): Promise<string> {
@@ -23,7 +23,7 @@ function makePartial(
     id: newHistoryId(),
     action: "install_commit",
     timestamp: new Date().toISOString(),
-    packId: "workgraph.test",
+    packId: "agentpack.test",
     packVersion: "0.1.0",
     target: "generic",
     profile: "safe",
@@ -78,7 +78,7 @@ describe("sealEntry", () => {
 describe("recordHistory + readHistory", () => {
   it("appends entries with previousEntryId pointing to the last entry", async () => {
     const dir = await tempDir();
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     const e1 = await recordHistory(ws, makePartial());
     const e2 = await recordHistory(ws, makePartial());
     const all = await readHistory(ws);
@@ -92,7 +92,7 @@ describe("recordHistory + readHistory", () => {
 
   it("returns [] when no history file exists", async () => {
     const dir = await tempDir();
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     expect(await readHistory(ws)).toEqual([]);
     await fs.rm(dir, { recursive: true, force: true });
   });
@@ -101,7 +101,7 @@ describe("recordHistory + readHistory", () => {
 describe("verifyChain", () => {
   it("passes on a well-formed chain", async () => {
     const dir = await tempDir();
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     await recordHistory(ws, makePartial());
     await recordHistory(ws, makePartial());
     await recordHistory(ws, makePartial({ action: "uninstall" }));
@@ -112,7 +112,7 @@ describe("verifyChain", () => {
 
   it("fails when previousEntryId is broken", async () => {
     const dir = await tempDir();
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     await recordHistory(ws, makePartial());
     await recordHistory(ws, makePartial());
 
@@ -137,7 +137,7 @@ describe("verifyChain", () => {
 
   it("fails when entryChecksum is wrong", async () => {
     const dir = await tempDir();
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     await recordHistory(ws, makePartial());
     const lines = (await fs.readFile(ws.historyFile, "utf8"))
       .split("\n")
@@ -156,7 +156,7 @@ describe("verifyChain", () => {
 describe("history concurrency", () => {
   it("serializes parallel recordHistory writes (chain remains intact)", async () => {
     const dir = await tempDir();
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     await Promise.all([
       recordHistory(ws, makePartial({ packId: "a" })),
       recordHistory(ws, makePartial({ packId: "b" })),
@@ -174,8 +174,8 @@ describe("history concurrency", () => {
 describe("history file detection", () => {
   it("throws on malformed line", async () => {
     const dir = await tempDir();
-    const ws = await resolveWorkgraphPaths(dir);
-    await fs.mkdir(ws.workgraphDir, { recursive: true });
+    const ws = await resolveAgentpackPaths(dir);
+    await fs.mkdir(ws.agentpackDir, { recursive: true });
     await fs.writeFile(ws.historyFile, "not-json\n");
     await expect(readHistory(ws)).rejects.toThrow(/not valid JSON/);
     await fs.rm(dir, { recursive: true, force: true });

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { SeedPack } from "@workgraph/core";
+import type { SeedPack } from "@agentpack/core";
 import { RiskBadge } from "./RiskBadge";
 
 export function PackCard({ pack }: { pack: SeedPack }) {

@@ -1,5 +1,5 @@
 {
-  "name": "@workgraph/core",
+  "name": "@agentpack/core",
   "version": "0.2.0",
   "private": true,
   "description": "AgentPack core: schema, parser, validator, permissions, risk, planner, adapters.",

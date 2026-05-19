@@ -4,7 +4,7 @@ import path from "node:path";
 import { PolicyParseError } from "./errors.js";
 import { policyConfigSchema, type PolicyConfig } from "./schema.js";
 
-const POLICY_FILE_NAME = "workgraph.policy.json";
+const POLICY_FILE_NAME = "agentpack.policy.json";
 
 export async function loadPolicy(
   projectRoot: string

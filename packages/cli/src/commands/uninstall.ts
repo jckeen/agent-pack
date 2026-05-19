@@ -4,8 +4,8 @@ import {
   uninstall,
   UninstallConflictError,
   readInstallManifest,
-  resolveWorkgraphPaths,
-} from "@workgraph/core";
+  resolveAgentpackPaths,
+} from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 import { confirm } from "../lib/prompt.js";
 
@@ -36,7 +36,7 @@ export function registerUninstall(program: Command): void {
         },
       ) => {
         try {
-          const ws = await resolveWorkgraphPaths(options.project);
+          const ws = await resolveAgentpackPaths(options.project);
           const manifest = await readInstallManifest(ws, packId);
           console.log(
             pc.bold(

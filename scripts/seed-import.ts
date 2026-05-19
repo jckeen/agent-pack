@@ -21,7 +21,7 @@ import {
   packVersions,
   publishers,
   users,
-} from "@workgraph/db";
+} from "@agentpack/db";
 
 interface SeedPack {
   id: string;

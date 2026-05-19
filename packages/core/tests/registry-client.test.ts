@@ -17,7 +17,7 @@ import type {
 } from "../src/protocol/index.js";
 
 const sample: RegistryPack = {
-  publisher: "workgraph",
+  publisher: "agentpack",
   pack: "pr-quality",
   description: "PR quality pack",
   tags: ["github"],
@@ -28,7 +28,7 @@ const sample: RegistryPack = {
 };
 
 const sampleVersion: RegistryVersion = {
-  publisher: "workgraph",
+  publisher: "agentpack",
   pack: "pr-quality",
   version: "0.1.0",
   status: "published",
@@ -60,9 +60,9 @@ describe("resolveLatestVersion", () => {
 describe("InMemoryRegistryClient", () => {
   it("listVersions returns fixture pack", async () => {
     const fixture = makeFixture();
-    fixture.packs.set("workgraph/pr-quality", sample);
+    fixture.packs.set("agentpack/pr-quality", sample);
     const client = new InMemoryRegistryClient(fixture);
-    expect(await client.listVersions("workgraph", "pr-quality")).toEqual(sample);
+    expect(await client.listVersions("agentpack", "pr-quality")).toEqual(sample);
   });
   it("listVersions throws VersionNotFoundError on miss", async () => {
     const client = new InMemoryRegistryClient(makeFixture());
@@ -74,10 +74,10 @@ describe("InMemoryRegistryClient", () => {
     const fixture = makeFixture();
     const bytes = Buffer.from("atom-body");
     const sha = createHash("sha256").update(bytes).digest("hex");
-    fixture.blobs.set("workgraph/pr-quality@0.1.0/skill/SKILL.md", bytes);
+    fixture.blobs.set("agentpack/pr-quality@0.1.0/skill/SKILL.md", bytes);
     const client = new InMemoryRegistryClient(fixture);
     const got = await client.fetchAtomFile(
-      "workgraph",
+      "agentpack",
       "pr-quality",
       "0.1.0",
       "skill",
@@ -89,13 +89,13 @@ describe("InMemoryRegistryClient", () => {
   it("fetchAtomFile rejects sha mismatch", async () => {
     const fixture = makeFixture();
     fixture.blobs.set(
-      "workgraph/pr-quality@0.1.0/skill/SKILL.md",
+      "agentpack/pr-quality@0.1.0/skill/SKILL.md",
       Buffer.from("real-bytes")
     );
     const client = new InMemoryRegistryClient(fixture);
     await expect(
       client.fetchAtomFile(
-        "workgraph",
+        "agentpack",
         "pr-quality",
         "0.1.0",
         "skill",
@@ -118,25 +118,25 @@ describe("HttpRegistryClient", () => {
 
   it("listVersions 200 happy path", async () => {
     const fetchImpl = mockFetch(async (url) => {
-      expect(url).toBe(`${baseUrl}/api/packs/workgraph/pr-quality`);
+      expect(url).toBe(`${baseUrl}/api/packs/agentpack/pr-quality`);
       return new Response(JSON.stringify(sample), { status: 200 });
     });
     const client = new HttpRegistryClient({ baseUrl, fetchImpl });
-    expect(await client.listVersions("workgraph", "pr-quality")).toEqual(sample);
+    expect(await client.listVersions("agentpack", "pr-quality")).toEqual(sample);
   });
 
   it("sends Authorization when token provided", async () => {
     const fetchImpl = mockFetch(async (_url, init) => {
       const headers = init?.headers as Record<string, string>;
-      expect(headers.Authorization).toBe("Bearer wgp_live_xxxxxxxx");
+      expect(headers.Authorization).toBe("Bearer agp_live_xxxxxxxx");
       return new Response(JSON.stringify(sample), { status: 200 });
     });
     const client = new HttpRegistryClient({
       baseUrl,
-      token: "wgp_live_xxxxxxxx",
+      token: "agp_live_xxxxxxxx",
       fetchImpl,
     });
-    await client.listVersions("workgraph", "pr-quality");
+    await client.listVersions("agentpack", "pr-quality");
   });
 
   it("404 throws VersionNotFoundError", async () => {
@@ -167,7 +167,7 @@ describe("HttpRegistryClient", () => {
     const client = new HttpRegistryClient({ baseUrl, fetchImpl });
     await expect(
       client.fetchAtomFile(
-        "workgraph",
+        "agentpack",
         "pr-quality",
         "0.1.0",
         "skill",

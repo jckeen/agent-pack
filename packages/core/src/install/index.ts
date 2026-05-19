@@ -14,7 +14,7 @@ export type {
   InstallPlanV2,
   VerifyResult,
   DiffEntry,
-  WorkgraphPaths,
+  AgentpackPaths,
 } from "./types.js";
 export { CANONICALIZATION } from "./types.js";
 
@@ -27,12 +27,12 @@ export {
 } from "./checksum.js";
 
 export {
-  resolveWorkgraphPaths,
-  ensureWorkgraphDirs,
+  resolveAgentpackPaths,
+  ensureAgentpackDirs,
   toRelative,
   fromRelative,
   realpathContained,
-  WORKGRAPH_DIR_NAME,
+  AGENTPACK_DIR_NAME,
   LOCKFILE_NAME,
   HISTORY_FILE_NAME,
   INSTALLED_DIR_NAME,

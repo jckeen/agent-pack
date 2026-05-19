@@ -1,6 +1,6 @@
 /**
  * `enforcePolicy` checks a planned remote-install against the loaded
- * `workgraph.policy.json`. Returns all violations at once (not just the first)
+ * `agentpack.policy.json`. Returns all violations at once (not just the first)
  * so the user sees the full picture in one shot.
  *
  * Order: registry → publisher → blockedPack → signature → profile → atomType.

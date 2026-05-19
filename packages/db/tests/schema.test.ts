@@ -73,10 +73,10 @@ describe("schema column inference", () => {
 
   it("publishers row inserts with slug + displayName", () => {
     const row: typeof publishers.$inferInsert = {
-      slug: "workgraph",
-      displayName: "Workgraph",
+      slug: "agentpack",
+      displayName: "AgentPack",
     };
-    expect(row.slug).toBe("workgraph");
+    expect(row.slug).toBe("agentpack");
   });
 
   it("publisher_members composite PK columns are present", () => {
@@ -102,7 +102,7 @@ describe("schema column inference", () => {
       packId: "00000000-0000-0000-0000-000000000000",
       version: "0.1.0",
       manifestSha256: "a".repeat(64),
-      manifestR2Key: "workgraph/pr-quality/0.1.0/manifest.yaml",
+      manifestR2Key: "agentpack/pr-quality/0.1.0/manifest.yaml",
       publishedBy: "00000000-0000-0000-0000-000000000000",
     };
     expect(row.version).toBe("0.1.0");
@@ -125,7 +125,7 @@ describe("schema column inference", () => {
       path: "SKILL.md",
       sha256: "a".repeat(64),
       bytes: 1024,
-      r2Key: "workgraph/pr-quality/0.1.0/SKILL.md",
+      r2Key: "agentpack/pr-quality/0.1.0/SKILL.md",
     };
     expect(row.path).toBe("SKILL.md");
   });
@@ -143,7 +143,7 @@ describe("schema column inference", () => {
     const row: typeof apiTokens.$inferInsert = {
       userId: "00000000-0000-0000-0000-000000000000",
       name: "ci",
-      tokenPrefix: "wgp_live_xxx",
+      tokenPrefix: "agp_live_xxx",
       tokenSha256: "a".repeat(64),
       scopes: ["publish:packs"],
     };
@@ -152,7 +152,7 @@ describe("schema column inference", () => {
 
   it("publishes row tracks presigned files", () => {
     const row: typeof publishes.$inferInsert = {
-      publisherSlug: "workgraph",
+      publisherSlug: "agentpack",
       packSlug: "pr-quality",
       version: "0.1.0",
       status: "pending",

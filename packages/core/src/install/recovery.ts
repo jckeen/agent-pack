@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import type { HistoryEntryV1 } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
-import { resolveWorkgraphPaths, fromRelative, realpathContained } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
+import { resolveAgentpackPaths, fromRelative, realpathContained } from "./paths.js";
 import { readHistory, recordHistory, newHistoryId } from "./history.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 
@@ -17,7 +17,7 @@ export interface RecoveryResult {
 }
 
 /**
- * Sweep `.workgraph/history.jsonl` for `install_begin` entries that have no
+ * Sweep `.agentpack/history.jsonl` for `install_begin` entries that have no
  * matching `install_commit`. For each:
  *
  *   - If every plannedFiles[i].path exists with matching sha256 → roll forward
@@ -28,7 +28,7 @@ export interface RecoveryResult {
  * This is idempotent: re-running on a clean history is a no-op.
  */
 export async function recoverIncomplete(projectRoot: string): Promise<RecoveryResult> {
-  const ws = await resolveWorkgraphPaths(projectRoot);
+  const ws = await resolveAgentpackPaths(projectRoot);
   const all = await readHistory(ws);
   const result: RecoveryResult = {
     found: 0,
@@ -181,5 +181,5 @@ function findDanglingBegins(entries: readonly HistoryEntryV1[]): HistoryEntryV1[
   return dangling;
 }
 
-export { resolveWorkgraphPaths };
-export type { WorkgraphPaths };
+export { resolveAgentpackPaths };
+export type { AgentpackPaths };

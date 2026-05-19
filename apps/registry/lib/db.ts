@@ -1,6 +1,6 @@
 /**
  * Registry-app DB client. Imports the canonical Drizzle schema from
- * `@workgraph/db` and exposes a memoized `getDb()` that the API routes use.
+ * `@agentpack/db` and exposes a memoized `getDb()` that the API routes use.
  *
  * Returns `null` when `DATABASE_URL` is unset so the seed.ts fallback works
  * (ISC-223). The graceful cascade is what lets `pnpm dev` boot without any
@@ -27,7 +27,7 @@ import {
   sessions,
   users,
   verificationTokens,
-} from "@workgraph/db";
+} from "@agentpack/db";
 
 export {
   apiTokens,

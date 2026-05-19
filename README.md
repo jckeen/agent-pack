@@ -9,7 +9,7 @@
 
 One `AGENTPACK.yaml` compiles to **Claude Code**, **Codex**, **Cursor**, **ChatGPT Apps**, and a generic AGENTS.md target — with permissions, risk, and platform compatibility visible *before* anything writes to disk. AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, and the adapters are all in this repo and stay free forever.
 
-> **Status — 2026-05-19:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `workgraph install github:owner/repo@ref#subpath` works without any hosted infrastructure. Phase 3 (registry backend) and Phase 5 (remote install + cache + policy) landed as `v0.3.0-rc.1`; Phase 4 (Sigstore cosign keyless signing + admin quarantine UI) landed on top; v0.5 git-source install path landed 2026-05-19. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). See [`STATUS.md`](./STATUS.md) and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
+> **Status — 2026-05-19:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Phase 3 (registry backend) and Phase 5 (remote install + cache + policy) landed as `v0.3.0-rc.1`; Phase 4 (Sigstore cosign keyless signing + admin quarantine UI) landed on top; v0.5 git-source install path landed 2026-05-19. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). See [`STATUS.md`](./STATUS.md) and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
 
 ---
 
@@ -23,7 +23,7 @@ AgentPack fixes that with a single portable manifest, a permissioned planner tha
 
 ## Quickstart (≤5 minutes)
 
-> AgentPack isn't on npm yet (planned for v0.3.0 promotion). For now, get the CLI by cloning + building. Once published, the same commands will work via `npx workgraph` or a global install.
+> AgentPack isn't on npm yet (planned for v0.3.0 promotion). For now, get the CLI by cloning + building. Once published, the same commands will work via `npx agentpack` or a global install.
 
 **1. Clone and build the CLI:**
 
@@ -35,13 +35,13 @@ pnpm build
 pnpm test                                  # full suite — see STATUS.md for current count
 
 # expose the freshly-built CLI on your PATH for the rest of this quickstart:
-alias workgraph="node $(pwd)/packages/cli/dist/index.js"
+alias agentpack="node $(pwd)/packages/cli/dist/index.js"
 ```
 
 **2. Install a pack directly from a git ref — no registry required:**
 
 ```bash
-workgraph install github:jckeen/agent-pack@master#examples/pr-quality \
+agentpack install github:jckeen/agent-pack@master#examples/pr-quality \
   --target claude-code --profile safe \
   --project ./my-project --yes
 ```
@@ -54,29 +54,29 @@ See [`docs/git-source.md`](./docs/git-source.md) for the full git-source syntax 
 
 ```bash
 # Validate, inspect, plan — all read-only
-workgraph validate examples/pr-quality
-workgraph inspect  examples/pr-quality
-workgraph plan     examples/pr-quality --target claude-code --profile safe
+agentpack validate examples/pr-quality
+agentpack inspect  examples/pr-quality
+agentpack plan     examples/pr-quality --target claude-code --profile safe
 
 # Compile to native files (export — never touches your project)
-workgraph pack export examples/pr-quality \
+agentpack pack export examples/pr-quality \
   --target claude-code --profile safe --out dist/claude
 
 # Install into a project (Phase 2): diff → backup → write → lockfile + history
-workgraph install examples/pr-quality \
+agentpack install examples/pr-quality \
   --target claude-code --profile safe \
   --project /tmp/my-claude-project --yes
 
 # Drift detection, rollback, history (Phase 2)
-workgraph verify workgraph.pr-quality --project /tmp/my-claude-project
-workgraph uninstall workgraph.pr-quality --project /tmp/my-claude-project --yes
-workgraph history --project /tmp/my-claude-project
+agentpack verify agentpack.pr-quality --project /tmp/my-claude-project
+agentpack uninstall agentpack.pr-quality --project /tmp/my-claude-project --yes
+agentpack history --project /tmp/my-claude-project
 
 # Sign on publish (Phase 4 — keyless via Sigstore Fulcio + Rekor; requires a hosted registry)
-workgraph publish examples/pr-quality --sign
+agentpack publish examples/pr-quality --sign
 
 # Verify a signed install (Phase 4)
-workgraph verify workgraph.pr-quality --project /tmp/my-claude-project --sig --strict
+agentpack verify agentpack.pr-quality --project /tmp/my-claude-project --sig --strict
 ```
 
 ### Hosted registry (optional)
@@ -120,11 +120,11 @@ Install profiles (**safe → standard → full → enterprise**) let you opt int
 ```text
 agent-pack/
 ├── packages/
-│   ├── core/                 # @workgraph/core: schema + parser + risk + permissions + planner + adapters + signing
-│   ├── cli/                  # @workgraph/cli: workgraph CLI binary
-│   └── db/                   # @workgraph/db: Drizzle schema, queries, migrations
+│   ├── core/                 # @agentpack/core: schema + parser + risk + permissions + planner + adapters + signing
+│   ├── cli/                  # @agentpack/cli: agentpack CLI binary
+│   └── db/                   # @agentpack/db: Drizzle schema, queries, migrations
 ├── apps/
-│   └── registry/             # @workgraph/registry: Next.js 15 App Router registry app
+│   └── registry/             # @agentpack/registry: Next.js 15 App Router registry app
 ├── examples/
 │   └── pr-quality/           # complete AgentPack — 7 atoms, 4 profiles
 ├── schemas/AGENTPACK.schema.json
@@ -147,24 +147,24 @@ agent-pack/
 ## CLI reference (highlights)
 
 ```bash
-workgraph init                              # scaffold a starter AGENTPACK.yaml
-workgraph validate [path]                   # validate manifest
-workgraph inspect [path]                    # metadata + atoms + profiles + risk
-workgraph plan [path] \
+agentpack init                              # scaffold a starter AGENTPACK.yaml
+agentpack validate [path]                   # validate manifest
+agentpack inspect [path]                    # metadata + atoms + profiles + risk
+agentpack plan [path] \
   --target claude-code --profile safe       # plan + risk + permission summary
-workgraph pack export [path] \
+agentpack pack export [path] \
   --target codex --profile full --out dist/ # write platform-native files
-workgraph install [pack] \
+agentpack install [pack] \
   --target claude-code --profile safe \
   --project ./my-project --yes              # WAL-protected local install
-workgraph verify [packId] --project . --sig # drift + signature check
-workgraph rollback --project .              # restore from history
-workgraph diff [pack] --target X --profile Y # unified diff preview
-workgraph doctor                            # environment checks
-workgraph login                             # device-code OAuth to a registry
-workgraph publish [path] --sign             # two-phase publish + Sigstore keyless signing
-workgraph tokens list | create | revoke     # API token management
-workgraph cache size | prune | clear        # offline blob cache housekeeping
+agentpack verify [packId] --project . --sig # drift + signature check
+agentpack rollback --project .              # restore from history
+agentpack diff [pack] --target X --profile Y # unified diff preview
+agentpack doctor                            # environment checks
+agentpack login                             # device-code OAuth to a registry
+agentpack publish [path] --sign             # two-phase publish + Sigstore keyless signing
+agentpack tokens list | create | revoke     # API token management
+agentpack cache size | prune | clear        # offline blob cache housekeeping
 ```
 
 Full reference: [`docs/cli.md`](./docs/cli.md).
@@ -209,8 +209,8 @@ Phase 2 install:
 Phase 4 trust:
 
 - **Sigstore cosign keyless** signing (OIDC → Fulcio cert + Rekor witness). No publisher-managed keys.
-- `workgraph publish --sign` populates `lockfile.signatures.{manifest, cert}` (slots reserved in v0.2.0).
-- `workgraph verify --sig --strict` exits non-zero on unsigned, signature-invalid, or quarantined packs.
+- `agentpack publish --sign` populates `lockfile.signatures.{manifest, cert}` (slots reserved in v0.2.0).
+- `agentpack verify --sig --strict` exits non-zero on unsigned, signature-invalid, or quarantined packs.
 - Registry serves 451 on a quarantined version; admin UI at `/admin/packs` flips status.
 
 Full details: [`docs/security.md`](./docs/security.md) and [`docs/signatures.md`](./docs/signatures.md).
@@ -227,7 +227,7 @@ Full details: [`docs/security.md`](./docs/security.md) and [`docs/signatures.md`
 | 4 | v0.4.0-dev | ✅ shipped (code) — Sigstore keyless signing + verification + admin quarantine UI |
 | 5 | v0.5.0 | ✅ shipped (scaffold) — remote install, content-addressed cache, policy file |
 | 6 | v0.6.0 | 🔒 **gated** — see [`Plans/PHASE-6-GATE.md`](./Plans/PHASE-6-GATE.md) |
-| 7 | v0.7.0 → v1.0.0 | 📋 planned — Workgraph integration, trust graph, Agent Commons bridge |
+| 7 | v0.7.0 → v1.0.0 | 📋 planned — AgentPack integration, trust graph, Agent Commons bridge |
 
 Decisions, rationale, and revisit triggers are pinned in [`Plans/ROADMAP.md`](./Plans/ROADMAP.md). The wire contract that Phase 3+ honors is pinned in [`Plans/PROTOCOL.md`](./Plans/PROTOCOL.md).
 
@@ -256,4 +256,4 @@ The project's living ideal-state articulation lives at [`ISA.md`](./ISA.md) — 
 
 ## License
 
-[MIT](./LICENSE) © 2026 Workgraph. AgentPack is **open source forever**; the hosted registry (when it lands at a stable URL) is a convenience, not a requirement — self-host is a first-class deployment shape. ("Workgraph" is the organization behind AgentPack and the hosted registry; the CLI binary is named `workgraph` because the registry is the entry point of a broader graph-of-agents product the team is building.)
+[MIT](./LICENSE) © 2026 AgentPack contributors. AgentPack is **open source forever** — the standard, the CLI, the adapters, and the optional hosted registry are all MIT-licensed and free. Self-host is a first-class deployment shape. The aim is interoperability: write an agent skill once and have Claude Code, Codex, Cursor, ChatGPT Apps, and any MCP-compatible host see it as native.

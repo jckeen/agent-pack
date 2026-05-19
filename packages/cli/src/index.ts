@@ -22,9 +22,9 @@ import { CLI_VERSION } from "./lib/version.js";
 const program = new Command();
 
 program
-  .name("workgraph")
+  .name("agentpack")
   .description(
-    "AgentPack CLI — validate, inspect, plan, export, install, verify, publish, and authenticate against the Workgraph Registry.",
+    "AgentPack CLI — validate, inspect, plan, export, install, verify, publish, and authenticate against the AgentPack Registry.",
   )
   .version(CLI_VERSION, "-v, --version", "Show CLI version")
   .showHelpAfterError(true);

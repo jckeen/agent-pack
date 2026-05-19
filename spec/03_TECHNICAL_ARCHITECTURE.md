@@ -6,7 +6,7 @@ The product has four main layers:
 
 1. **AgentPack Core** — schema, parser, validator, permissions, risk, planner, adapters.
 2. **workgraph CLI** — local validation, inspection, planning, export, later install/uninstall.
-3. **Workgraph Registry Web App** — browser, detail pages, validation, copy install commands.
+3. **AgentPack Registry Web App** — browser, detail pages, validation, copy install commands.
 4. **Registry API** — future publish/search/export/review endpoints.
 
 ## MVP architecture
@@ -53,12 +53,12 @@ Command framework: Commander.
 Commands:
 
 ```bash
-workgraph init
-workgraph validate [path]
-workgraph inspect [path]
-workgraph plan [path] --target <target> --profile <profile>
-workgraph pack export [path] --target <target> --out <dir>
-workgraph doctor
+agentpack init
+agentpack validate [path]
+agentpack inspect [path]
+agentpack plan [path] --target <target> --profile <profile>
+agentpack pack export [path] --target <target> --out <dir>
+agentpack doctor
 ```
 
 ## Registry app
@@ -158,9 +158,9 @@ type InstallPlan = {
 
 ## Monorepo package names
 
-- `@workgraph/core`
-- `@workgraph/cli`
-- `@workgraph/registry`
+- `@agentpack/core`
+- `@agentpack/cli`
+- `@agentpack/registry`
 
 ## Development scripts
 
@@ -168,7 +168,7 @@ Root scripts:
 
 ```json
 {
-  "dev": "pnpm --filter @workgraph/registry dev",
+  "dev": "pnpm --filter @agentpack/registry dev",
   "build": "pnpm -r build",
   "test": "pnpm -r test",
   "lint": "pnpm -r lint"

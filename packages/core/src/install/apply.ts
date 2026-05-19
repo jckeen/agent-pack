@@ -2,10 +2,10 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { InstallPlanV2, InstallManifestV1, HistoryEntryV1 } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
 import {
-  resolveWorkgraphPaths,
-  ensureWorkgraphDirs,
+  resolveAgentpackPaths,
+  ensureAgentpackDirs,
   realpathContained,
   toRelative,
   backupDirForInstall,
@@ -44,10 +44,10 @@ export interface ApplyInstallResult {
  *   1. WAL: write `install_begin` history entry with plannedFiles[] BEFORE
  *      any project file is touched.
  *   2. For every `modified` and `conflict` (under --force) target, copy the
- *      existing file to `.workgraph/backups/<packId>/<ts>.<nonce>/...`.
+ *      existing file to `.agentpack/backups/<packId>/<ts>.<nonce>/...`.
  *   3. Write every staged file atomically (write to .tmp, fsync, rename).
  *   4. Write AGENTPACK.lock at projectRoot.
- *   5. Write `.workgraph/installed/<packId>.json`.
+ *   5. Write `.agentpack/installed/<packId>.json`.
  *   6. WAL: write `install_commit` history entry.
  *
  * If any step fails between begin and commit, the begin entry is left in
@@ -62,8 +62,8 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
       `Install refused: ${plan.conflicts.length} conflict(s) (no AgentPack marker or marker belongs to another pack):\n${paths}\nPass --force to back up and overwrite.`,
     );
   }
-  const ws = await resolveWorkgraphPaths(plan.projectRoot);
-  await ensureWorkgraphDirs(ws);
+  const ws = await resolveAgentpackPaths(plan.projectRoot);
+  await ensureAgentpackDirs(ws);
 
   // 1. WAL begin
   const beginEntry = await recordHistory(ws, {
@@ -116,7 +116,7 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
         const original = await fs.readFile(abs, "utf8").catch(() => undefined);
         if (original !== undefined) {
           const backupRel = path.posix.join(
-            ".workgraph",
+            ".agentpack",
             "backups",
             sanitizePack(plan.packId),
             path.basename(backupBase),
@@ -305,7 +305,7 @@ async function atomicWriteFile(
  * Returns null on first install (no prior manifest).
  */
 async function readPriorManifest(
-  ws: WorkgraphPaths,
+  ws: AgentpackPaths,
   packId: string,
 ): Promise<import("./types.js").InstallManifestV1 | null> {
   try {
@@ -317,5 +317,5 @@ async function readPriorManifest(
 }
 
 // Re-exported for tests + cli convenience.
-export { resolveWorkgraphPaths };
-export type { WorkgraphPaths };
+export { resolveAgentpackPaths };
+export type { AgentpackPaths };

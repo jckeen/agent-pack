@@ -1,5 +1,5 @@
 /**
- * Content-addressed blob store under `~/.workgraph/cache/blobs/<sha[0..2]>/<sha>`.
+ * Content-addressed blob store under `~/.agentpack/cache/blobs/<sha[0..2]>/<sha>`.
  *
  * Every write verifies sha256(bytes) === expected before promoting the temp
  * file. Every fetch from the registry runs through `fetchAndCache`, which is

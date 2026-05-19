@@ -8,9 +8,9 @@ This is an opinionated roadmap. Every open question gets a concrete answer with 
 
 ## Where we are
 
-Phase 1 (v0.1.x) shipped the AgentPack standard: `AGENTPACK.yaml` manifest, zod schema, 5 platform adapters (Claude Code, Codex, Cursor, ChatGPT export-only, Generic), planner + permission + risk engines, CLI (`init`, `validate`, `inspect`, `plan`, `pack export`, `doctor`), and the Workgraph Registry web app rendering 10 seed packs.
+Phase 1 (v0.1.x) shipped the AgentPack standard: `AGENTPACK.yaml` manifest, zod schema, 5 platform adapters (Claude Code, Codex, Cursor, ChatGPT export-only, Generic), planner + permission + risk engines, CLI (`init`, `validate`, `inspect`, `plan`, `pack export`, `doctor`), and the AgentPack Registry web app rendering 10 seed packs.
 
-Phase 2 (v0.2.0) shipped local install/uninstall: WAL-protected `workgraph install` (begin → backup → atomic writes → commit), deterministic `AGENTPACK.lock` with per-atom and per-file SHA-256, hash-chained `.workgraph/history.jsonl`, `workgraph verify` for drift detection, `workgraph rollback` with supersession refusal, `workgraph diff` for unified-diff previews. 152 tests, 88.68% line coverage, two pre-ship CRITICAL security findings closed (TOCTOU symlink-swap, Windows-drive bypass).
+Phase 2 (v0.2.0) shipped local install/uninstall: WAL-protected `agentpack install` (begin → backup → atomic writes → commit), deterministic `AGENTPACK.lock` with per-atom and per-file SHA-256, hash-chained `.agentpack/history.jsonl`, `agentpack verify` for drift detection, `agentpack rollback` with supersession refusal, `agentpack diff` for unified-diff previews. 152 tests, 88.68% line coverage, two pre-ship CRITICAL security findings closed (TOCTOU symlink-swap, Windows-drive bypass).
 
 The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase 3 transitive resolution). The per-file SHA-256 list is what Phase 4 cosign will sign over. No `lockfileVersion: 2` bump is anticipated through Phase 7.
 
@@ -45,7 +45,7 @@ The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase
                                 │ (v0.5.0)            │
                                 └──────────┬──────────┘
                                 CLI auth, offline cache,
-                                workgraph.policy.json
+                                agentpack.policy.json
                                            │
                                            ▼
                                 ┌─────────────────────┐
@@ -59,7 +59,7 @@ The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase
                                            ▼
                                 ┌─────────────────────┐
                                 │ Phase 7             │
-                                │ Workgraph integration│
+                                │ AgentPack integration│
                                 │ (v0.7.0 / v1.0.0)   │
                                 └─────────────────────┘
                                 Export workflows,
@@ -67,7 +67,7 @@ The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase
                                 Agent Commons
 ```
 
-**Hard dependencies** (Phase X *cannot* start without artifact from Phase Y): 3 → 5 (registry exists to install from), 3 → 4 (PackVersion row holds signature column + metadata), 4 → 5-soft (verified-by-default is the right UX but Phase 5 can ship unsigned install), 5 → 6 (enterprise reuses CLI auth + policy primitives), 6 → 7-soft (Workgraph integration can land standalone but enterprise customers are the natural early Workgraph customers).
+**Hard dependencies** (Phase X *cannot* start without artifact from Phase Y): 3 → 5 (registry exists to install from), 3 → 4 (PackVersion row holds signature column + metadata), 4 → 5-soft (verified-by-default is the right UX but Phase 5 can ship unsigned install), 5 → 6 (enterprise reuses CLI auth + policy primitives), 6 → 7-soft (AgentPack integration can land standalone but enterprise customers are the natural early Workgraph customers).
 
 **Why this order:** Phase 3 unlocks the registry economy. Phase 4 unlocks supply-chain trust (and Phase 5 ships with verification on by default). Phase 5 unlocks the "one command, anywhere" remote-install ergonomics. Phase 6 unlocks org adoption and policy. Phase 7 unlocks the network effect by making the registry a destination for non-hand-authored workflows.
 
@@ -93,7 +93,7 @@ The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase
 
 #### D3.2 Auth — NextAuth (Auth.js v5) with GitHub OAuth, plus hashed CLI tokens
 
-**Decision:** NextAuth v5 (Auth.js) in `apps/registry` with GitHub OAuth as the only login provider for v0.3. CLI publish uses opaque tokens minted on the website, prefixed `wgp_live_<random>` so GitHub secret-scanning catches leaks. The DB stores `sha256(token)`, `token_prefix` (first 8 chars for UI display), and a `scopes` jsonb column from day one.
+**Decision:** NextAuth v5 (Auth.js) in `apps/registry` with GitHub OAuth as the only login provider for v0.3. CLI publish uses opaque tokens minted on the website, prefixed `agp_live_<random>` so GitHub secret-scanning catches leaks. The DB stores `sha256(token)`, `token_prefix` (first 8 chars for UI display), and a `scopes` jsonb column from day one.
 
 **Rationale:** GitHub OAuth matches the developer audience and inherits their identity. Opaque CLI tokens are the standard pattern (npm, PyPI, crates.io variants). NextAuth is the App Router-native option; Clerk would lock us out of Phase 6 self-host. Adding `scopes` later is migration hell — pay the schema cost now.
 
@@ -104,7 +104,7 @@ create table api_tokens (
   user_id         uuid references users(id) not null,
   publisher_id    uuid references publishers(id),  -- null = user-scoped, set = publisher-scoped
   name            text not null,
-  token_prefix    text not null,                   -- first 8 chars of `wgp_live_…`, for UI
+  token_prefix    text not null,                   -- first 8 chars of `agp_live_…`, for UI
   token_sha256    text not null unique,            -- sha256(full token)
   scopes          jsonb not null default '[]',     -- ["publish:packs", "read:private"]
   last_used_at    timestamptz,
@@ -127,7 +127,7 @@ create table api_tokens (
 
 **Decision:** Cloudflare R2 for the raw `AGENTPACK.yaml`, `README.md`, and atom body files. Access via S3-compatible SDK from the Next.js API routes. Buckets: `agentpack-artifacts-prod` (immutable per-version paths) and `agentpack-artifacts-staging`.
 
-**Rationale (flipped from initial pick of Vercel Blob):** R2 has zero egress pricing — which matters because every `workgraph install publisher/pack` in Phase 5 reads from this bucket. Vercel Blob's egress gets ugly past ~100GB. R2 is S3-compatible, so Phase 6 self-host customers can point at their own S3-compatible store with one env var change. SDK ergonomics are a wash.
+**Rationale (flipped from initial pick of Vercel Blob):** R2 has zero egress pricing — which matters because every `agentpack install publisher/pack` in Phase 5 reads from this bucket. Vercel Blob's egress gets ugly past ~100GB. R2 is S3-compatible, so Phase 6 self-host customers can point at their own S3-compatible store with one env var change. SDK ergonomics are a wash.
 
 **Path layout:**
 ```
@@ -160,7 +160,7 @@ create index packs_search_idx on packs using gin(search);
 
 #### D3.6 Publish UX — two-phase, presigned-URL, finalize
 
-**Decision:** `workgraph publish [path]` flow:
+**Decision:** `agentpack publish [path]` flow:
 
 ```
 1. Client: read manifest, compute lockfile-style per-file SHA-256.
@@ -177,7 +177,7 @@ create index packs_search_idx on packs using gin(search);
 
 **Rationale (changed from initial design):** Two-phase prevents orphan blobs if the metadata POST fails after artifacts upload. This is the pattern npm, crates.io, and PyPI all use (variants). Immutable versions — republishing the same `metadata.version` returns 409 always (no force-republish in v0.3; tombstone-and-revoke is a Phase 4 concern).
 
-**Auth:** Token via `WORKGRAPH_TOKEN` env var or `~/.workgraph/credentials.json` (precedence: env wins). Token must have `publish:packs` scope and be scoped to the target publisher.
+**Auth:** Token via `AGENTPACK_TOKEN` env var or `~/.agentpack/credentials.json` (precedence: env wins). Token must have `publish:packs` scope and be scoped to the target publisher.
 
 **Revisit if:** Multi-GB packs become common — chunked uploads and resumable presigned URLs are the upgrade path.
 
@@ -216,10 +216,10 @@ create index packs_search_idx on packs using gin(search);
 ### Phase 3 gate (tool-verifiable "phase done")
 
 1. `gh repo clone jckeen/agent-pack && pnpm install && pnpm dev` boots the registry against a Neon prod branch.
-2. `workgraph login` opens browser, completes GitHub OAuth, writes `~/.workgraph/credentials.json`.
-3. `workgraph publish examples/pr-quality` against staging registry returns success, new row appears in `pack_versions` table.
-4. `curl https://registry.workgraph.dev/api/packs/workgraph/pr-quality/versions/0.1.0/manifest.yaml` returns the published bytes.
-5. `https://registry.workgraph.dev/packs/workgraph/pr-quality` renders detail page (now sourced from DB).
+2. `agentpack login` opens browser, completes GitHub OAuth, writes `~/.agentpack/credentials.json`.
+3. `agentpack publish examples/pr-quality` against staging registry returns success, new row appears in `pack_versions` table.
+4. `curl https://registry.agentpack.dev/api/packs/agentpack/pr-quality/versions/0.1.0/manifest.yaml` returns the published bytes.
+5. `https://registry.agentpack.dev/packs/agentpack/pr-quality` renders detail page (now sourced from DB).
 6. Searching "pr quality" in the registry UI returns the pack.
 7. Attempting to republish `0.1.0` returns 409.
 8. `pnpm seed:import` is idempotent — second run logs "0 inserted, 10 skipped."
@@ -240,7 +240,7 @@ create index packs_search_idx on packs using gin(search);
 
 **Rationale:** Long-lived publisher keys are an operational nightmare (rotation, revocation, loss). Sigstore keyless is the npm-provenance / PyPI Trusted Publishing direction; matching it inherits the trust mental model developers already have. Fulcio + Rekor are run by the OpenSSF — sufficient infrastructure for v0.4. The lockfile already reserves `signatures.manifest` and `signatures.provenance` slots.
 
-**Revisit if:** A customer needs offline signing (no Fulcio network round-trip) for an air-gapped publish flow. Plan B: cosign with a publisher-managed key in `~/.workgraph/signing-key`, but that's Phase 6 enterprise.
+**Revisit if:** A customer needs offline signing (no Fulcio network round-trip) for an air-gapped publish flow. Plan B: cosign with a publisher-managed key in `~/.agentpack/signing-key`, but that's Phase 6 enterprise.
 
 #### D4.2 Key custody — none (keyless, see D4.1)
 
@@ -250,9 +250,9 @@ create index packs_search_idx on packs using gin(search);
 
 **Revisit if:** D4.1 revisits. Same trigger.
 
-#### D4.3 CLI verify UX — `workgraph verify --sig`
+#### D4.3 CLI verify UX — `agentpack verify --sig`
 
-**Decision:** Extend the existing Phase 2 `workgraph verify <packId>` with a `--sig` flag. When set:
+**Decision:** Extend the existing Phase 2 `agentpack verify <packId>` with a `--sig` flag. When set:
 
 ```
 1. Read AGENTPACK.lock from project root.
@@ -272,7 +272,7 @@ Without `--sig`, behavior is unchanged (Phase 2 drift check only).
 
 #### D4.4 Quarantine / block UX — registry-side mutable status field
 
-**Decision:** Add `pack_versions.status` enum: `published` (default), `deprecated`, `yanked`, `quarantined`, `blocked`. CLI `workgraph install` and `workgraph verify --sig` honor:
+**Decision:** Add `pack_versions.status` enum: `published` (default), `deprecated`, `yanked`, `quarantined`, `blocked`. CLI `agentpack install` and `agentpack verify --sig` honor:
 
 - `published` — install proceeds as normal.
 - `deprecated` — install proceeds with warning.
@@ -288,8 +288,8 @@ Publishers can yank/un-yank their own versions; quarantine/block are registry-ad
 
 ### Phase 4 deliverables
 
-- `packages/cli` — `workgraph verify --sig` implementation; cosign npm dep (`@sigstore/sign`, `@sigstore/verify`).
-- `packages/cli` — `workgraph publish` signs the manifest after upload-finalize via Fulcio keyless flow.
+- `packages/cli` — `agentpack verify --sig` implementation; cosign npm dep (`@sigstore/sign`, `@sigstore/verify`).
+- `packages/cli` — `agentpack publish` signs the manifest after upload-finalize via Fulcio keyless flow.
 - `packages/core` — `lockfile.signatures.{manifest,cert}` fields populated in `applyInstall` when CLI was run via remote install (Phase 5) and the registry returns a signature.
 - `apps/registry` — `pack_versions.status` enum + migration.
 - `apps/registry` — admin routes for quarantine/block (gated by `users.role`).
@@ -304,25 +304,25 @@ Publishers can yank/un-yank their own versions; quarantine/block are registry-ad
 
 ### Phase 4 gate
 
-1. `workgraph publish` to staging registry produces a signature; `pack_versions.status='published'`, `cosign_signature` is non-null.
+1. `agentpack publish` to staging registry produces a signature; `pack_versions.status='published'`, `cosign_signature` is non-null.
 2. The published pack's `AGENTPACK.lock` (downloaded via Phase 5 install or `curl`) has populated `signatures.manifest` and `signatures.cert` bytes.
-3. `workgraph verify <packId> --sig` exits 0 against the freshly-signed pack.
+3. `agentpack verify <packId> --sig` exits 0 against the freshly-signed pack.
 4. Tampering with a single atom file → exit 2 (drift); tampering with the signature in the lockfile → exit 4 (signature mismatch).
-5. Admin endpoint quarantines a version; the next `workgraph install` of that version REFUSES with exit 2 (or 0 + warning under `--allow-quarantined`).
+5. Admin endpoint quarantines a version; the next `agentpack install` of that version REFUSES with exit 2 (or 0 + warning under `--allow-quarantined`).
 
 ---
 
 ## Phase 5 — Remote CLI installs (v0.5.0)
 
-**Intent.** Make the CLI fetch (instead of filesystem-load) when given an identity: `workgraph install workgraph/pr-quality@0.1.0` works the same as `workgraph install examples/pr-quality` does today.
+**Intent.** Make the CLI fetch (instead of filesystem-load) when given an identity: `agentpack install agentpack/pr-quality@0.1.0` works the same as `agentpack install examples/pr-quality` does today.
 
 **Effort tier estimate:** E3 (smaller than 3 or 4 — most primitives are already shipped; this phase is plumbing them together).
 
 ### Decisions
 
-#### D5.1 Resolver semantics — `workgraph install <publisher>/<pack>[@<version>]`
+#### D5.1 Resolver semantics — `agentpack install <publisher>/<pack>[@<version>]`
 
-**Decision:** Identity grammar: `<publisher>/<pack>[@<version>]`. `<version>` defaults to "latest stable" (highest semver not pre-release, not yanked). `--registry <url>` overrides the default registry (default: `https://registry.workgraph.dev`). The resolver:
+**Decision:** Identity grammar: `<publisher>/<pack>[@<version>]`. `<version>` defaults to "latest stable" (highest semver not pre-release, not yanked). `--registry <url>` overrides the default registry (default: `https://registry.agentpack.dev`). The resolver:
 
 ```
 1. GET <registry>/api/packs/<publisher>/<pack>/versions/<resolved-version>/manifest.yaml
@@ -337,12 +337,12 @@ Publishers can yank/un-yank their own versions; quarantine/block are registry-ad
 
 **Revisit if:** Cross-pack `dependencies` resolution becomes a concern (Phase 3 lockfile slot exists but is empty through Phase 5). Plan B: SAT solver à la pnpm; Phase 7 problem.
 
-#### D5.2 Offline cache — content-addressed under `~/.workgraph/cache/`
+#### D5.2 Offline cache — content-addressed under `~/.agentpack/cache/`
 
 **Decision:** Cache layout:
 
 ```
-~/.workgraph/
+~/.agentpack/
 ├── cache/
 │   ├── packs/
 │   │   └── <publisher>/<pack>/<version>/      # decoded artifacts
@@ -354,7 +354,7 @@ Publishers can yank/un-yank their own versions; quarantine/block are registry-ad
 └── policy.json                                # optional, Phase 5/6
 ```
 
-Fetch flow: `cache.blobs/<sha>` lookup first; on miss, fetch + write + return. `cache.packs/<pub>/<pack>/<ver>/` is a view (symlinks into `blobs/`) for human inspection. `workgraph cache prune --max-age 30d` and `workgraph cache size` for housekeeping.
+Fetch flow: `cache.blobs/<sha>` lookup first; on miss, fetch + write + return. `cache.packs/<pub>/<pack>/<ver>/` is a view (symlinks into `blobs/`) for human inspection. `agentpack cache prune --max-age 30d` and `agentpack cache size` for housekeeping.
 
 **Rationale:** Content-addressed dedup means installing the same atom across 10 packs costs disk once. Symlink view is human-readable; the blob store is the source of truth. Mirrors npm's `~/.npm/_cacache/` shape.
 
@@ -362,25 +362,25 @@ Fetch flow: `cache.blobs/<sha>` lookup first; on miss, fetch + write + return. `
 
 #### D5.3 CLI auth for private packs — token reuse from Phase 3
 
-**Decision:** `workgraph install` sends `Authorization: Bearer <wgp_live_…>` from `~/.workgraph/credentials.json` (Phase 3 `workgraph login` output) on every fetch. For pubic packs the header is ignored; for private packs (`visibility: private` in DB) the registry returns 403 without it. Token scope `read:packs` required; scope `read:private` required for private packs.
+**Decision:** `agentpack install` sends `Authorization: Bearer <agp_live_…>` from `~/.agentpack/credentials.json` (Phase 3 `agentpack login` output) on every fetch. For pubic packs the header is ignored; for private packs (`visibility: private` in DB) the registry returns 403 without it. Token scope `read:packs` required; scope `read:private` required for private packs.
 
 **Rationale:** Reuses Phase 3 token primitive — no new auth surface. `read:private` scope can be granted publisher-scoped (`read:private@<publisher>`) so an enterprise customer's token can only fetch their own private packs.
 
-**Revisit if:** Multi-registry auth (one token per registry) becomes a concern — `~/.workgraph/credentials.json` becomes a map keyed by registry URL.
+**Revisit if:** Multi-registry auth (one token per registry) becomes a concern — `~/.agentpack/credentials.json` becomes a map keyed by registry URL.
 
-#### D5.4 `workgraph.policy.json` — opt-in install policy
+#### D5.4 `agentpack.policy.json` — opt-in install policy
 
-**Decision:** Optional `workgraph.policy.json` at the project root (NOT under `.workgraph/`, because it's a user-authored guardrail, like `package.json` engines). Schema:
+**Decision:** Optional `agentpack.policy.json` at the project root (NOT under `.agentpack/`, because it's a user-authored guardrail, like `package.json` engines). Schema:
 
 ```json
 {
   "policyVersion": 1,
   "registries": {
-    "allowed": ["https://registry.workgraph.dev", "https://internal.example.com"],
-    "default": "https://registry.workgraph.dev"
+    "allowed": ["https://registry.agentpack.dev", "https://internal.example.com"],
+    "default": "https://registry.agentpack.dev"
   },
   "packs": {
-    "allowedPublishers": ["workgraph", "example-corp"],
+    "allowedPublishers": ["agentpack", "example-corp"],
     "blockedPacks": ["evil-corp/sketchy-pack"]
   },
   "install": {
@@ -403,26 +403,26 @@ CLI loads it on every install/verify invocation. Violations are hard refusals wi
 
 ### Phase 5 deliverables
 
-- `packages/cli` — `workgraph install <publisher>/<pack>[@version]` resolver.
-- `packages/cli` — `workgraph cache prune | size | clear`.
+- `packages/cli` — `agentpack install <publisher>/<pack>[@version]` resolver.
+- `packages/cli` — `agentpack cache prune | size | clear`.
 - `packages/core` — content-addressed blob store helpers.
-- `packages/core` — `workgraph.policy.json` zod schema + loader + enforcer.
+- `packages/core` — `agentpack.policy.json` zod schema + loader + enforcer.
 - `apps/registry` — `GET /api/packs/.../manifest.yaml` returns raw bytes; `/api/packs/.../atoms/<atom>/<file>` returns atom bytes.
 - Phase 5 docs at `docs/remote-install.md` and `docs/policy.md`.
 
 ### Phase 5 dependencies
 
-- **Hard on Phase 3:** registry exists at `https://registry.workgraph.dev`; `GET /api/packs/...` returns bytes.
+- **Hard on Phase 3:** registry exists at `https://registry.agentpack.dev`; `GET /api/packs/...` returns bytes.
 - **Soft on Phase 4:** verified-by-default install is the right UX (policy `verify.onInstall: required`). If Phase 5 ships before Phase 4, policy defaults to `verify.onInstall: warn` instead of `required`.
 - **None on Phase 6, 7.**
 
 ### Phase 5 gate
 
-1. `workgraph install workgraph/pr-quality` (against staging registry) writes the files and lockfile identically to the local-path install.
+1. `agentpack install agentpack/pr-quality` (against staging registry) writes the files and lockfile identically to the local-path install.
 2. Re-running it uses cache (no network on second fetch — log says `cache hit`).
-3. `workgraph cache prune --max-age 7d` removes older blobs.
-4. With `workgraph.policy.json` requiring signature, installing an unsigned pack exits 6.
-5. With `workgraph.policy.json` restricting registries, fetching from an unlisted registry exits 6.
+3. `agentpack cache prune --max-age 7d` removes older blobs.
+4. With `agentpack.policy.json` requiring signature, installing an unsigned pack exits 6.
+5. With `agentpack.policy.json` restricting registries, fetching from an unlisted registry exits 6.
 6. Private-pack install with no token exits 1; with valid `read:private` token, succeeds.
 
 ---
@@ -483,12 +483,12 @@ alter table publishers add column org_id uuid references orgs(id);
 
 #### D6.4 Policy-as-code — JSON schema first, OPA/Rego later
 
-**Decision:** v0.6 extends `workgraph.policy.json` (Phase 5) with org-managed policies that the CLI fetches at install time via `GET /api/orgs/<slug>/policy`. Policy schema stays declarative JSON. OPA/Rego DSL is Phase 6.5+ — when policy logic outgrows declarative constraints.
+**Decision:** v0.6 extends `agentpack.policy.json` (Phase 5) with org-managed policies that the CLI fetches at install time via `GET /api/orgs/<slug>/policy`. Policy schema stays declarative JSON. OPA/Rego DSL is Phase 6.5+ — when policy logic outgrows declarative constraints.
 
 Org policy adds:
 ```json
 {
-  "approvedPublishers": ["workgraph", "stripe", "internal"],
+  "approvedPublishers": ["agentpack", "stripe", "internal"],
   "approvedPacks": [
     { "pack": "internal/audit-checks", "minVersion": "1.2.0" }
   ],
@@ -523,15 +523,15 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
 
 ### Phase 6 gate
 
-1. `workgraph install` against an org's private pack with an SSO-issued token works end-to-end.
-2. Org policy denying `deniedAtomTypes: [hook]` blocks `workgraph install` of a pack containing a hook atom; exit 6.
+1. `agentpack install` against an org's private pack with an SSO-issued token works end-to-end.
+2. Org policy denying `deniedAtomTypes: [hook]` blocks `agentpack install` of a pack containing a hook atom; exit 6.
 3. `audit_events` table has rows for every state-mutating action in a representative test scenario; `workgraph audit verify --org <slug> --chain` exits 0.
 4. WorkOS SAML against a test Okta tenant signs a user in successfully.
 5. Org owner can quarantine a pack version from the UI; CLI install of that version refuses.
 
 ---
 
-## Phase 7 — Workgraph integration (v0.7.0 → v1.0.0)
+## Phase 7 — AgentPack integration (v0.7.0 → v1.0.0)
 
 **Intent.** Make the registry a destination for workflows produced elsewhere — specifically Workgraph (the workflow/context-graph product). A user finishes a workflow in Workgraph, hits "export to AgentPack," and the resulting pack is published to the registry. The network effect: pack catalogue grows from non-hand-authored sources.
 
@@ -552,7 +552,7 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
     "name": "Human-readable name",
     "version": "0.1.0",
     "description": "Generated from Workgraph workflow",
-    "tags": ["generated", "workgraph"]
+    "tags": ["generated", "agentpack"]
   },
   "atoms": [
     {
@@ -564,7 +564,7 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
     }
   ],
   "provenance": {
-    "source": "workgraph",
+    "source": "agentpack",
     "workflowId": "wf_abc123",
     "workflowVersion": "12",
     "exportedAt": "2026-09-01T..."
@@ -573,7 +573,7 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
 }
 ```
 
-The registry validates, runs through the same publish pipeline as `workgraph publish`, and stores `provenance.source = "workgraph"` so the UI badges it as "imported from Workgraph."
+The registry validates, runs through the same publish pipeline as `agentpack publish`, and stores `provenance.source = "agentpack"` so the UI badges it as "imported from Workgraph."
 
 **Rationale:** Mirror the publish flow shape so the existing tests + monitoring extend. The signature is from a Workgraph-service identity, not a user identity (because the user signs into Workgraph, not the registry — but the trust chain still reaches the user via Workgraph's user record).
 
@@ -625,9 +625,9 @@ Composite score is computed nightly, cached on `packs.trust_score`. Algorithm: l
 
 ### Phase 7 gate
 
-1. A Workgraph workflow exported via `POST /api/v1/import/workgraph` appears in the registry tagged "generated" and "workgraph"; pack detail shows the provenance.
+1. A Workgraph workflow exported via `POST /api/v1/import/workgraph` appears in the registry tagged "generated" and "agentpack"; pack detail shows the provenance.
 2. The trust-signal composite score renders on pack detail; clicking expands the signals.
-3. A pack flagged "mirror to Agent Commons" on publish appears at Agent Commons within the same hour, with an "originally published at registry.workgraph.dev/..." backlink.
+3. A pack flagged "mirror to Agent Commons" on publish appears at Agent Commons within the same hour, with an "originally published at registry.agentpack.dev/..." backlink.
 4. Cumulative gate (the v1.0.0 cutover): every gate from Phases 3-6 still passes against the v0.7.0 build. No regressions.
 
 ---
@@ -654,11 +654,11 @@ The next five work items, in order:
 
 2. **Wire NextAuth v5 GitHub OAuth into `apps/registry`** — `/api/auth/[...nextauth]`, the GitHub OAuth app, session pages. Test against a personal account before doing the `apps/registry/auth` config polish.
 
-3. **Implement the two-phase publish flow** — `POST /api/publish/init` returns presigned R2 URLs and a `publish_id`, `POST /api/publish/<id>/finalize` verifies SHA-256s and writes rows. Plus the `workgraph publish` CLI subcommand. **Phase 3 gate items #3 and #4 land here.**
+3. **Implement the two-phase publish flow** — `POST /api/publish/init` returns presigned R2 URLs and a `publish_id`, `POST /api/publish/<id>/finalize` verifies SHA-256s and writes rows. Plus the `agentpack publish` CLI subcommand. **Phase 3 gate items #3 and #4 land here.**
 
 4. **Run the seed-import** — `scripts/seed-import.ts`, then refactor `apps/registry/lib/seed.ts` to read from DB instead of JSON. Removing the JSON path from runtime is what makes the gate test "registry detail pages render from DB" honest.
 
-5. **Wire `workgraph install <publisher>/<pack>@<version>`** — Phase 5's first deliverable, which is a check that Phase 3 actually unblocks the remote install ergonomics. Ship as `v0.3.5-rc` before promoting to `v0.5.0`.
+5. **Wire `agentpack install <publisher>/<pack>@<version>`** — Phase 5's first deliverable, which is a check that Phase 3 actually unblocks the remote install ergonomics. Ship as `v0.3.5-rc` before promoting to `v0.5.0`.
 
 After these five, Phase 3 is materially done; pause to ship `v0.3.0`, then start Phase 4 (signatures). Do not start Phase 6 work until Phase 5 has shipped to at least one external user — enterprise contracts hinge on observable adoption.
 
@@ -668,7 +668,7 @@ After these five, Phase 3 is materially done; pause to ship `v0.3.0`, then start
 
 - No breaking changes to Phase 1-2 schemas (lockfile v1 stays; manifest `agentpack: '1.0'` stays).
 - No new languages or runtimes.
-- No abandonment of local-first install — at every phase, `workgraph install ./examples/pr-quality` must still work without network.
+- No abandonment of local-first install — at every phase, `agentpack install ./examples/pr-quality` must still work without network.
 - No premature commitment to specific UI mocks for publish/admin flows. Those are design-time decisions; this is the engineering roadmap.
 - No v1.0.0 declaration before Phase 7's cumulative gate passes.
 

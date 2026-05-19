@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
-import type { PublishFinalizeResponse } from "@workgraph/core";
-import { signing } from "@workgraph/core";
+import type { PublishFinalizeResponse } from "@agentpack/core";
+import { signing } from "@agentpack/core";
 
 import {
   atoms,
@@ -268,7 +268,7 @@ export async function POST(
   // parsed server-side by a background worker.
   void compatibilities;
 
-  const baseUrl = process.env["NEXT_PUBLIC_REGISTRY_URL"] ?? "https://registry.workgraph.dev";
+  const baseUrl = process.env["NEXT_PUBLIC_REGISTRY_URL"] ?? "https://registry.agentpack.dev";
   const response: PublishFinalizeResponse = {
     packId: pkId,
     versionId,

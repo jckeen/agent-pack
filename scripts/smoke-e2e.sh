@@ -68,8 +68,8 @@ fi
 green "  ✓ registry up (db=$DB_STATUS, r2=$R2_STATUS)"
 
 note "▸ Step 2/6: build CLI"
-pnpm --filter @workgraph/core build >/dev/null
-pnpm --filter @workgraph/cli build >/dev/null
+pnpm --filter @agentpack/core build >/dev/null
+pnpm --filter @agentpack/cli build >/dev/null
 WORKGRAPH="$REPO_ROOT/packages/cli/bin/workgraph.mjs"
 test -x "$WORKGRAPH" || { red "CLI binary not found at $WORKGRAPH"; exit 1; }
 green "  ✓ CLI built"

@@ -1,4 +1,4 @@
-import type { CompatibilityStatus, TargetPlatform } from "@workgraph/core";
+import type { CompatibilityStatus, TargetPlatform } from "@agentpack/core";
 
 const STATUS_STYLES: Record<CompatibilityStatus, { dot: string; label: string }> = {
   supported: { dot: "bg-emerald-500", label: "Supported" },

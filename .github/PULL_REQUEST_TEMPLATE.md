@@ -24,7 +24,7 @@ Closes #<!-- issue number, if applicable -->
 - [ ] `pnpm verify` (typecheck + lint + test + build) is green
 - [ ] New tests cover the new behavior (or: change is doc/cleanup only)
 - [ ] Manually exercised the affected CLI command / API route / UI page
-- [ ] Smoke: `workgraph install examples/pr-quality --target claude-code --profile safe --project /tmp/pr-test --yes` still works
+- [ ] Smoke: `agentpack install examples/pr-quality --target claude-code --profile safe --project /tmp/pr-test --yes` still works
 
 ## Checklist
 

@@ -18,9 +18,9 @@ pnpm verify         # the canonical pre-PR gate: typecheck + lint + test + build
 ## Layout
 
 - `packages/core` — the AgentPack engine: schema, parser, validator, permission/risk engines, planner, adapters, install/uninstall/verify/rollback engines, git-source resolver, signing module, cache, policy enforcement, seed packs. All product logic lives here.
-- `packages/cli` — the `workgraph` binary. Thin wrappers around the core API plus rendering. Run the local build via `node packages/cli/dist/index.js …` until the npm artifact ships.
-- `packages/db` — `@workgraph/db`: Drizzle schema, queries, migrations for the registry's Postgres backend.
-- `apps/registry` — `@workgraph/registry`: Next.js 15 App Router app. Renders seed packs in JSON-fallback mode without any env vars; switches to DB-backed mode when `DATABASE_URL` is set (see `apps/registry/.env.example`).
+- `packages/cli` — the `agentpack` binary. Thin wrappers around the core API plus rendering. Run the local build via `node packages/cli/dist/index.js …` until the npm artifact ships.
+- `packages/db` — `@agentpack/db`: Drizzle schema, queries, migrations for the registry's Postgres backend.
+- `apps/registry` — `@agentpack/registry`: Next.js 15 App Router app. Renders seed packs in JSON-fallback mode without any env vars; switches to DB-backed mode when `DATABASE_URL` is set (see `apps/registry/.env.example`).
 - `examples/pr-quality` — the canonical reference pack. Used by tests, docs, and the README quickstart.
 - `spec/` — original build packet; treated as design history.
 - `docs/` — reference docs (standard, security, adapters, CLI, registry, publish, install, remote-install, git-source, signatures, policy).

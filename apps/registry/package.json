@@ -1,8 +1,8 @@
 {
-  "name": "@workgraph/registry",
+  "name": "@agentpack/registry",
   "version": "0.2.0",
   "private": true,
-  "description": "Workgraph Registry — the web UI for AgentPacks.",
+  "description": "AgentPack Registry — the web UI for AgentPacks.",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -19,8 +19,8 @@
     "@aws-sdk/client-s3": "3.1049.0",
     "@aws-sdk/s3-request-presigner": "3.1049.0",
     "@neondatabase/serverless": "1.1.0",
-    "@workgraph/core": "workspace:*",
-    "@workgraph/db": "workspace:*",
+    "@agentpack/core": "workspace:*",
+    "@agentpack/db": "workspace:*",
     "drizzle-orm": "0.45.2",
     "next": "15.5.18",
     "next-auth": "5.0.0-beta.31",

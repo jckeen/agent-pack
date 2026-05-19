@@ -1,5 +1,5 @@
 import type { HistoryEntryV1 } from "./types.js";
-import { resolveWorkgraphPaths } from "./paths.js";
+import { resolveAgentpackPaths } from "./paths.js";
 import { readHistory, recordHistory, newHistoryId } from "./history.js";
 import { uninstall } from "./uninstall.js";
 
@@ -29,7 +29,7 @@ export interface RollbackResult {
  * cascade through later installs of the same pack unless `--cascade`.
  */
 export async function rollback(opts: RollbackOptions): Promise<RollbackResult> {
-  const ws = await resolveWorkgraphPaths(opts.projectRoot);
+  const ws = await resolveAgentpackPaths(opts.projectRoot);
   const all = await readHistory(ws);
   if (all.length === 0) {
     throw new Error("No history found — nothing to roll back.");

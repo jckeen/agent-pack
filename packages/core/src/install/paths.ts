@@ -2,40 +2,40 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
 /**
- * `.workgraph/` directory layout under the user's project root. All paths
+ * `.agentpack/` directory layout under the user's project root. All paths
  * returned here are absolute (resolved); the lockfile, install manifest, and
  * history entries store *project-relative* equivalents.
  */
-export interface WorkgraphPaths {
+export interface AgentpackPaths {
   /** Resolved absolute project root. */
   projectRoot: string;
-  /** `<projectRoot>/.workgraph/` */
-  workgraphDir: string;
-  /** `<projectRoot>/.workgraph/installed/` */
+  /** `<projectRoot>/.agentpack/` */
+  agentpackDir: string;
+  /** `<projectRoot>/.agentpack/installed/` */
   installedDir: string;
-  /** `<projectRoot>/.workgraph/backups/` */
+  /** `<projectRoot>/.agentpack/backups/` */
   backupsDir: string;
-  /** `<projectRoot>/.workgraph/history.jsonl` */
+  /** `<projectRoot>/.agentpack/history.jsonl` */
   historyFile: string;
-  /** `<projectRoot>/.workgraph/.lock` — used by proper-lockfile for serializing append. */
+  /** `<projectRoot>/.agentpack/.lock` — used by proper-lockfile for serializing append. */
   historyLockFile: string;
   /** `<projectRoot>/AGENTPACK.lock` */
   lockfilePath: string;
 }
 
-export const WORKGRAPH_DIR_NAME = ".workgraph";
+export const AGENTPACK_DIR_NAME = ".agentpack";
 export const LOCKFILE_NAME = "AGENTPACK.lock";
 export const HISTORY_FILE_NAME = "history.jsonl";
 export const INSTALLED_DIR_NAME = "installed";
 export const BACKUPS_DIR_NAME = "backups";
 
 /**
- * Resolve absolute paths for the `.workgraph/` workspace under `projectRoot`.
+ * Resolve absolute paths for the `.agentpack/` workspace under `projectRoot`.
  * Validates that `projectRoot` exists and is a directory.
  */
-export async function resolveWorkgraphPaths(
+export async function resolveAgentpackPaths(
   projectRoot: string,
-): Promise<WorkgraphPaths> {
+): Promise<AgentpackPaths> {
   const abs = path.resolve(projectRoot);
   let stat;
   try {
@@ -49,19 +49,19 @@ export async function resolveWorkgraphPaths(
     throw new Error(`projectRoot is not a directory: ${abs}`);
   }
   const realRoot = await fs.realpath(abs);
-  const workgraphDir = path.join(realRoot, WORKGRAPH_DIR_NAME);
+  const agentpackDir = path.join(realRoot, AGENTPACK_DIR_NAME);
   return {
     projectRoot: realRoot,
-    workgraphDir,
-    installedDir: path.join(workgraphDir, INSTALLED_DIR_NAME),
-    backupsDir: path.join(workgraphDir, BACKUPS_DIR_NAME),
-    historyFile: path.join(workgraphDir, HISTORY_FILE_NAME),
-    historyLockFile: path.join(workgraphDir, ".lock"),
+    agentpackDir,
+    installedDir: path.join(agentpackDir, INSTALLED_DIR_NAME),
+    backupsDir: path.join(agentpackDir, BACKUPS_DIR_NAME),
+    historyFile: path.join(agentpackDir, HISTORY_FILE_NAME),
+    historyLockFile: path.join(agentpackDir, ".lock"),
     lockfilePath: path.join(realRoot, LOCKFILE_NAME),
   };
 }
 
-export async function ensureWorkgraphDirs(p: WorkgraphPaths): Promise<void> {
+export async function ensureAgentpackDirs(p: AgentpackPaths): Promise<void> {
   await fs.mkdir(p.installedDir, { recursive: true });
   await fs.mkdir(p.backupsDir, { recursive: true });
 }
@@ -159,12 +159,12 @@ async function canonicalize(p: string): Promise<string> {
   }
 }
 
-export function installManifestPath(p: WorkgraphPaths, packId: string): string {
+export function installManifestPath(p: AgentpackPaths, packId: string): string {
   return path.join(p.installedDir, `${sanitizePackIdForFile(packId)}.json`);
 }
 
 export function backupDirForInstall(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   packId: string,
   timestampMs: number,
   nonceHex6: string,
@@ -174,9 +174,9 @@ export function backupDirForInstall(
 }
 
 /**
- * Pack IDs are dotted (e.g. `workgraph.pr-quality`). Filesystem-safe form
+ * Pack IDs are dotted (e.g. `agentpack.pr-quality`). Filesystem-safe form
  * replaces `/` (none expected, but defensive) with `_`. The dotted form is
- * preserved because users will grep `.workgraph/installed/` for pack names.
+ * preserved because users will grep `.agentpack/installed/` for pack names.
  */
 export function sanitizePackIdForFile(packId: string): string {
   return packId.replace(/[/\\]/g, "_");

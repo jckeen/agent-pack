@@ -24,12 +24,12 @@ afterEach(async () => {
 });
 
 async function writePolicy(content: string): Promise<void> {
-  await fs.writeFile(path.join(tmpDir, "workgraph.policy.json"), content);
+  await fs.writeFile(path.join(tmpDir, "agentpack.policy.json"), content);
 }
 
 const basePlan: PolicyEnforcementPlan = {
-  packId: "workgraph/pr-quality",
-  publisher: "workgraph",
+  packId: "agentpack/pr-quality",
+  publisher: "agentpack",
   pack: "pr-quality",
   target: "claude-code",
   profile: "safe",
@@ -65,7 +65,7 @@ describe("loadPolicy", () => {
 
 describe("enforcePolicy", () => {
   it("allows when policy null", () => {
-    const res = enforcePolicy(null, basePlan, "https://registry.workgraph.dev");
+    const res = enforcePolicy(null, basePlan, "https://registry.agentpack.dev");
     expect(res.ok).toBe(true);
   });
 
@@ -80,7 +80,7 @@ describe("enforcePolicy", () => {
     const res = enforcePolicy(
       policy,
       basePlan,
-      "https://registry.workgraph.dev"
+      "https://registry.agentpack.dev"
     );
     expect(res.ok).toBe(false);
     if (!res.ok)
@@ -98,7 +98,7 @@ describe("enforcePolicy", () => {
     const res = enforcePolicy(
       policy,
       { ...basePlan, profile: "full" },
-      "https://registry.workgraph.dev"
+      "https://registry.agentpack.dev"
     );
     expect(res.ok).toBe(false);
     if (!res.ok)
@@ -116,7 +116,7 @@ describe("enforcePolicy", () => {
     const res = enforcePolicy(
       policy,
       { ...basePlan, atomTypes: ["skill", "hook"] },
-      "https://registry.workgraph.dev"
+      "https://registry.agentpack.dev"
     );
     expect(res.ok).toBe(false);
     if (!res.ok)
@@ -134,7 +134,7 @@ describe("enforcePolicy", () => {
     const res = enforcePolicy(
       policy,
       basePlan,
-      "https://registry.workgraph.dev"
+      "https://registry.agentpack.dev"
     );
     expect(res.ok).toBe(false);
     if (!res.ok)
@@ -152,7 +152,7 @@ describe("enforcePolicy", () => {
     const res = enforcePolicy(
       policy,
       basePlan,
-      "https://registry.workgraph.dev"
+      "https://registry.agentpack.dev"
     );
     expect(res.ok).toBe(false);
     if (!res.ok)
@@ -163,14 +163,14 @@ describe("enforcePolicy", () => {
     const policy: PolicyConfig = {
       policyVersion: POLICY_VERSION,
       registries: { allowed: [] },
-      packs: { blockedPacks: ["workgraph/pr-quality"] },
+      packs: { blockedPacks: ["agentpack/pr-quality"] },
       install: {},
       verify: {},
     };
     const res = enforcePolicy(
       policy,
       basePlan,
-      "https://registry.workgraph.dev"
+      "https://registry.agentpack.dev"
     );
     expect(res.ok).toBe(false);
     if (!res.ok)
@@ -188,7 +188,7 @@ describe("enforcePolicy", () => {
     const res = enforcePolicy(
       policy,
       { ...basePlan, profile: "full" },
-      "https://registry.workgraph.dev"
+      "https://registry.agentpack.dev"
     );
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.violations.length).toBeGreaterThanOrEqual(4);

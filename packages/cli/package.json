@@ -1,12 +1,12 @@
 {
-  "name": "@workgraph/cli",
+  "name": "@agentpack/cli",
   "version": "0.2.0",
   "private": true,
-  "description": "workgraph CLI — validate, inspect, plan, export, install, uninstall, verify, and rollback AgentPacks.",
+  "description": "agentpack CLI — validate, inspect, plan, export, install, uninstall, verify, and rollback AgentPacks.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "workgraph": "./dist/index.js"
+    "agentpack": "./dist/index.js"
   },
   "files": [
     "dist",
@@ -18,13 +18,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/index.ts",
     "prebuild:check": "tsc -p tsconfig.json --noEmit",
-    "pretest": "pnpm --filter @workgraph/core build && tsc -p tsconfig.json",
-    "pretest:coverage": "pnpm --filter @workgraph/core build && tsc -p tsconfig.json",
+    "pretest": "pnpm --filter @agentpack/core build && tsc -p tsconfig.json",
+    "pretest:coverage": "pnpm --filter @agentpack/core build && tsc -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@workgraph/core": "workspace:*",
+    "@agentpack/core": "workspace:*",
     "commander": "12.1.0",
     "diff": "7.0.0",
     "ora": "8.1.1",

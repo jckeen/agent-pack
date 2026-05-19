@@ -35,6 +35,12 @@ importers:
 
   apps/registry:
     dependencies:
+      '@agentpack/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@agentpack/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@auth/drizzle-adapter':
         specifier: 1.11.2
         version: 1.11.2
@@ -47,12 +53,6 @@ importers:
       '@neondatabase/serverless':
         specifier: 1.1.0
         version: 1.1.0
-      '@workgraph/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@workgraph/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@neondatabase/serverless@1.1.0)(postgres@3.4.9)
@@ -108,7 +108,7 @@ importers:
 
   packages/cli:
     dependencies:
-      '@workgraph/core':
+      '@agentpack/core':
         specifier: workspace:*
         version: link:../core
       commander:

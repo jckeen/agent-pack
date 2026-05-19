@@ -13,7 +13,7 @@ import {
   type ResolvedAtom,
   type SeedPack,
   type ValidationResult,
-} from "@workgraph/core";
+} from "@agentpack/core";
 
 export interface RegistryPackDetail {
   seed: SeedPack;

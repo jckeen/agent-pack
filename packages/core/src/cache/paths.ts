@@ -1,15 +1,15 @@
 /**
- * Resolve the canonical `~/.workgraph/cache/...` paths.
+ * Resolve the canonical `~/.agentpack/cache/...` paths.
  *
  * Honors `process.env.WORKGRAPH_HOME` as an override for testing — when set,
- * the cache root is `<WORKGRAPH_HOME>/cache/` instead of `$HOME/.workgraph/cache/`.
+ * the cache root is `<WORKGRAPH_HOME>/cache/` instead of `$HOME/.agentpack/cache/`.
  */
 
 import path from "node:path";
 import os from "node:os";
 
 export interface CachePaths {
-  /** Workgraph home directory — `~/.workgraph` by default. */
+  /** AgentPack home directory — `~/.agentpack` by default. */
   home: string;
   /** Cache root — `<home>/cache`. */
   root: string;
@@ -21,12 +21,12 @@ export interface CachePaths {
   packs: string;
 }
 
-export function getWorkgraphHome(): string {
-  return process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".workgraph");
+export function getAgentpackHome(): string {
+  return process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".agentpack");
 }
 
 export function getCachePaths(home?: string): CachePaths {
-  const resolvedHome = home ?? getWorkgraphHome();
+  const resolvedHome = home ?? getAgentpackHome();
   const root = path.join(resolvedHome, "cache");
   return {
     home: resolvedHome,

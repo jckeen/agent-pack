@@ -5,7 +5,7 @@ import type { AdapterOutputFile, ProfileName, TargetPlatform } from "../schema/t
 import type { InstallPlanV2, DiffEntry, LockfileV1 } from "./types.js";
 import { exportPack } from "../exports/exportPack.js";
 import { loadManifest } from "../parser/loadManifest.js";
-import { resolveWorkgraphPaths, ensureWorkgraphDirs, realpathContained } from "./paths.js";
+import { resolveAgentpackPaths, ensureAgentpackDirs, realpathContained } from "./paths.js";
 import { buildLockfile } from "./lockfile.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 
@@ -40,13 +40,13 @@ export interface PlanInstallOptions {
  *   3. Build the LockfileV1 from the staged files (deterministic; no timestamps).
  */
 export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlanV2> {
-  const ws = await resolveWorkgraphPaths(opts.projectRoot);
-  await ensureWorkgraphDirs(ws);
+  const ws = await resolveAgentpackPaths(opts.projectRoot);
+  await ensureAgentpackDirs(ws);
   const loaded = await loadManifest(opts.source);
 
   // We reuse exportPack's staging logic by writing to a temp dir. This keeps
   // export semantics single-sourced. The temp dir is cleaned at the end.
-  const tmp = await fs.mkdtemp(path.join(ws.workgraphDir, ".plan-staging-"));
+  const tmp = await fs.mkdtemp(path.join(ws.agentpackDir, ".plan-staging-"));
   try {
     const result = await exportPack({
       source: opts.source,

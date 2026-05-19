@@ -37,7 +37,7 @@ The Phase 3+5 scaffold quietly preserved Phase 6's schema shape so that flipping
 | Org-scoped publishers | `publishers.org_id` is nullable, no FK enforced yet | Add FK constraint + backfill personal publishers to org_id null permanently |
 | Audit events | `audit_events` table exists, hash-chain primitive (`previous_entry_id`, `entry_checksum`) borrows Phase 2's `history.jsonl` shape | Wire writes from every state-mutating route; expose `GET /api/orgs/<slug>/audit?since=…` |
 | User identity | NextAuth v5 with GitHub OAuth | Add WorkOS provider alongside GitHub; org binding via Directory Sync claim |
-| Policy fetch | CLI already reads `workgraph.policy.json` locally (Phase 5) | Add `GET /api/orgs/<slug>/policy` server route + CLI fallback chain |
+| Policy fetch | CLI already reads `agentpack.policy.json` locally (Phase 5) | Add `GET /api/orgs/<slug>/policy` server route + CLI fallback chain |
 
 ## The 8 decisions to revisit when triggered
 
@@ -48,7 +48,7 @@ Each is roadmapped in `Plans/ROADMAP.md` § Phase 6. The gate revisits them — 
 | 1 | Org/workspace model | Single-tenant SaaS first; OSS self-host as Phase 6.5 | Customer may demand self-host on day one — pull Phase 6.5 forward |
 | 2 | SSO provider | WorkOS | Confirm customer's IdP works (Okta/Azure AD/Google Workspace all WorkOS-supported); pin pricing tier |
 | 3 | Audit-event chain | Per-org hash chain reusing Phase 2 primitive | Confirm export format (JSON Lines stream? S3 dump?) and retention (90 days? indefinite?) |
-| 4 | Policy-as-code DSL | Declarative JSON (extends `workgraph.policy.json` v1) | If customer's policy needs > declarative, accelerate OPA/Rego (Phase 6.5+) |
+| 4 | Policy-as-code DSL | Declarative JSON (extends `agentpack.policy.json` v1) | If customer's policy needs > declarative, accelerate OPA/Rego (Phase 6.5+) |
 | 5 | Billing model | Defer — open source has no billing surface today | Decide seat-based vs usage-based vs flat-tier on the call |
 | 6 | Tenant isolation | Logical only (org_id column) in Phase 6; Phase 6.5 adds dedicated-DB option | Compliance regime (FedRAMP, SOC2, HIPAA) may force dedicated infra |
 | 7 | PII handling | Minimum — name + email + org membership only | Customer may demand GDPR/CCPA workflows (delete-user endpoint, data export) |
@@ -59,7 +59,7 @@ Each is roadmapped in `Plans/ROADMAP.md` § Phase 6. The gate revisits them — 
 - **Too early to build now.** Demand is unproven. Every speculative Phase 6 line of code carries the risk of being wrong for the actual first customer's shape.
 - **Too late to wait for a signed contract.** Procurement cycles take months. If we wait for the ink to dry, we'll be in implementation hell during the customer's first 60 days when they wanted to be onboarded.
 - **Conversation = right precision.** A real conversation gives us: (a) a person, (b) a timeline, (c) constraints that disambiguate the 8 decisions above. That's exactly the input the Roadmap can't predict.
-- **Open-source posture preserved.** We don't ship features for hypothetical customers; we ship them for known ones. Until then, every cycle goes to Phases 4 + 5 + 7 (signatures, remote install, Workgraph integration) — features that benefit every user.
+- **Open-source posture preserved.** We don't ship features for hypothetical customers; we ship them for known ones. Until then, every cycle goes to Phases 4 + 5 + 7 (signatures, remote install, AgentPack integration) — features that benefit every user.
 
 ## Gate-flip procedure (when triggered)
 

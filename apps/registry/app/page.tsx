@@ -47,14 +47,14 @@ export default function HomePage() {
           </span>
           <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-relaxed">
 {`# Validate a pack
-npx workgraph validate examples/pr-quality
+npx agentpack validate examples/pr-quality
 
 # Plan an install for Claude Code, safe profile
-npx workgraph plan examples/pr-quality \\
+npx agentpack plan examples/pr-quality \\
   --target claude-code --profile safe
 
 # Export to native files
-npx workgraph pack export examples/pr-quality \\
+npx agentpack pack export examples/pr-quality \\
   --target claude-code --profile safe \\
   --out dist/claude`}
           </pre>

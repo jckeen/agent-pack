@@ -5,7 +5,7 @@ import type {
   TargetPlatform,
 } from "../schema/types.js";
 import type { HistoryEntryV1 } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
 import { canonicalJson, sha256Hex } from "./checksum.js";
 
 const TARGETS = [
@@ -78,7 +78,7 @@ function stripChecksum<T extends { entryChecksum: string }>(o: T): Omit<T, "entr
  * Read every history entry. Returns an empty array if the file does not exist.
  * Lines that fail to parse are surfaced as errors (no silent skip).
  */
-export async function readHistory(p: WorkgraphPaths): Promise<HistoryEntryV1[]> {
+export async function readHistory(p: AgentpackPaths): Promise<HistoryEntryV1[]> {
   let raw: string;
   try {
     raw = await fs.readFile(p.historyFile, "utf8");
@@ -120,7 +120,7 @@ export async function readHistory(p: WorkgraphPaths): Promise<HistoryEntryV1[]> 
  * via `sealEntry()`; this function only writes.
  */
 export async function appendHistoryEntry(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   entry: HistoryEntryV1,
 ): Promise<void> {
   await withHistoryLock(p, async () => {
@@ -157,7 +157,7 @@ const CONTROL_CHAR_RX = new RegExp(
  * smuggle data into the immortalized chain. See security-reviewer #5.
  */
 export async function recordHistory(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   partial: Omit<HistoryEntryV1, "previousEntryId" | "entryChecksum">,
 ): Promise<HistoryEntryV1> {
   return withHistoryLock(p, async () => {
@@ -185,7 +185,7 @@ function sanitizeError(s: string): string {
 }
 
 async function readHistoryTailUnlocked(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
 ): Promise<HistoryEntryV1 | undefined> {
   let raw: string;
   try {
@@ -243,19 +243,19 @@ export function verifyChain(
  * flagged in finding #4).
  *
  * Phase 2 ships with this hand-rolled lock to avoid the proper-lockfile
- * dependency in @workgraph/core. The contract is "single user, single host,
+ * dependency in @agentpack/core. The contract is "single user, single host,
  * cooperative concurrent CLI invocations." Phase 3 may swap in
  * proper-lockfile if multi-host workflows arrive.
  */
 async function withHistoryLock<T>(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   fn: () => Promise<T>,
 ): Promise<T> {
   const lockDir = p.historyLockFile;
   const start = Date.now();
   const timeoutMs = 10_000;
   const staleMs = 5 * 60_000;
-  await fs.mkdir(p.workgraphDir, { recursive: true });
+  await fs.mkdir(p.agentpackDir, { recursive: true });
   let nonce = "";
   while (true) {
     try {
@@ -285,7 +285,7 @@ async function withHistoryLock<T>(
       }
       if (Date.now() - start > timeoutMs) {
         throw new Error(
-          `Could not acquire .workgraph/.lock within ${timeoutMs}ms — another workgraph CLI may be running.`,
+          `Could not acquire .agentpack/.lock within ${timeoutMs}ms — another agentpack CLI may be running.`,
         );
       }
       await sleep(50);

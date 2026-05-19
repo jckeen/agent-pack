@@ -34,7 +34,7 @@ export const apiTokens = pgTable(
     tokenSha256: text("token_sha256").notNull(),
     /**
      * Array of scope strings — matches `tokenScopeSchema` in
-     * `@workgraph/core/protocol`. Stored as jsonb so we can index by scope
+     * `@agentpack/core/protocol`. Stored as jsonb so we can index by scope
      * with `jsonb_path_ops` later if needed.
      */
     scopes: jsonb("scopes").notNull().$type<string[]>(),

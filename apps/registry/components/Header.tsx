@@ -16,7 +16,7 @@ export function Header() {
             className="inline-block h-7 w-7 rounded-md bg-gradient-to-br from-accent-500 to-accent-700"
           />
           <span className="font-semibold tracking-tight text-ink-900">
-            Workgraph
+            AgentPack
           </span>
           <span className="ml-1 text-ink-400">Registry</span>
         </Link>

@@ -1,5 +1,5 @@
 /**
- * @workgraph/db — Workgraph Registry database layer.
+ * @agentpack/db — AgentPack Registry database layer.
  *
  * Stub committed by the protocol-commit phase. The Foundation worktree (W1)
  * fills in the Drizzle schema, queries, and migrations against the column

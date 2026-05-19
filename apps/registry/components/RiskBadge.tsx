@@ -1,4 +1,4 @@
-import type { RiskLevel } from "@workgraph/core";
+import type { RiskLevel } from "@agentpack/core";
 
 const RISK_CLASS: Record<RiskLevel, string> = {
   low: "bg-emerald-50 text-emerald-700 border-emerald-200",

@@ -4,7 +4,7 @@ import type {
   PermissionSummary,
   RiskLevel,
   ValidationResult,
-} from "@workgraph/core";
+} from "@agentpack/core";
 
 const RISK_COLOR: Record<RiskLevel, (s: string) => string> = {
   low: pc.green,

@@ -17,10 +17,10 @@ export function InstallCommandBox({
   profile = "safe",
 }: Props) {
   const sourcePath = `examples/${slug}`;
-  const installCmd = `npx workgraph install ${sourcePath} --target ${target} --profile ${profile}`;
-  const exportCmd = `npx workgraph pack export ${sourcePath} --target ${target} --profile ${profile} --out dist/${target}`;
-  const validateCmd = `npx workgraph validate ${sourcePath}`;
-  const verifyCmd = `npx workgraph verify ${publisher}.${slug}`;
+  const installCmd = `npx agentpack install ${sourcePath} --target ${target} --profile ${profile}`;
+  const exportCmd = `npx agentpack pack export ${sourcePath} --target ${target} --profile ${profile} --out dist/${target}`;
+  const validateCmd = `npx agentpack validate ${sourcePath}`;
+  const verifyCmd = `npx agentpack verify ${publisher}.${slug}`;
   return (
     <div className="space-y-3">
       <CopyableLine label="Validate" cmd={validateCmd} />
@@ -32,7 +32,7 @@ export function InstallCommandBox({
         writing; pass <code className="font-mono">--dry-run</code> to preview, <code className="font-mono">--yes</code> to skip the prompt, or{" "}
         <code className="font-mono">--force</code> to overwrite files without an AgentPack marker.
         The lockfile (<code className="font-mono">AGENTPACK.lock</code>) is committed; everything else under{" "}
-        <code className="font-mono">.workgraph/</code> is per-machine.
+        <code className="font-mono">.agentpack/</code> is per-machine.
       </p>
     </div>
   );

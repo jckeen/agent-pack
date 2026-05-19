@@ -1,4 +1,4 @@
-// Public entry point for @workgraph/core.
+// Public entry point for @agentpack/core.
 
 // Protocol module — wire shapes for the Phase 3 registry + Phase 5 remote install.
 // Source of truth: Plans/PROTOCOL.md.
@@ -88,12 +88,12 @@ export {
   normalizeForHash,
   sha256OfFile,
   sortByPath,
-  resolveWorkgraphPaths,
-  ensureWorkgraphDirs,
+  resolveAgentpackPaths,
+  ensureAgentpackDirs,
   toRelative,
   fromRelative,
   realpathContained,
-  WORKGRAPH_DIR_NAME,
+  AGENTPACK_DIR_NAME,
   LOCKFILE_NAME,
   HISTORY_FILE_NAME,
   INSTALLED_DIR_NAME,
@@ -143,7 +143,7 @@ export type {
   InstallPlanV2,
   VerifyResult,
   DiffEntry,
-  WorkgraphPaths,
+  AgentpackPaths,
   ApplyInstallOptions,
   ApplyInstallResult,
   UninstallOptions,

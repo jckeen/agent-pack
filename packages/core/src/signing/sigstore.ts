@@ -99,7 +99,7 @@ export async function signManifestChecksum(
   let bundle: Bundle;
   try {
     bundle = await bundler.create({
-      type: "application/vnd.workgraph.agentpack-manifest+text",
+      type: "application/vnd.agentpack.manifest+text",
       data: Buffer.from(opts.manifestChecksum, "utf-8"),
     });
   } catch (err) {

@@ -1,7 +1,7 @@
-# `workgraph publish` — publishing to the registry
+# `agentpack publish` — publishing to the registry
 
-`workgraph publish` uploads a local pack directory to the Workgraph Registry.
-The pack becomes installable by anyone with `workgraph install <publisher>/<pack>@<version>`.
+`agentpack publish` uploads a local pack directory to the AgentPack Registry.
+The pack becomes installable by anyone with `agentpack install <publisher>/<pack>@<version>`.
 
 This document is the operator/developer reference. The wire contract lives in
 `Plans/PROTOCOL.md`; the registry-side mechanics live in `docs/registry.md`.
@@ -12,31 +12,31 @@ This document is the operator/developer reference. The wire contract lives in
 
 ```bash
 # 1. Authenticate (one-time per machine)
-workgraph login
-# → opens browser to https://registry.workgraph.dev/cli/auth
+agentpack login
+# → opens browser to https://registry.agentpack.dev/cli/auth
 # → enter the user code shown in your terminal
-# → credentials written to ~/.workgraph/credentials.json (mode 0600)
+# → credentials written to ~/.agentpack/credentials.json (mode 0600)
 
 # 2. Verify you're authenticated
-workgraph whoami
-# → Logged in as alice (publisher: workgraph, acme)
+agentpack whoami
+# → Logged in as alice (publisher: agentpack, acme)
 
 # 3. Publish
 cd path/to/your/pack
-workgraph publish
+agentpack publish
 # → reads AGENTPACK.yaml, computes per-file hashes
-# → summary: workgraph/pr-quality@0.1.0, 12 files, 84.2 KB → registry.workgraph.dev
+# → summary: agentpack/pr-quality@0.1.0, 12 files, 84.2 KB → registry.agentpack.dev
 # → [y/N] confirmation (use --yes to skip)
 # → uploads each file via presigned R2 PUT
 # → finalizes
-# → Published workgraph/pr-quality@0.1.0 → https://registry.workgraph.dev/packs/workgraph/pr-quality/0.1.0
+# → Published agentpack/pr-quality@0.1.0 → https://registry.agentpack.dev/packs/agentpack/pr-quality/0.1.0
 ```
 
 ---
 
 ## Authentication
 
-### Login flow (`workgraph login`)
+### Login flow (`agentpack login`)
 
 Device-code OAuth:
 
@@ -44,15 +44,15 @@ Device-code OAuth:
 2. CLI prints the user code and opens `verificationUrl` in the user's default browser (`xdg-open`/`open`/`start`).
 3. User signs in via GitHub OAuth, enters the user code on the registry's web UI, approves the request.
 4. CLI polls `POST /api/cli/auth/poll` every `interval` seconds. On `complete`, the response carries the bearer token + user identity.
-5. CLI writes `~/.workgraph/credentials.json` with mode `0o600` on POSIX.
+5. CLI writes `~/.agentpack/credentials.json` with mode `0o600` on POSIX.
 
 ### Credentials file
 
 ```json
 {
   "registries": {
-    "https://registry.workgraph.dev": {
-      "token": "wgp_live_...",
+    "https://registry.agentpack.dev": {
+      "token": "agp_live_...",
       "scopes": ["read:packs", "publish:packs"],
       "username": "alice"
     }
@@ -71,20 +71,20 @@ One token per registry. `--registry <url>` flag selects which entry to use.
 | `publish:packs` | Publishing new versions to **any** publisher you have membership in. Scoped form: `publish:packs@<publisher>` — narrow to a single publisher |
 | `admin:registry` | Registry-administrative actions (quarantine/block versions). Not granted by default — registry admins only |
 
-The default scope granted by `workgraph login` is `read:packs publish:packs` — the
+The default scope granted by `agentpack login` is `read:packs publish:packs` — the
 minimum for the round-trip.
 
 ### Manual token management
 
 ```bash
 # Mint a new token (requires logged-in session in the browser; the CLI also has shortcuts)
-workgraph tokens create --name "ci-publish" --scopes publish:packs@workgraph
+agentpack tokens create --name "ci-publish" --scopes publish:packs@agentpack
 
 # List your tokens
-workgraph tokens list
+agentpack tokens list
 
 # Revoke
-workgraph tokens revoke <token-id>
+agentpack tokens revoke <token-id>
 ```
 
 The full token value is **shown once** at creation and never again. Store it in
@@ -97,19 +97,19 @@ your CI secret manager (GitHub Actions, etc.).
 ### Command shape
 
 ```
-workgraph publish [path] [options]
+agentpack publish [path] [options]
 
 Arguments:
   path                    Pack directory (default: current dir)
 
 Options:
-  --registry <url>        Override registry URL (default: https://registry.workgraph.dev)
+  --registry <url>        Override registry URL (default: https://registry.agentpack.dev)
   --yes                   Skip the interactive confirmation prompt
 ```
 
 ### What gets uploaded
 
-`workgraph publish` walks the resolved atom tree and uploads:
+`agentpack publish` walks the resolved atom tree and uploads:
 
 - `AGENTPACK.yaml` (the manifest) — verified by `manifestSha256` of canonical bytes.
 - `README.md` (if present) — referenced as `metadata.readme`.
@@ -177,14 +177,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
 
-      - name: Publish to Workgraph Registry
+      - name: Publish to AgentPack Registry
         env:
-          WORKGRAPH_TOKEN: ${{ secrets.WORKGRAPH_PUBLISH_TOKEN }}
-        run: pnpm -r workgraph publish --yes
+          AGENTPACK_TOKEN: ${{ secrets.WORKGRAPH_PUBLISH_TOKEN }}
+        run: pnpm -r agentpack publish --yes
 ```
 
-Mint a CI-scoped token via `workgraph tokens create --name "github-publish" --scopes publish:packs@<publisher>`.
-Store as a repo secret. The CLI reads `WORKGRAPH_TOKEN` from env when no
+Mint a CI-scoped token via `agentpack tokens create --name "github-publish" --scopes publish:packs@<publisher>`.
+Store as a repo secret. The CLI reads `AGENTPACK_TOKEN` from env when no
 credentials file is present.
 
 ---

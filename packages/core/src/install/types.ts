@@ -95,7 +95,7 @@ export interface LockfileV1 {
 }
 
 /**
- * Per-machine install manifest at `.workgraph/installed/<packId>.json`.
+ * Per-machine install manifest at `.agentpack/installed/<packId>.json`.
  * Authoritative source for uninstall. NOT committed (per-machine).
  */
 export interface InstallManifestV1 {
@@ -139,7 +139,7 @@ export interface HistoryActor {
 }
 
 /**
- * One line of `.workgraph/history.jsonl`. Append-only, globally sequenced,
+ * One line of `.agentpack/history.jsonl`. Append-only, globally sequenced,
  * hash-chained. Phase 2 WAL: install_begin (with plannedFiles) before any file
  * write; install_commit after; absence of commit indicates a crashed install.
  */
@@ -242,8 +242,8 @@ export interface DiffEntry {
 }
 
 /**
- * Re-export `WorkgraphPaths` from paths.ts so all `./types.js` imports across
+ * Re-export `AgentpackPaths` from paths.ts so all `./types.js` imports across
  * the install module resolve consistently. The actual definition lives in
  * paths.ts to avoid a circular-import on path utilities.
  */
-export type { WorkgraphPaths } from "./paths.js";
+export type { AgentpackPaths } from "./paths.js";

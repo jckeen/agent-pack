@@ -1,4 +1,4 @@
-# `workgraph.policy.json` — install policy
+# `agentpack.policy.json` — install policy
 
 A project-level guardrail. When present, the CLI loads it on every install (and
 verify) and refuses to proceed if any rule is violated.
@@ -14,11 +14,11 @@ the zod schema lives in `packages/core/src/policy/schema.ts`.
 {
   "policyVersion": 1,
   "registries": {
-    "allowed": ["https://registry.workgraph.dev"],
-    "default": "https://registry.workgraph.dev"
+    "allowed": ["https://registry.agentpack.dev"],
+    "default": "https://registry.agentpack.dev"
   },
   "packs": {
-    "allowedPublishers": ["workgraph", "acme"],
+    "allowedPublishers": ["agentpack", "acme"],
     "blockedPacks": ["evil-corp/sketchy-pack"]
   },
   "install": {
@@ -34,7 +34,7 @@ the zod schema lives in `packages/core/src/policy/schema.ts`.
 ```
 
 Place this file at the project root (next to `package.json` /  `AGENTPACK.yaml`).
-**Not** under `.workgraph/` — like `.editorconfig` it is user-authored, hand-edited,
+**Not** under `.agentpack/` — like `.editorconfig` it is user-authored, hand-edited,
 and meant to be committed.
 
 ---
@@ -51,8 +51,8 @@ and meant to be committed.
 | `install.requireSignature` | `boolean` | `false` | Reject packs with no cosign signature (Phase 4-ready; currently always rejects until Phase 4 lands). |
 | `install.allowedProfiles` | `ProfileName[]` | none | Restrict installable profiles. |
 | `install.deniedAtomTypes` | `AtomType[]` | none | Reject plans containing any of these atom types. |
-| `verify.onInstall` | `off \| warn \| required` | none | Run `workgraph verify` after install. Reserved for Phase 4 wiring. |
-| `verify.chain` | `off \| warn \| required` | none | Run `workgraph verify --chain` after install. Reserved. |
+| `verify.onInstall` | `off \| warn \| required` | none | Run `agentpack verify` after install. Reserved for Phase 4 wiring. |
+| `verify.chain` | `off \| warn \| required` | none | Run `agentpack verify --chain` after install. Reserved. |
 
 ---
 
@@ -78,7 +78,7 @@ them all then exits **6** (`ExitCode.PolicyViolation`).
 ```json
 {
   "policyVersion": 1,
-  "registries": { "allowed": [], "default": "https://registry.workgraph.dev" },
+  "registries": { "allowed": [], "default": "https://registry.agentpack.dev" },
   "packs": {},
   "install": { "allowedProfiles": ["safe"] }
 }
@@ -93,10 +93,10 @@ all stay off.
 {
   "policyVersion": 1,
   "registries": {
-    "allowed": ["https://registry.workgraph.dev", "https://internal.acme.example.com"],
+    "allowed": ["https://registry.agentpack.dev", "https://internal.acme.example.com"],
     "default": "https://internal.acme.example.com"
   },
-  "packs": { "allowedPublishers": ["acme", "workgraph"] },
+  "packs": { "allowedPublishers": ["acme", "agentpack"] },
   "install": {
     "requireSignature": true,
     "allowedProfiles": ["safe", "standard"],

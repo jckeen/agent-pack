@@ -8,12 +8,12 @@ The product is acceptable when all items below pass.
 2. `pnpm build` works.
 3. `pnpm test` works.
 4. `pnpm dev` starts the registry app.
-5. `pnpm --filter @workgraph/cli build` works.
+5. `pnpm --filter @agentpack/cli build` works.
 
 ## CLI
 
-1. `workgraph validate examples/pr-quality` validates the example pack.
-2. `workgraph inspect examples/pr-quality` prints:
+1. `agentpack validate examples/pr-quality` validates the example pack.
+2. `agentpack inspect examples/pr-quality` prints:
    - name
    - version
    - publisher
@@ -22,28 +22,28 @@ The product is acceptable when all items below pass.
    - atoms
    - risk
    - permissions
-3. `workgraph plan examples/pr-quality --target claude-code --profile safe` prints:
+3. `agentpack plan examples/pr-quality --target claude-code --profile safe` prints:
    - selected atoms
    - low risk
    - permissions
    - generated files
-4. `workgraph plan examples/pr-quality --target claude-code --profile full` warns about:
+4. `agentpack plan examples/pr-quality --target claude-code --profile full` warns about:
    - shell execution
    - hook
    - GitHub MCP
    - `GITHUB_TOKEN`
-5. `workgraph pack export examples/pr-quality --target claude-code --out dist/claude` writes:
+5. `agentpack pack export examples/pr-quality --target claude-code --out dist/claude` writes:
    - `dist/claude/CLAUDE.md`
    - `dist/claude/.claude/skills/code-review/SKILL.md`
    - `dist/claude/.claude/agents/security-reviewer.md` for standard/full profile
-6. `workgraph pack export examples/pr-quality --target codex --out dist/codex` writes:
+6. `agentpack pack export examples/pr-quality --target codex --out dist/codex` writes:
    - `dist/codex/AGENTS.md`
    - `dist/codex/.codex/config.toml`
    - `dist/codex/.codex/skills/code-review/SKILL.md`
-7. `workgraph pack export examples/pr-quality --target cursor --out dist/cursor` writes:
+7. `agentpack pack export examples/pr-quality --target cursor --out dist/cursor` writes:
    - `dist/cursor/AGENTS.md`
    - `dist/cursor/.cursor/rules/security-review-required.mdc`
-8. `workgraph pack export examples/pr-quality --target generic --out dist/generic` writes:
+8. `agentpack pack export examples/pr-quality --target generic --out dist/generic` writes:
    - `dist/generic/AGENTS.md`
    - `dist/generic/skills/code-review/SKILL.md`
    - `dist/generic/agentpack.json`

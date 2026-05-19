@@ -8,7 +8,7 @@ const CLI_ENTRY = path.resolve(__dirname, "../dist/index.js");
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const EXAMPLE = path.resolve(REPO_ROOT, "examples/pr-quality");
 
-const TMP_ROOT = path.join(os.tmpdir(), `workgraph-cli-test-${Date.now()}`);
+const TMP_ROOT = path.join(os.tmpdir(), `agentpack-cli-test-${Date.now()}`);
 
 interface RunResult {
   stdout: string;
@@ -50,7 +50,7 @@ afterAll(async () => {
   await fs.rm(TMP_ROOT, { recursive: true, force: true });
 });
 
-describe("workgraph CLI — invocation", () => {
+describe("agentpack CLI — invocation", () => {
   it("--version returns 0.2.0 and exits 0", async () => {
     const r = await run(["--version"]);
     expect(r.code).toBe(0);
@@ -73,7 +73,7 @@ describe("workgraph CLI — invocation", () => {
   });
 });
 
-describe("workgraph validate", () => {
+describe("agentpack validate", () => {
   it("validates the example pack successfully", async () => {
     const r = await run(["validate", EXAMPLE]);
     expect(r.code).toBe(0);
@@ -100,12 +100,12 @@ describe("workgraph validate", () => {
   });
 });
 
-describe("workgraph inspect", () => {
+describe("agentpack inspect", () => {
   it("prints metadata, compatibility, profiles, atoms, and risk preview", async () => {
     const r = await run(["inspect", EXAMPLE]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("Pull Request Quality Pack");
-    expect(r.stdout).toContain("workgraph.pr-quality");
+    expect(r.stdout).toContain("agentpack.pr-quality");
     expect(r.stdout).toContain("Compatibility");
     expect(r.stdout).toContain("Profiles");
     expect(r.stdout).toContain("Atoms (7)");
@@ -119,7 +119,7 @@ describe("workgraph inspect", () => {
   });
 });
 
-describe("workgraph plan", () => {
+describe("agentpack plan", () => {
   it("plan --profile safe reports LOW risk and 4 atoms", async () => {
     const r = await run(["plan", EXAMPLE, "--target", "claude-code", "--profile", "safe"]);
     expect(r.code).toBe(0);
@@ -168,7 +168,7 @@ describe("workgraph plan", () => {
   });
 });
 
-describe("workgraph pack export", () => {
+describe("agentpack pack export", () => {
   it("writes the documented files for every target", async () => {
     const targets = ["claude-code", "codex", "cursor", "chatgpt", "generic"];
     const expected: Record<string, string[]> = {
@@ -236,7 +236,7 @@ describe("workgraph pack export", () => {
   });
 });
 
-describe("workgraph init", () => {
+describe("agentpack init", () => {
   it("creates AGENTPACK.yaml and example atoms in the current directory", async () => {
     const cwd = path.join(TMP_ROOT, "init-target");
     await fs.mkdir(cwd, { recursive: true });
@@ -286,7 +286,7 @@ describe("workgraph init", () => {
   });
 });
 
-describe("workgraph doctor", () => {
+describe("agentpack doctor", () => {
   it("reports node, pnpm, npm, git availability", async () => {
     const r = await run(["doctor"]);
     expect(r.code).toBe(0);

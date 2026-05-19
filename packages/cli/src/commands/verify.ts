@@ -8,7 +8,7 @@ import {
   parseLockfile,
   signing,
   verifyInstall,
-} from "@workgraph/core";
+} from "@agentpack/core";
 
 import { failCleanly } from "../lib/error.js";
 

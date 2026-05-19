@@ -1,12 +1,12 @@
-# Workgraph Registry (Phase 3)
+# AgentPack Registry (Phase 3)
 
-> **Heads up — you might not need this.** AgentPack's default distribution mechanism is **git**: `workgraph install github:owner/repo@ref` works without any hosted registry. The registry exists as an *optional* convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the enterprise self-host path (Phase 6 — 🔒 gated). For everyday OSS publishing, see [the git-source guide](./git-source.md) — that's the leaner path.
+> **Heads up — you might not need this.** AgentPack's default distribution mechanism is **git**: `agentpack install github:owner/repo@ref` works without any hosted registry. The registry exists as an *optional* convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the enterprise self-host path (Phase 6 — 🔒 gated). For everyday OSS publishing, see [the git-source guide](./git-source.md) — that's the leaner path.
 >
 > Read on if you specifically want a hosted catalog, signed-by-default-served-by-the-host UX, or are evaluating the enterprise unlock.
 
 ---
 
-The Workgraph Registry is the hosted catalog that maps `publisher/pack@version`
+The AgentPack Registry is the hosted catalog that maps `publisher/pack@version`
 identities to immutable bytes. Phase 3 (v0.3.0) ships the registry backend
 itself — schema, auth, publish flow, search, and read API. Phase 1's pack
 specification and Phase 2's install machinery are unchanged.
@@ -61,7 +61,7 @@ Key tables (see `Plans/PROTOCOL.md` § 4 for the full column list):
 | Table | Purpose |
 |---|---|
 | `users` | NextAuth-managed; one row per GitHub identity |
-| `publishers` | A namespace for packs (`workgraph`, `stripe`, an org slug) |
+| `publishers` | A namespace for packs (`agentpack`, `stripe`, an org slug) |
 | `publisher_members` | Many-to-many users↔publishers with `owner|maintainer` role |
 | `packs` | One per `<publisher>/<pack>` slug; has `latest_version_id` pointer + `search` tsvector |
 | `pack_versions` | Immutable. `status` is mutable (`published|deprecated|yanked|quarantined|blocked`) |
@@ -88,7 +88,7 @@ pnpm db:push
 pnpm db:generate
 
 # Drizzle Studio
-pnpm --filter @workgraph/db db:studio
+pnpm --filter @agentpack/db db:studio
 ```
 
 The recommended deployment is **Neon Postgres** with `pool_mode=transaction`
@@ -106,22 +106,22 @@ with the Drizzle adapter (`@auth/drizzle-adapter@1.11.2`).
 |---|---|
 | GitHub OAuth sign-in (web) | `/api/auth/signin` (NextAuth) |
 | CLI device-code login | `/api/cli/auth/init` → user signs in on web → `/api/cli/auth/approve` → `/api/cli/auth/poll` |
-| Bearer-token auth (CLI publish, install of private packs) | `Authorization: Bearer wgp_live_...` against `/api/publish/...`, `/api/me`, etc. |
+| Bearer-token auth (CLI publish, install of private packs) | `Authorization: Bearer agp_live_...` against `/api/publish/...`, `/api/me`, etc. |
 
 ### Token format
 
 ```
-wgp_live_<32-hex-chars>
+agp_live_<32-hex-chars>
 └─ prefix 9 chars ─┘└── body 32 chars ──┘
 ```
 
 - Stored as `sha256(token)` (hex lowercase, 64 chars) in `api_tokens.token_sha256`.
-- First 12 chars of the full token (`wgp_live_xxx`) retained in `token_prefix` for UI display.
+- First 12 chars of the full token (`agp_live_xxx`) retained in `token_prefix` for UI display.
 - Scopes (jsonb array): `read:packs`, `read:private`, `publish:packs`, `admin:registry`. Scoped forms allowed: `publish:packs@<publisher>`, `read:private@<publisher>`.
 - `last_used_at` updated fire-and-forget on every verified hit.
 - `revoked_at` is the soft-delete signal. Verification returns null when set.
 
-CLI display **always** masks: `wgp_live_xxxx…<last-4>`. Never log the full token outside the one-time creation response.
+CLI display **always** masks: `agp_live_xxxx…<last-4>`. Never log the full token outside the one-time creation response.
 
 ---
 
@@ -189,7 +189,7 @@ so the cache is too. Quarantined versions return 451 instead of streaming.
 /<publisher>/<pack>/<version>/atoms/<atomId>/<file-path>
 ```
 
-Zero egress pricing — `workgraph install publisher/pack` reads from R2 on every
+Zero egress pricing — `agentpack install publisher/pack` reads from R2 on every
 fetch; Vercel Blob's egress at scale would be expensive. Phase 6 self-host
 customers can swap in their own S3-compatible store via env var.
 
@@ -269,7 +269,7 @@ publish + token routes return 503 in that mode.
 
 ## Deferred to later phases
 
-- **Phase 4** — Sigstore cosign keyless signing; `pack_versions.cosign_signature` column; CLI `workgraph verify --sig`. Schema slots in `LockfileV1.signatures` already reserved.
-- **Phase 5** — `workgraph install publisher/pack@version` (remote fetch). Phase 5 lands the CLI side; this registry already serves the API it needs.
+- **Phase 4** — Sigstore cosign keyless signing; `pack_versions.cosign_signature` column; CLI `agentpack verify --sig`. Schema slots in `LockfileV1.signatures` already reserved.
+- **Phase 5** — `agentpack install publisher/pack@version` (remote fetch). Phase 5 lands the CLI side; this registry already serves the API it needs.
 - **Phase 6** — Orgs, SSO via WorkOS, audit log chain wiring, policy-as-code.
-- **Phase 7** — Workgraph workflow import; trust-signal aggregation; Agent Commons publish bridge.
+- **Phase 7** — AgentPack workflow import; trust-signal aggregation; Agent Commons publish bridge.

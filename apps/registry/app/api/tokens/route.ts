@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { tokenScopeSchema } from "@workgraph/core";
+import { tokenScopeSchema } from "@agentpack/core";
 
 import { auth } from "@/lib/auth";
 import { apiTokens, getDb, publishers } from "@/lib/db";
