@@ -10,7 +10,11 @@ import {
   toRelative,
   backupDirForInstall,
 } from "./paths.js";
-import { writeInstallManifest } from "./manifest.js";
+import {
+  InstallManifestNotFoundError,
+  readInstallManifest,
+  writeInstallManifest,
+} from "./manifest.js";
 import { recordHistory, newHistoryId } from "./history.js";
 import { serializeLockfile, lockfileChecksum } from "./lockfile.js";
 import { sha256Hex, normalizeForHash } from "./checksum.js";
@@ -150,22 +154,24 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
       writtenRelative.push(toRelative(ws.projectRoot, abs));
     }
 
-    // Unchanged files (bit-identical to the planned output and already on
-    // disk) still belong to this install — record them in `created[]` so
-    // uninstall takes ownership and removes them. Without this, a `--force`
-    // re-install over an existing install creates orphans: files written by
-    // the first install but absent from the second manifest's `created[]`.
+    // Carry ownership across a re-install: an `unchanged` file may already
+    // be owned by THIS pack from a previous install. If so, the new manifest
+    // must record it so uninstall still removes it; otherwise the prior
+    // install's tracked file becomes an orphan. We only re-claim what the
+    // prior manifest already claimed — user-owned files that happen to be
+    // bit-identical (a separate, valid `unchanged` case) must NOT be adopted.
     // Confirmed via live probe 2026-05-19 (iter-5 QA finding #1).
+    const priorOwned = await readPriorOwnedPaths(ws, plan.packId);
     for (const f of plan.unchanged) {
-      const abs = path.resolve(ws.projectRoot, f.path);
+      const rel = f.path;
+      if (!priorOwned.has(rel)) continue;
+      const abs = path.resolve(ws.projectRoot, rel);
       await realpathContained(ws.projectRoot, abs);
       const content = normalizeForHash(
         f.content.endsWith("\n") ? f.content : `${f.content}\n`,
       );
       const sha = sha256Hex(content);
-      const rel = toRelative(ws.projectRoot, abs);
-      // Don't double-record if the same path is somehow in created already.
-      if (!created.some((c) => c.path === rel)) {
+      if (!created.some((c) => c.path === rel) && !modifiedRecords.some((m) => m.path === rel)) {
         created.push({ path: rel, sha256: sha });
       }
     }
@@ -268,6 +274,28 @@ async function atomicWriteFile(
   const tmp = `${target}.tmp-${randomBytes(3).toString("hex")}`;
   await fs.writeFile(tmp, content, "utf8");
   await fs.rename(tmp, target);
+}
+
+/**
+ * Read the paths the prior install manifest for `packId` claimed ownership of.
+ * Used to preserve cross-install ownership of `plan.unchanged` files without
+ * incorrectly claiming user-owned files that happen to be bit-identical.
+ * Returns an empty set on first install (no prior manifest).
+ */
+async function readPriorOwnedPaths(
+  ws: WorkgraphPaths,
+  packId: string,
+): Promise<Set<string>> {
+  try {
+    const prior = await readInstallManifest(ws, packId);
+    const owned = new Set<string>();
+    for (const f of prior.created) owned.add(f.path);
+    for (const f of prior.modified) owned.add(f.path);
+    return owned;
+  } catch (err) {
+    if (err instanceof InstallManifestNotFoundError) return new Set();
+    throw err;
+  }
 }
 
 // Re-exported for tests + cli convenience.
