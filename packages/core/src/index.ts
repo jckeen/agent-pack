@@ -1,5 +1,9 @@
 // Public entry point for @workgraph/core.
 
+// Protocol module — wire shapes for the Phase 3 registry + Phase 5 remote install.
+// Source of truth: Plans/PROTOCOL.md.
+export * from "./protocol/index.js";
+
 export * from "./schema/types.js";
 export { agentPackManifestSchema } from "./schema/agentpack.schema.js";
 export {

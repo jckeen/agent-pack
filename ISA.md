@@ -1,13 +1,13 @@
 ---
 project: agent-pack
-task: Build AgentPack standard + Workgraph Registry MVP (Phase 1) + local install/uninstall + supply-chain (Phase 2)
+task: Phase 3 (registry backend) + Phase 5 (remote install) scaffold — DB + auth + publish API + read API + CLI publish/login/install-remote + policy + docs
 effort: E5
-phase: complete
-progress: 150/150 (Phase 1: 68 + Phase 2: 82)
+phase: observe
+progress: 150/267
 mode: ALGORITHM
 started: 2026-05-18T15:17:00-04:00
-updated: 2026-05-18T17:55:00-04:00
-iteration: 3
+updated: 2026-05-18T18:30:00-04:00
+iteration: 4
 ---
 
 ## Problem
@@ -229,6 +229,145 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-141: `pnpm verify` (typecheck + lint + test:coverage + build) exits 0 on iteration-3
 - [x] ISC-142: All Phase-1 ISCs (1..68) still pass after Phase-2 changes (no regression)
 
+### Iteration-4 / Phase 3 + Phase 5 scaffold (this session)
+
+#### Phase 3.A — `packages/db` Drizzle schema
+- [ ] ISC-151: `packages/db/package.json` declares `@workgraph/db` workspace package
+- [ ] ISC-152: `packages/db/drizzle.config.ts` configures Drizzle migrations (`out: ./migrations`)
+- [ ] ISC-153: `users` table schema: `id`, `github_id`, `username`, `email`, `avatar_url`, `created_at`
+- [ ] ISC-154: `publishers` table schema: `id`, `slug` (unique), `display_name`, `verified`, `created_at`
+- [ ] ISC-155: `publisher_members` join table: `publisher_id`, `user_id`, `role` (`owner|maintainer`)
+- [ ] ISC-156: `packs` table: `id`, `publisher_id`, `slug`, `description`, `tags`, `latest_version_id`, `created_at`
+- [ ] ISC-157: `packs.search` tsvector generated column (FTS, weighted name+desc+tags)
+- [ ] ISC-158: GIN index `packs_search_idx` on `packs.search`
+- [ ] ISC-159: `pack_versions`: `id`, `pack_id`, `version`, `status`, `manifest_sha256`, `published_at`, `published_by`
+- [ ] ISC-160: `pack_versions.status` enum: `published|deprecated|yanked|quarantined|blocked` (Phase 4-ready)
+- [ ] ISC-161: `pack_versions` unique index on `(pack_id, version)`
+- [ ] ISC-162: `atoms` table: `id`, `pack_version_id`, `atom_id`, `type`, `risk_level`, `metadata` jsonb
+- [ ] ISC-163: `pack_files` table: `id`, `pack_version_id`, `atom_id?`, `path`, `sha256`, `bytes`, `r2_key`
+- [ ] ISC-164: `compatibilities` table: `pack_version_id`, `target`, `status`
+- [ ] ISC-165: `api_tokens` table per D3.2: `id`, `user_id`, `publisher_id?`, `name`, `token_prefix`, `token_sha256`, `scopes` jsonb, `last_used_at`, `created_at`, `revoked_at`
+- [ ] ISC-166: `api_tokens.token_sha256` is unique
+- [ ] ISC-167: `publishes` (two-phase pending state): `id`, `pack_id?`, `publisher_slug`, `pack_slug`, `version`, `status`, `expires_at`, `created_by`, `presigned_files` jsonb
+- [ ] ISC-168: `reviews` table schema (POST 501 in v0.3): `id`, `pack_version_id`, `user_id`, `rating`, `body`, `created_at`
+- [ ] ISC-169: `audit_events` table (Phase 6-reserved): `id`, `org_id?`, `actor_user_id`, `action`, `target_type`, `target_id`, `previous_entry_id`, `entry_checksum`, `created_at`
+- [ ] ISC-170: First Drizzle migration emitted under `packages/db/migrations/0000_init.sql`
+- [ ] ISC-171: `packages/db/src/index.ts` exports schemas + `getDb(url)` Drizzle client factory
+- [ ] ISC-172: `packages/db/src/queries/packs.ts` exports `getPackBySlug`, `listPacks`, `listPackVersions`, `getLatestVersion`
+- [ ] ISC-173: `packages/db/src/queries/publishers.ts` exports `getPublisherBySlug`, `userHasPublisherScope`
+- [ ] ISC-174: `packages/db/src/queries/tokens.ts` exports `findActiveTokenByHash`, `mintToken`, `revokeToken`, `listUserTokens`
+- [ ] ISC-175: `packages/db/src/queries/publishes.ts` exports `createPendingPublish`, `finalizePublish`, `abortPublish`
+- [ ] ISC-176: `packages/db/tsconfig.json` extends repo base with `composite: true`
+- [ ] ISC-177: `packages/db/vitest.config.ts` configured for unit tests (no live DB needed)
+- [ ] ISC-178: `packages/db/tests/schema.test.ts` asserts every table's column shape compiles
+- [ ] ISC-179: `pnpm --filter @workgraph/db build` exits 0
+
+#### Phase 3.B — Registry auth + tokens
+- [ ] ISC-180: `apps/registry/lib/auth.ts` exports NextAuth v5 config with GitHub OAuth provider
+- [ ] ISC-181: NextAuth session callback enriches session with `user.id` + `user.publisherSlugs`
+- [ ] ISC-182: `apps/registry/app/api/auth/[...nextauth]/route.ts` exposes NextAuth handler
+- [ ] ISC-183: `apps/registry/lib/tokens.ts` exports `generateToken()` returning `{ token, sha256, prefix }`
+- [ ] ISC-184: `apps/registry/lib/tokens.ts` exports `verifyBearer(req)` resolving user+scopes or returning null (caller maps to 401)
+- [ ] ISC-185: Token verification updates `last_used_at` async (fire-and-forget pattern)
+- [ ] ISC-186: `apps/registry/app/(authed)/tokens/page.tsx` lists tokens for current user
+- [ ] ISC-187: `apps/registry/app/api/tokens/route.ts` POST mints token, GET lists user tokens
+- [ ] ISC-188: `apps/registry/app/api/tokens/[id]/route.ts` DELETE revokes token (sets `revoked_at`)
+- [ ] ISC-189: Revoked tokens fail `verifyBearer` (returns null, route maps to 401)
+- [ ] ISC-190: Token missing `publish:packs` scope cannot hit `/api/publish/*` (403)
+- [ ] ISC-191: Unit test: `generateToken` produces `wgp_live_` prefix + 32-char body
+- [ ] ISC-192: Unit test: `sha256(token)` is lowercase hex, 64 chars
+
+#### Phase 3.C — Publish API (two-phase)
+- [ ] ISC-193: `apps/registry/app/api/publish/init/route.ts` POST validates body via zod
+- [ ] ISC-194: `/api/publish/init` returns 401 without valid bearer token
+- [ ] ISC-195: `/api/publish/init` returns 403 if token publisher scope mismatches body publisher
+- [ ] ISC-196: `/api/publish/init` returns 409 if `(publisher, pack, version)` already exists
+- [ ] ISC-197: `/api/publish/init` returns `{ publish_id, presignedUploads: [{path, url, headers}] }`
+- [ ] ISC-198: `apps/registry/lib/r2.ts` exports `r2Client()` + `presignPutUrl(key, sha256, bytes)`
+- [ ] ISC-199: `r2.ts` uses `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` against R2 endpoint
+- [ ] ISC-200: `apps/registry/app/api/publish/[publishId]/finalize/route.ts` POST verifies each blob's sha256
+- [ ] ISC-201: `/finalize` inserts `pack_versions`, `atoms`, `pack_files`, `compatibilities` in one tx
+- [ ] ISC-202: `/finalize` marks publish `status=completed` and sets `packs.latest_version_id`
+- [ ] ISC-203: `/finalize` returns 422 with `{ mismatched: [{path, expected, got}] }` on hash mismatch
+- [ ] ISC-204: `/finalize` of expired (>24h) publish returns 410 Gone
+- [ ] ISC-205: Unit test: publish-init zod schema accepts valid body
+- [ ] ISC-206: Unit test: publish flow rejects duplicate-version 409
+
+#### Phase 3.D — Read API
+- [ ] ISC-207: `apps/registry/app/api/packs/route.ts` GET lists packs with paging + tag + risk filter
+- [ ] ISC-208: `apps/registry/app/api/packs/[publisher]/[pack]/route.ts` GET returns pack + version list
+- [ ] ISC-209: `apps/registry/app/api/packs/[publisher]/[pack]/versions/[version]/route.ts` GET returns version metadata
+- [ ] ISC-210: `apps/registry/app/api/packs/[publisher]/[pack]/versions/[version]/manifest.yaml/route.ts` streams R2 bytes
+- [ ] ISC-211: `apps/registry/app/api/packs/[publisher]/[pack]/versions/[version]/atoms/[atomId]/[...path]/route.ts` streams atom bytes
+- [ ] ISC-212: `apps/registry/app/api/search/route.ts` GET runs Postgres FTS via `to_tsquery`
+- [ ] ISC-213: `apps/registry/app/api/packs/[publisher]/[pack]/reviews/route.ts` GET returns reviews; POST returns 501
+- [ ] ISC-214: Manifest.yaml route sets `Cache-Control: public, max-age=31536000, immutable`
+- [ ] ISC-215: Quarantined version's manifest.yaml route returns 451 with quarantine reason
+
+#### Phase 3.E — Seed import + UI refactor
+- [ ] ISC-216: `scripts/seed-import.ts` exists and reads `seed/seed-packs.json`
+- [ ] ISC-217: `seed-import` is idempotent: second run logs `"0 inserted, N skipped"`
+- [ ] ISC-218: `pnpm seed:import` script wired in root `package.json`
+- [ ] ISC-219: `apps/registry/lib/db.ts` exports `getDb()` reading `DATABASE_URL`
+- [ ] ISC-220: `apps/registry/lib/seed.ts` refactored: DB-backed when `DATABASE_URL` set, else JSON fallback
+- [ ] ISC-221: `apps/registry/app/packs/page.tsx` renders from DB-backed `listPacks()`
+- [ ] ISC-222: `apps/registry/app/packs/[publisher]/[slug]/page.tsx` renders from DB-backed `getPackBySlug()`
+- [ ] ISC-223: Anti: Removing `DATABASE_URL` falls back to JSON without throwing
+
+#### Phase 3.F — CLI publish/login/whoami/tokens
+- [ ] ISC-224: `packages/cli/src/commands/login.ts` opens browser to `<registry>/cli/auth` with device code
+- [ ] ISC-225: `login` polls `/api/cli/auth/poll` until token returned, writes `~/.workgraph/credentials.json`
+- [ ] ISC-226: `~/.workgraph/credentials.json` has `0o600` perms on POSIX
+- [ ] ISC-227: `packages/cli/src/commands/whoami.ts` reads creds, calls `/api/me`, prints user + publishers
+- [ ] ISC-228: `packages/cli/src/commands/tokens.ts` `list|create|revoke` subcommands
+- [ ] ISC-229: `packages/cli/src/commands/publish.ts` reads manifest, computes per-file sha256
+- [ ] ISC-230: `publish` POSTs init, uploads each file to presigned URL, POSTs finalize
+- [ ] ISC-231: `publish` exits 0 on success and prints registry URL
+- [ ] ISC-232: `publish` exits non-zero on 409 (already published)
+- [ ] ISC-233: CLI publish/login/whoami/tokens registered in `packages/cli/src/index.ts`
+
+#### Phase 5.A — Remote install resolver
+- [ ] ISC-234: `packages/cli/src/commands/install.ts` accepts `<publisher>/<pack>[@<version>]` identity
+- [ ] ISC-235: `RegistryClient` class in `packages/core/src/registry-client/` fetches manifest+atoms
+- [ ] ISC-236: Resolver picks latest non-prerelease non-yanked version on missing `@version`
+- [ ] ISC-237: Resolver verifies each fetched file's sha256 against registry-declared sha256
+- [ ] ISC-238: Hash mismatch raises `IntegrityError` and exits 7
+- [ ] ISC-239: Resolved bytes feed into existing `planInstall`/`applyInstall` from Phase 2
+- [ ] ISC-240: `--registry <url>` flag overrides default `https://registry.workgraph.dev`
+
+#### Phase 5.B — Local cache
+- [ ] ISC-241: `packages/core/src/cache/` blob store at `~/.workgraph/cache/blobs/<sha[0..2]>/<sha>`
+- [ ] ISC-242: Cache lookup runs before network fetch; cache miss → fetch + write + return
+- [ ] ISC-243: `workgraph cache size` prints total bytes + entry count
+- [ ] ISC-244: `workgraph cache prune --max-age 30d` removes blobs older than threshold
+- [ ] ISC-245: `workgraph cache clear` empties blob store
+- [ ] ISC-246: Anti: `cache prune` never deletes outside `~/.workgraph/cache/blobs/`
+
+#### Phase 5.C — Policy enforcement
+- [ ] ISC-247: `packages/core/src/policy/schema.ts` zod schema for `workgraph.policy.json` per D5.4
+- [ ] ISC-248: `loadPolicy(projectRoot)` reads file, validates, returns typed policy or null
+- [ ] ISC-249: `enforcePolicy(policy, installPlan, registryUrl)` returns `{ ok: true } | { ok: false, violations: [...] }`
+- [ ] ISC-250: Policy violation in CLI install exits 6
+- [ ] ISC-251: `requireSignature: true` rejects packs with empty `lockfile.signatures` (Phase 4-ready)
+- [ ] ISC-252: `deniedAtomTypes: ["hook"]` rejects plans with hook atoms
+- [ ] ISC-253: `allowedProfiles: ["safe"]` rejects `--profile standard|full`
+- [ ] ISC-254: `registries.allowed` rejects `--registry` outside allowlist
+
+#### Phase 3 + 5 — Tests + docs + anti-criteria
+- [ ] ISC-255: New vitest files: `db/schema.test.ts`, `cli/publish.test.ts`, `cli/install-remote.test.ts`, `core/policy.test.ts`, `core/registry-client.test.ts`
+- [ ] ISC-256: `pnpm -r test` exits 0 after iteration-4 additions
+- [ ] ISC-257: `pnpm -r typecheck` exits 0
+- [ ] ISC-258: `pnpm -r build` exits 0 across all packages including new `@workgraph/db`
+- [ ] ISC-259: `docs/registry.md` written: schema, auth, publish flow, search, reviews-deferred
+- [ ] ISC-260: `docs/publish.md` written: `workgraph publish` reference + token + scope model
+- [ ] ISC-261: `docs/remote-install.md` written: identity grammar, cache, exit codes
+- [ ] ISC-262: `docs/policy.md` written: schema + examples + enforcement order
+- [ ] ISC-263: Anti: `workgraph publish` never includes env-var secrets in init body
+- [ ] ISC-264: Anti: Cache fetch never reads outside `~/.workgraph/cache/`
+- [ ] ISC-265: Anti: Token printed in CLI output is masked to `wgp_live_xxxx…lastfour`
+- [ ] ISC-266: Anti: Remote install never bypasses Phase 2 realpath containment
+- [ ] ISC-267: Anti: Manifest.yaml route streams from R2 (never echoes client-supplied bytes)
+
 ### Phase 2 — WAL + chain integrity (advisor-driven)
 - [x] ISC-143: `install` writes `install_begin` history entry with `plannedFiles[]` BEFORE writing any project files
 - [x] ISC-144: `install` writes `install_commit` history entry as its LAST action; absence of commit = crash signal
@@ -379,6 +518,25 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - **2026-05-18 (VERIFY iteration-3) — Cato cross-vendor audit degraded:** codex CLI unavailable in this session's environment (same outcome as Phase 1 iteration-2). Doctrine deviation logged. Self-audit performed against Cato's seven inspection points (determinism leaks, hash-chain stability, race conditions, TOCTOU, schema edge cases, exit codes, Claude-blind-spot review). Findings 1-5 from security-reviewer cover most of what Cato would surface; no Claude-style over-defense remains.
 
 - **2026-05-18 (LEARN iteration-3) — Shipped:** commit `b6db93e` "feat(install): Phase 2 — local install/uninstall/diff/verify/rollback (v0.2.0)" pushed to `origin/master`, tag `v0.2.0` pushed. 38 files changed (5474 insertions, 25 deletions). CI will run the new Phase 2 smoke step on this push.
+
+- **2026-05-18 (OBSERVE iteration-4) — Scope:** User invoked `/max` against `Plans/ROADMAP.md` (Phase 3-7 plan). Roadmap estimates 12-19 focused-solo weeks for full Phase 3-7. Realistic single-session output: scaffold Phase 3 (DB + auth + tokens + publish API + read API + seed import + CLI publish/login/whoami/tokens) + Phase 5 (remote install + cache + policy) such that everything compiles, has unit tests, and can be plugged into real Neon/R2/GitHub-OAuth credentials in a follow-up infra step. Phase 4 (cosign keyless), Phase 6 (WorkOS SSO, audit chain wiring), Phase 7 (Workgraph import) deferred — all require external partner integration that does not exist in this session. Adding 117 new ISCs (ISC-151..267) to the project ISA.
+
+- **2026-05-18 (OBSERVE iteration-4) — Dep versions pinned:** drizzle-orm 0.45.2, drizzle-kit 0.31.10, @neondatabase/serverless 1.1.0, postgres 3.4.9, @aws-sdk/client-s3 3.1049.0, @aws-sdk/s3-request-presigner 3.1049.0, @auth/drizzle-adapter 1.11.2, next-auth 5.x beta (Auth.js, App-Router-native). All checked against npm registry live.
+
+- **2026-05-18 (OBSERVE iteration-4) — show-your-math, thinking floor:** E5 hard floor is ≥8. Selecting 9 thinking capabilities verbatim from v6.3.0 closed enumeration: IterativeDepth, ApertureOscillation, FirstPrinciples, SystemsThinking, FeedbackMemoryConsult, Advisor, ReReadCheck, ContextSearch, ISA. Above floor.
+
+- **2026-05-18 (OBSERVE iteration-4) — show-your-math, delegation floor:** E5 soft floor is ≥4. Selecting 8: Forge (parallel codegen at E5 auto), Engineer (Marcus Webb — substantive Claude-family workstreams), Worktree isolation (independent branches), schema-reviewer (during BUILD per feedback_audit_in_build), security-reviewer (during BUILD), Cato (E5 VERIFY mandatory), simplify (post-build), Background agents (research/independent reviews). Above floor.
+
+- **2026-05-18 (THINK iteration-4) — FirstPrinciples kernel:** Phase 3 reduces to (a) identity-to-bytes row (DB schema), (b) authenticated write path (publish API + tokens), (c) unauthenticated read path (read API + R2 fetch), (d) byte fetch (R2 / S3-compatible). UI, search, reviews, OAuth polish are value-add. Build the kernel first; fan out to value-add via background agents.
+
+- **2026-05-18 (THINK iteration-4) — SystemsThinking dependency map:** Phase 3 → 4 (PackVersion row gets signature column) → 5 (registry endpoints to install from) → 6 (org scoping bolts onto existing publisher/user model) → 7 (Workgraph import = new endpoint hitting publish pipeline). Phase 5 can stub against a `MockRegistryClient` so Phase 3+5 are parallel-buildable in one session.
+
+- **2026-05-18 (THINK iteration-4) — Worktree strategy (revised after advisor):** Advisor flagged 5-way dispatch as over-parallelized for a contract-heavy scaffold; type drift on publish/read contracts is the dominant risk. Collapsed to **3 worktree agents** + a **protocol commit landed in main first**:
+  - **Protocol commit (main, primary agent):** root `package.json` deps, `pnpm-workspace.yaml` entry for `packages/db`, `packages/core/src/protocol/` zod schemas (PublishInit/Finalize Request+Response, RegistryPackage, RegistryVersion, ErrorCode enum), `packages/db` stub with column names committed, auth contract pinned in `Plans/PROTOCOL.md` (token prefix `wgp_live_`, `Authorization: Bearer`, `sha256` hash storage, scopes `read:packs|publish:packs|read:private`), publish trust model pinned (finalize HEADs R2 + re-verifies size; full re-hash is Phase 4 background work).
+  - **W1 Forge — Foundation:** full `packages/db` Drizzle schema, queries, migrations, tests + `packages/core/src/policy/{schema,load,enforce}.ts` + `packages/core/src/cache/blob-store.ts`. ISC-151..179, ISC-241..254.
+  - **W2 Engineer (Marcus Webb) — Registry app:** `apps/registry/lib/{db,auth,tokens,r2}.ts`, NextAuth v5 GitHub OAuth, two-phase publish API, read API routes, `/api/me`, `/api/cli/auth/*`, search route, reviews GET-only. UI refactor to DB-backed listing. ISC-180..223.
+  - **W3 Engineer (Marcus Webb) — CLI:** `packages/cli/src/commands/{publish,login,whoami,tokens}.ts`, remote-install branch in `install.ts`, `packages/core/src/registry-client/`. ISC-224..240.
+  - **Primary agent merge:** wire `packages/core/src/index.ts` exports, register CLI commands in `packages/cli/src/index.ts`, update `pnpm-workspace.yaml` references if needed, run `pnpm install && pnpm verify`, dispatch security-reviewer + schema-reviewer + simplify + Cato.
 
 ## Changelog
 

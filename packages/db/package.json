@@ -1,0 +1,46 @@
+{
+  "name": "@workgraph/db",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Workgraph Registry database schema, queries, and migrations (Drizzle + Postgres).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    },
+    "./queries": {
+      "types": "./dist/queries/index.d.ts",
+      "import": "./dist/queries/index.js"
+    }
+  },
+  "files": ["dist", "src", "migrations", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.1.0",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@vitest/coverage-v8": "2.1.8",
+    "drizzle-kit": "0.31.10",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  }
+}
