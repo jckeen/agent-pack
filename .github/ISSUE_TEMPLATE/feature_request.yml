@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest a new capability, new adapter, or behavior change
+title: "feat: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature. AgentPack has a published
+        [roadmap](../../Plans/ROADMAP.md) — if your idea overlaps an existing
+        phase, linking the relevant section helps us reason about it together.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: |
+        Describe the situation the feature would address. Concrete examples
+        beat abstract framings.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        A sketch of the API, command, or behavior you have in mind. CLI flag
+        names, manifest field names, or route shapes are all welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        What did you try, dismiss, or work around? "None — first attempt" is
+        a fine answer.
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Which roadmap phase does this most likely belong to?
+      description: See `Plans/ROADMAP.md` for the phase taxonomy.
+      options:
+        - "Phase 1 — Standard / CLI / adapters"
+        - "Phase 2 — Local install / verify / rollback"
+        - "Phase 3 — Registry backend"
+        - "Phase 4 — Signatures / trust"
+        - "Phase 5 — Remote install"
+        - "Phase 6 — Enterprise (gated)"
+        - "Phase 7 — Workgraph integration"
+        - "Unsure / cross-cutting"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?

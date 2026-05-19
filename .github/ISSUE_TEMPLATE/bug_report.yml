@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a defect in AgentPack — the standard, CLI, registry, or adapters
+title: "bug: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. The more reproducible the
+        steps, the faster we can land a fix.
+
+        Before filing, please skim open issues and the
+        [troubleshooting docs](../../docs) — the answer may already be there.
+  - type: input
+    id: version
+    attributes:
+      label: AgentPack version
+      description: Output of `workgraph --version`, or commit SHA if working from main.
+      placeholder: "0.3.0-rc.1 (or 06318f7)"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS + Node version + pnpm version (`node -v && pnpm -v`).
+      placeholder: "macOS 14.6, Node 22.11, pnpm 9.15"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      description: Which part of AgentPack is affected?
+      options:
+        - CLI (`workgraph`)
+        - Registry web app (`apps/registry`)
+        - Standard / manifest schema
+        - Adapter (claude-code / codex / cursor / chatgpt / generic)
+        - Install engine (Phase 2)
+        - Publish / fetch (Phase 3+5)
+        - Signing / verify (Phase 4)
+        - Docs / Plans
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: |
+        A minimal set of commands. If you can attach an `AGENTPACK.yaml` or
+        a small repo that reproduces it, even better.
+      placeholder: |
+        1. `git clone https://github.com/jckeen/agent-pack`
+        2. `pnpm install && pnpm build`
+        3. `workgraph install examples/pr-quality --target claude-code --profile safe --project /tmp/repro`
+        4. Observe: ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the full error message + stack trace if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: |
+        Logs, screenshots, related issues, recent changes that touched this area —
+        anything that helps us land the fix.

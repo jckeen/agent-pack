@@ -1,21 +1,78 @@
-# AgentPack + Workgraph Registry
+# AgentPack
 
 **Atomic packages for AI workflows. Write once. Install anywhere agents work.**
 
-This repository is the reference implementation of the **AgentPack standard** and the **Workgraph Registry** — a TypeScript monorepo containing:
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Node ≥22](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)](./.nvmrc)
+[![pnpm](https://img.shields.io/badge/pnpm-9.15-orange)](https://pnpm.io)
+[![CI](https://github.com/jckeen/agent-pack/actions/workflows/ci.yml/badge.svg)](https://github.com/jckeen/agent-pack/actions/workflows/ci.yml)
 
-- `packages/core` — `@workgraph/core`: schema, parser, validator, permission summary engine, risk engine, planner, and platform adapters.
-- `packages/cli` — the `workgraph` command-line tool: `init`, `validate`, `inspect`, `plan`, `pack export`, `doctor`.
-- `apps/registry` — the Workgraph Registry web app (Next.js App Router) for browsing packs, viewing risk/permissions, and validating manifests.
-- `examples/pr-quality` — a complete example pack (Pull Request Quality) exercising every atom type.
-- `spec/` — the source spec packet that drove this build (product, standard, architecture, security, adapter, data, seed, phases).
-- `docs/` — top-level documentation for the standard, security model, adapters, and CLI.
+One `AGENTPACK.yaml` compiles to **Claude Code**, **Codex**, **Cursor**, **ChatGPT Apps**, and a generic AGENTS.md target — with permissions, risk, and platform compatibility visible *before* anything writes to disk. AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, and the adapters are all in this repo and stay free forever.
 
-The tagline is the goal: one `AGENTPACK.yaml` compiles to Claude Code, Codex, Cursor, ChatGPT Apps, and a generic AGENTS.md target — with permissions, risk, and platform compatibility visible **before** install.
+> **Status — 2026-05-19:** Phases 1–4 are shipped in code. Phase 3 (registry backend) and Phase 5 (remote CLI install) landed as `v0.3.0-rc.1`; Phase 4 (Sigstore cosign keyless signing) landed on top. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). See [`STATUS.md`](./STATUS.md) and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
+
+---
+
+## Why AgentPack
+
+AI tooling fragments across Claude Code, Codex, Cursor, ChatGPT, and every MCP-compatible host. Each platform has its own surface for instructions, rules, skills, hooks, slash commands, subagents, MCP servers, and plugins. Authors duplicate work. Users have no way to see what a configuration bundle will actually do to their machine before they install it.
+
+AgentPack fixes that with a single portable manifest, a permissioned planner that runs *before* any export, deterministic compilation to every supported host, and a content-addressed install engine that produces a lockfile, history, drift detection, and atomic rollback. Phase 4 adds cosign keyless signatures + a transparency-log inclusion proof so users can verify a pack came from its claimed publisher before it touches their project.
+
+---
+
+## Quickstart (≤5 minutes)
+
+```bash
+git clone https://github.com/jckeen/agent-pack
+cd agent-pack
+pnpm install
+pnpm build
+pnpm test                                  # 250+ tests green
+```
+
+```bash
+# Validate the bundled example pack
+pnpm cli validate examples/pr-quality
+
+# Plan an install for Claude Code, safe profile
+pnpm cli plan examples/pr-quality \
+  --target claude-code --profile safe
+
+# Compile to native files (export — never touches your project)
+pnpm cli pack export examples/pr-quality \
+  --target claude-code --profile safe \
+  --out dist/claude
+
+# Actually install (Phase 2): diff → confirm → backup → write → lockfile + history
+pnpm cli install examples/pr-quality \
+  --target claude-code --profile safe \
+  --project /tmp/my-claude-project --yes
+
+# Drift detection (Phase 2)
+pnpm cli verify workgraph.pr-quality --project /tmp/my-claude-project
+
+# Undo (Phase 2)
+pnpm cli uninstall workgraph.pr-quality --project /tmp/my-claude-project --yes
+
+# Sign on publish (Phase 4 — keyless via Sigstore Fulcio + Rekor)
+pnpm cli publish examples/pr-quality --sign
+
+# Verify a signed install (Phase 4)
+pnpm cli verify workgraph.pr-quality --project /tmp/my-claude-project --sig --strict
+
+# Browse the registry web app locally
+pnpm dev
+# → http://localhost:3030
+```
+
+The registry boots in **JSON-fallback mode** without any environment variables (good for browsing). For the full DB-backed mode, see [`docs/registry.md`](./docs/registry.md) — `DATABASE_URL` (Postgres), `R2_*` (Cloudflare R2), `AUTH_GITHUB_ID/SECRET`, `AUTH_SECRET` get you to a live registry.
+
+---
 
 ## What's an AgentPack?
 
-An AgentPack is a portable bundle of AI agent behavior. The manifest is `AGENTPACK.yaml`. Each pack is composed of **atoms** — the smallest installable unit:
+The manifest is `AGENTPACK.yaml`. Each pack is composed of **atoms** — the smallest installable unit:
 
 | Atom type      | Compiles to (examples)                                                            |
 |----------------|-----------------------------------------------------------------------------------|
@@ -34,161 +91,145 @@ An AgentPack is a portable bundle of AI agent behavior. The manifest is `AGENTPA
 
 Install profiles (**safe → standard → full → enterprise**) let you opt into risk explicitly. The CLI shows risk, permissions, secrets, and the exact file plan before any export touches disk.
 
-## Quickstart
-
-```bash
-pnpm install
-pnpm build
-pnpm test
-
-# Validate the bundled example
-pnpm cli validate examples/pr-quality
-
-# Plan an install for Claude Code, safe profile
-pnpm cli plan examples/pr-quality --target claude-code --profile safe
-
-# Compile to native files (export-only — writes under --out, never touches your project)
-pnpm cli pack export examples/pr-quality --target claude-code --profile safe --out dist/claude
-pnpm cli pack export examples/pr-quality --target codex      --profile safe --out dist/codex
-pnpm cli pack export examples/pr-quality --target cursor     --profile safe --out dist/cursor
-pnpm cli pack export examples/pr-quality --target chatgpt    --profile safe --out dist/chatgpt
-pnpm cli pack export examples/pr-quality --target generic    --profile safe --out dist/generic
-
-# Install into a project (Phase 2): diff → confirm → backup → write → lockfile + history
-pnpm cli install examples/pr-quality --target claude-code --profile safe --project /path/to/project --dry-run
-pnpm cli install examples/pr-quality --target claude-code --profile safe --project /path/to/project
-
-# Drift detection
-pnpm cli verify workgraph.pr-quality --project /path/to/project
-
-# Undo
-pnpm cli uninstall workgraph.pr-quality --project /path/to/project
-pnpm cli rollback --project /path/to/project
-pnpm cli history --project /path/to/project
-
-# Browse the registry
-pnpm dev
-# → http://localhost:3030
-```
+---
 
 ## Repository layout
 
 ```text
 agent-pack/
-├── package.json            # pnpm workspace root
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-├── ISA.md                  # Project ideal-state articulation (lives with the project)
-├── README.md
 ├── packages/
-│   ├── core/               # @workgraph/core
-│   │   ├── src/
-│   │   │   ├── schema/             # zod schema + TypeScript types
-│   │   │   ├── parser/             # YAML loader
-│   │   │   ├── validator/          # structural + semantic validation
-│   │   │   ├── permissions/        # PermissionSummary engine
-│   │   │   ├── risk/               # RiskSummary engine
-│   │   │   ├── planner/            # resolveAtoms + createInstallPlan
-│   │   │   ├── adapters/           # 5 adapters + shared types
-│   │   │   ├── exports/            # exportPack convenience entry
-│   │   │   └── seed/               # SEED_PACKS for the registry
-│   │   └── tests/
-│   └── cli/                # @workgraph/cli (binary: `workgraph`)
-│       └── src/
-│           ├── commands/           # init, validate, inspect, plan, pack, doctor
-│           └── lib/
+│   ├── core/                 # @workgraph/core: schema + parser + risk + permissions + planner + adapters + signing
+│   ├── cli/                  # @workgraph/cli: workgraph CLI binary
+│   └── db/                   # @workgraph/db: Drizzle schema, queries, migrations
 ├── apps/
-│   └── registry/           # @workgraph/registry (Next.js App Router)
-│       ├── app/
-│       │   ├── packs/
-│       │   ├── packs/[publisher]/[slug]/
-│       │   ├── validate/
-│       │   └── docs/
-│       ├── components/             # PackCard, RiskBadge, CompatibilityMatrix, …
-│       └── lib/                    # server-only helpers
+│   └── registry/             # @workgraph/registry: Next.js 15 App Router registry app
 ├── examples/
-│   └── pr-quality/         # complete AgentPack — 7 atoms, 4 profiles
+│   └── pr-quality/           # complete AgentPack — 7 atoms, 4 profiles
 ├── schemas/AGENTPACK.schema.json
 ├── seed/seed-packs.json
-├── templates/              # AGENTS.md / CLAUDE.md / rule / README-agent templates
-├── docs/                   # standard.md, security.md, adapters.md, cli.md
-└── spec/                   # build packet (the source brief)
+├── templates/                # starter manifest, CLAUDE.md, AGENTS.md, rule templates
+├── docs/                     # standard, security, adapters, CLI, registry, publish, install, policy, remote-install
+├── Plans/                    # ROADMAP, PROTOCOL, PHASE-6-GATE, algorithm-v6.4.0 changes
+├── scripts/                  # bring-up-prod.sh, smoke-e2e.sh, seed-import.ts
+├── ISA.md                    # Project Ideal State Articulation — 267 ISCs (test harness + done condition)
+├── STATUS.md                 # Current shipped state
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── SECURITY.md
+└── LICENSE                   # MIT
 ```
 
-## CLI
+---
+
+## CLI reference (highlights)
 
 ```bash
 workgraph init                              # scaffold a starter AGENTPACK.yaml
 workgraph validate [path]                   # validate manifest
-workgraph inspect [path]                    # print metadata, atoms, profiles, risk
+workgraph inspect [path]                    # metadata + atoms + profiles + risk
 workgraph plan [path] \
   --target claude-code --profile safe       # plan + risk + permission summary
 workgraph pack export [path] \
+  --target codex --profile full --out dist/ # write platform-native files
+workgraph install [pack] \
   --target claude-code --profile safe \
-  --out dist/claude                         # write platform-native files
+  --project ./my-project --yes              # WAL-protected local install
+workgraph verify [packId] --project . --sig # drift + signature check
+workgraph rollback --project .              # restore from history
+workgraph diff [pack] --target X --profile Y # unified diff preview
 workgraph doctor                            # environment checks
+workgraph login                             # device-code OAuth to a registry
+workgraph publish [path] --sign             # two-phase publish + Sigstore keyless signing
+workgraph tokens list | create | revoke     # API token management
+workgraph cache size | prune | clear        # offline blob cache housekeeping
 ```
 
-See [`docs/cli.md`](./docs/cli.md) for the full reference.
+Full reference: [`docs/cli.md`](./docs/cli.md).
+
+---
 
 ## Adapters
 
-Five adapters ship in MVP:
-
-- **claude-code** — `CLAUDE.md`, `.claude/skills/*`, `.claude/agents/*`, `.claude/settings.json` (hooks + MCP)
-- **codex** — `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/*`, `.codex/agents/*.toml`
-- **cursor** — `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json`
-- **chatgpt** — `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only)
-- **generic** — `AGENTS.md`, `skills/*`, `README-agent.md`, `agentpack.json`
+| Target        | Output surface |
+|---------------|----------------|
+| **claude-code** | `CLAUDE.md`, `.claude/skills/*`, `.claude/agents/*`, `.claude/settings.json` (hooks + MCP) |
+| **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/*`, `.codex/agents/*.toml` |
+| **cursor**      | `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
+| **chatgpt**     | `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only) |
+| **generic**     | `AGENTS.md`, `skills/*`, `README-agent.md`, `agentpack.json` |
 
 Every adapter:
 
 - Is **deterministic** — two runs produce byte-identical output.
 - Wraps instruction content in `<!-- BEGIN AGENTPACK: <id> --> … <!-- END AGENTPACK: <id> -->` markers so multiple packs can coexist in one file.
-- Returns warnings for atoms it cannot map to its platform, never silently drops dangerous capability.
+- Returns warnings for atoms it cannot map to its platform — never silently drops dangerous capability.
 
 Details: [`docs/adapters.md`](./docs/adapters.md).
+
+---
 
 ## Security model
 
 Risk is computed from atom risk levels, declared permissions, and the install profile. The model is opinionated and conservative:
 
-- Hooks are **always** high-risk (they run shell commands after agent edits).
+- Hooks are **always** high-risk — they run shell commands after agent edits.
 - MCP servers requiring secrets/env are high.
-- The combination of `shell.execution + secrets.env + network.access + filesystem.write` raises a plan to **critical**.
+- `shell.execution + secrets.env + network.access + filesystem.write` raises a plan to **critical**.
 - `package.installation` and `model_provider_key.access` are critical.
 - Permission categories are surfaced **only** when an included atom backs them — no leaky pack-level declarations.
 
-`workgraph` never writes outside `--out` during `pack export`. Real install into a project root is Phase 2 (not in MVP).
+Phase 2 install:
 
-Details: [`docs/security.md`](./docs/security.md).
+- **WAL-protected** (begin → backup → atomic writes → commit), refuses to write outside `projectRoot` (realpath + symlink-escape tests).
+- **Per-file SHA-256** in the lockfile, hash-chained `history.jsonl`, deterministic across runs.
 
-## Registry web app
+Phase 4 trust:
 
-`apps/registry` is a Next.js App Router app rendering the registry UI:
+- **Sigstore cosign keyless** signing (OIDC → Fulcio cert + Rekor witness). No publisher-managed keys.
+- `workgraph publish --sign` populates `lockfile.signatures.{manifest, cert}` (slots reserved in v0.2.0).
+- `workgraph verify --sig --strict` exits non-zero on unsigned, signature-invalid, or quarantined packs.
+- Registry serves 451 on a quarantined version; admin UI at `/admin/packs` flips status.
 
-- `/` — product positioning + featured packs
-- `/packs` — browseable seed-pack list with tag, risk, and platform filters
-- `/packs/[publisher]/[slug]` — detail page with compatibility matrix, profile-aware permission summary, atom list, raw manifest viewer, install command box
-- `/validate` — paste a manifest, get full validation result (the same engine the CLI uses)
-- `/docs` — standard / security / adapters / CLI summary
+Full details: [`docs/security.md`](./docs/security.md) and [`docs/signatures.md`](./docs/signatures.md).
 
-The registry uses static seed data in MVP. The seam to a real registry API exists in `apps/registry/lib/manifest.ts` and `@workgraph/core`'s seed module.
+---
 
-## Limitations (MVP, by design)
+## Roadmap (live)
 
-- **No actual install** into a user's project root. `pack export` writes to `--out`; the install / uninstall / rollback flow is Phase 2.
-- **No registry backend.** Seed JSON is the source of truth.
-- **No signatures / provenance verification.** Schema fields are present; cryptographic verification is Phase 4.
-- **ChatGPT Apps adapter is export-only.** The SDK surface is still evolving; output is conservatively labeled and must be reviewed before registering with ChatGPT.
-- **Cursor hooks are not emitted** — no stable target. They appear as warnings.
+| Phase | Version | Status |
+|------|---------|--------|
+| 1 | v0.1.x | ✅ shipped — standard + CLI + 5 adapters + registry |
+| 2 | v0.2.0 | ✅ shipped — local install + verify + rollback + history |
+| 3 | v0.3.0-rc.1 | ✅ shipped (code) — registry backend (Drizzle schema + auth + publish + read API + search); v0.3.0 promotion held on live smoke |
+| 4 | v0.4.0-dev | ✅ shipped (code) — Sigstore keyless signing + verification + admin quarantine UI |
+| 5 | v0.5.0 | ✅ shipped (scaffold) — remote install, content-addressed cache, policy file |
+| 6 | v0.6.0 | 🔒 **gated** — see [`Plans/PHASE-6-GATE.md`](./Plans/PHASE-6-GATE.md) |
+| 7 | v0.7.0 → v1.0.0 | 📋 planned — Workgraph integration, trust graph, Agent Commons bridge |
 
-See `spec/09_IMPLEMENTATION_PHASES.md` for the full roadmap.
+Decisions, rationale, and revisit triggers are pinned in [`Plans/ROADMAP.md`](./Plans/ROADMAP.md). The wire contract that Phase 3+ honors is pinned in [`Plans/PROTOCOL.md`](./Plans/PROTOCOL.md).
+
+---
+
+## Contributing
+
+PRs and issues are welcome. Before opening one:
+
+- Read [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+- Check the published [roadmap](./Plans/ROADMAP.md) — your idea may already be planned.
+- Use the structured [bug-report](./.github/ISSUE_TEMPLATE/bug_report.yml) and [feature-request](./.github/ISSUE_TEMPLATE/feature_request.yml) templates.
+- Follow the [Contributor Covenant](./CODE_OF_CONDUCT.md) code of conduct.
+
+Security issues should follow [`SECURITY.md`](./SECURITY.md) — file a private advisory rather than a public issue.
+
+---
 
 ## Project ideal state
 
-The project's living ideal-state articulation (ISA) is in [`ISA.md`](./ISA.md) at the repo root — 68 testable criteria across build, schema, permissions, risk, CLI, adapter outputs, registry routes, documentation, and anti-criteria. It's the test harness and the done condition.
+The project's living ideal-state articulation lives at [`ISA.md`](./ISA.md) — 267+ testable criteria across build, standard, install engine, signing, registry API, registry UI, CLI surface, docs, and anti-criteria. It's both the test harness and the done condition; iterating on the project IS iterating on this file.
+
+---
 
 ## License
 
-MIT — see `LICENSE` (forthcoming).
+[MIT](./LICENSE) © 2026 Workgraph. AgentPack is **open source forever**; the hosted registry (when it lands at a stable URL) is a convenience, not a requirement — self-host is a first-class deployment shape.

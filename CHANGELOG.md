@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.4.0-dev — 2026-05-19 (OSS launch — admin quarantine UI + community files + repo public)
+
+**AgentPack went public today.** Repo flipped to PUBLIC at github.com/jckeen/agent-pack. Standard, registry, CLI, and adapters are all MIT-licensed; the hosted registry (when it lands at a stable URL) is a convenience, not a requirement.
+
+**Phase 4 final UI surface — admin quarantine**
+
+- `/admin/packs` route (auth-gated, owner-of-publisher only) — table of every pack the logged-in user owns × every version × current status, with inline quarantine (reason required, max 500 chars) and unquarantine actions. Each status change writes a hash-chained `audit_events` row capturing `actor_user_id`, `previous_status`, `new_status`, and `reason`. Phase 6 widens this to org admins; v0.4 stays owner-only.
+- `POST /api/admin/packs/{publisher}/{pack}/versions/{version}/status` — session-cookie-gated (not Bearer-token; v0.4 admin is web-UI-only). Returns 401/403/404/422 as documented in the registry protocol. Block (registry-admin-only per ROADMAP D4.4) is intentionally excluded from this v0.4 surface — no registry-admin role exists yet.
+- `apps/registry/lib/audit.ts` — canonical-JSON `appendAuditEvent` helper with hash chain (previous_entry_id + entry_checksum over the canonical row + previous checksum). First-row case handled. Phase 6 will introduce per-org chains; v0.4 has one chain partitioned by `org_id IS NULL`.
+- `QuarantineBanner` component — replaces `InstallCommandBox` on pack detail when the active version is quarantined. Red, prominent, names the publisher/pack/version, surfaces the reason, links to the security docs.
+- `apps/registry/lib/version-status.ts` — server-side helper that reads `pack_versions.status` + the latest `version_status_changed` audit event's reason payload. Returns null in JSON-fallback mode (no DB).
+- 8 new vitest cases for the admin route's request schema (422 paths covered) + the audit-canonicalize stringify (deterministic key-order invariant).
+
+**Open-source community surface**
+
+- `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1 canonical text (downloaded directly from contributor-covenant.org).
+- `.github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml` — structured forms with surface dropdown, environment block, roadmap-phase chooser. Blank issues disabled; users routed to GitHub Security Advisories, the roadmap, and the standard spec.
+- `.github/PULL_REQUEST_TEMPLATE.md` — summary/why/what-changed/testing/checklist (pnpm verify gate, new-tests gate, smoke-install gate, CHANGELOG gate).
+- README rewritten — accurate phase status (1-5 shipped, 4 in dev, 6 gated), badge row (MIT/Node/pnpm/CI), 5-minute quickstart, atom-type table, repo layout, CLI reference, adapter table, security model, roadmap table, contributing pointers, project-ISA pointer.
+
+**Pre-public audit (advisor-driven, all clean)**
+
+- Full git history scan — `git log -p --all` regex sweep finds zero real secrets (3 placeholder matches: `user:pass@…` template strings and `postgres:dev@localhost` dev examples).
+- `.env*` history — only `apps/registry/.env.example` (the expected template) was ever committed.
+- `git fsck --unreachable` — no dangling commits.
+- Author email enumeration — only `jckeen@gmail.com`; no internal-only address leak.
+- Largest 10 git objects — top is `pnpm-lock.yaml` (183KB); no surprise binaries.
+- Audit_events row records `actor_user_id` explicitly so future admin-role expansion has lineage to existing rows.
+
+**Vercel project setup (partial)**
+
+- `agent-pack-registry` project created under `keen-media` team, linked at repo root. `.vercel/` gitignored.
+- Initial deploy fails because Vercel's `rootDirectory` setting needs to be `apps/registry` (CLI doesn't expose that field). Documented in STATUS.md; one-click dashboard fix unblocks future `vercel --prod=false` runs.
+
+**Test status**
+
+- 258 tests passing across 23 files (178 core + 19 db + 35 cli + 26 registry). 8 added this session.
+- `pnpm verify` exit 0 on the committed tree.
+
+---
+
 ## 0.4.0-dev / 0.3.0 — 2026-05-19 (Phase 4 cosign + production wiring + security hardening)
 
 **AgentPack is open source.** Adding Phase 4 supply-chain trust (cosign keyless signing), wiring the registry for live Vercel + Neon + R2 deploy, and gating Phase 6 (orgs + WorkOS SSO) behind explicit demand signal in `Plans/PHASE-6-GATE.md`.

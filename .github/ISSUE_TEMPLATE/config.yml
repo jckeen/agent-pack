@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/jckeen/agent-pack/security/advisories/new
+    about: Privately report a security issue via GitHub Security Advisories. See SECURITY.md.
+  - name: Roadmap
+    url: https://github.com/jckeen/agent-pack/blob/master/Plans/ROADMAP.md
+    about: Check the published roadmap before filing — your idea may already be planned.
+  - name: Standard spec
+    url: https://github.com/jckeen/agent-pack/blob/master/docs/agentpack-standard.md
+    about: Read the AgentPack standard before proposing schema changes.

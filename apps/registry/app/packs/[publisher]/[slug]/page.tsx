@@ -7,9 +7,11 @@ import { RiskBadge } from "@/components/RiskBadge";
 import { SignatureBadge } from "@/components/SignatureBadge";
 import { PermissionSummary } from "@/components/PermissionSummary";
 import { InstallCommandBox } from "@/components/InstallCommandBox";
+import { QuarantineBanner } from "@/components/QuarantineBanner";
 import { AtomList } from "@/components/AtomList";
 import { ManifestViewer } from "@/components/ManifestViewer";
 import { getLatestSignatureForPack } from "@/lib/signatures";
+import { getVersionStatus } from "@/lib/version-status";
 
 export async function generateStaticParams() {
   return SEED_PACKS.map((p) => ({
@@ -33,6 +35,12 @@ export default async function PackDetailPage({
     seed.slug,
     seed.version
   );
+  const versionStatus = await getVersionStatus(
+    seed.publisher,
+    seed.slug,
+    seed.version
+  );
+  const isQuarantined = versionStatus?.status === "quarantined";
   const profiles = detail.manifest
     ? Object.keys(detail.manifest.profiles)
     : ["safe"];
@@ -87,13 +95,22 @@ export default async function PackDetailPage({
       <section className="grid gap-6 md:grid-cols-[2fr,1fr]">
         <div className="card space-y-4">
           <h2 className="h2">Install</h2>
-          <InstallCommandBox
-            packId={seed.id}
-            publisher={seed.publisher}
-            slug={seed.slug}
-            target="claude-code"
-            profile={defaultProfile}
-          />
+          {isQuarantined ? (
+            <QuarantineBanner
+              publisher={seed.publisher}
+              pack={seed.slug}
+              version={seed.version}
+              reason={versionStatus?.reason ?? null}
+            />
+          ) : (
+            <InstallCommandBox
+              packId={seed.id}
+              publisher={seed.publisher}
+              slug={seed.slug}
+              target="claude-code"
+              profile={defaultProfile}
+            />
+          )}
         </div>
         <div className="card space-y-2">
           <h2 className="h2">Profiles</h2>
