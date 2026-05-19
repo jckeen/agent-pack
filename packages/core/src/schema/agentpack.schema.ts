@@ -185,6 +185,14 @@ const atomPlatformsSchema = z
  * Symlink-escape (where the path is in-pack lexically but resolves outside)
  * is enforced at I/O time in adapters/types.ts via realpath comparison.
  */
+/**
+ * Windows reserved device names — these are kernel-level reserved and any
+ * filesystem write to them returns EINVAL on Windows, regardless of the
+ * application. A pack distributed cross-platform must not contain them.
+ */
+const WINDOWS_RESERVED_BASENAME_RE =
+  /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
+
 const atomPathSchema = z
   .string()
   .min(1)
@@ -196,7 +204,20 @@ const atomPathSchema = z
   })
   .refine((p) => !p.split(/[\\/]+/).includes(".."), {
     message: "atom.path must not contain `..` traversal segments",
-  });
+  })
+  .refine(
+    (p) => {
+      // Any segment matching a Windows reserved name fails the write on
+      // Windows. Reject at validate time so authors find out before
+      // shipping. From qa-lead 2026-05-19 (iter-5 LOW-7).
+      const segments = p.split(/[\\/]+/).filter(Boolean);
+      return !segments.some((s) => WINDOWS_RESERVED_BASENAME_RE.test(s));
+    },
+    {
+      message:
+        "atom.path contains a Windows-reserved name (CON, PRN, AUX, NUL, COM0-9, LPT0-9) which fails kernel-level writes on Windows",
+    },
+  );
 
 const baseAtomFields = {
   id: z

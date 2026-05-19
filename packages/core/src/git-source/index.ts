@@ -50,12 +50,30 @@ export interface GitSource {
 const GIT_ID_RE =
   /^(github(?:\.com)?)[:/]([A-Za-z0-9_.-]{1,39})\/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?(?:@([^#]+))?(?:#(.+))?$/;
 
+/**
+ * Allowed characters in a git ref. Tags can have slashes, dots, dashes,
+ * underscores; refs CAN'T contain `\n`, `\r`, NUL, or any other control
+ * char (which would otherwise smuggle into log lines and `raw.gh.com` URL
+ * paths). Cap at 255 chars — GitHub's actual ref-name limit is well below
+ * this. From security-reviewer 2026-05-19 (iter-5 HIGH-4).
+ */
+const REF_RE = /^[A-Za-z0-9._/-]{1,255}$/;
+
 export function parseGitId(input: string): GitSource | null {
   if (!input || typeof input !== "string") return null;
   const m = input.match(GIT_ID_RE);
   if (!m) return null;
   const [, hostRaw, owner, repo, ref, subpath] = m;
   if (!owner || !repo) return null;
+  // Validate ref shape if present. A ref containing newlines, NUL, or other
+  // control characters can be injected into log output (CLI prints `ref`
+  // directly) and can construct a malformed raw.githubusercontent.com URL
+  // even after percent-encoding. Reject loudly rather than coerce.
+  if (ref !== undefined && !REF_RE.test(ref)) return null;
+  // Subpath sanitization: full traversal check happens at fetch time
+  // (fetchGitPack). Here we reject the obvious shape errors that the regex
+  // above lets through (NUL byte, control chars, leading slash).
+  if (subpath !== undefined && /[\x00-\x1f\x7f]/.test(subpath)) return null;
   // Normalize host. `github:` and `github.com` are both treated as
   // GitHub; the host field records which surface the user spelled, in
   // case a future revision wants to surface that in lockfile provenance.

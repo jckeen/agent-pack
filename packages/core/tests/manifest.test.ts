@@ -64,6 +64,22 @@ describe("manifest parsing & validation", () => {
     const result = validateManifest(manifest);
     expect(result.valid).toBe(false);
   });
+
+  it("rejects atom paths whose basename is a Windows reserved name", () => {
+    // Cross-platform pack distribution: a pack that ships with CON.md or
+    // LPT1.md fails kernel-level writes on Windows regardless of the
+    // application. Surface as a validate error rather than a download-time
+    // surprise. From qa-lead iter-5 LOW-7.
+    for (const reserved of ["CON.md", "PRN.txt", "AUX/file.md", "NUL", "COM1.json", "lpt9.md", "Con.md"]) {
+      const manifest = baseManifest();
+      manifest.atoms[0]!.path = reserved;
+      const result = validateManifest(manifest);
+      expect(
+        result.errors.some((e) => /windows-reserved name/i.test(e.message ?? "")),
+        `expected windows-reserved rejection for "${reserved}"`,
+      ).toBe(true);
+    }
+  });
 });
 
 function baseManifest() {
