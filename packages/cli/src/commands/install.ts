@@ -78,7 +78,22 @@ export function registerInstall(program: Command): void {
           let source = pack ?? process.cwd();
 
           // Remote-identity branch: pack arg matches <publisher>/<pack>[@<version>].
-          const remoteMatch = pack ? pack.match(REMOTE_ID_RE) : null;
+          // BUT: if the same string also resolves to an existing local directory
+          // (e.g. `examples/pr-quality`), we treat that as a local-path install.
+          // Local always wins — the user can disambiguate by passing a registry
+          // identity with an `@<version>` suffix or by using `--registry` to
+          // override.
+          let remoteMatch = pack ? pack.match(REMOTE_ID_RE) : null;
+          if (remoteMatch && pack) {
+            try {
+              const stat = await fs.stat(path.resolve(process.cwd(), pack));
+              if (stat.isDirectory()) {
+                remoteMatch = null;
+              }
+            } catch {
+              // ENOENT — not a local directory; remote-id stands.
+            }
+          }
           if (remoteMatch) {
             const [, publisher, packSlug, requestedVersion] = remoteMatch;
             if (!publisher || !packSlug) {

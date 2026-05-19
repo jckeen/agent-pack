@@ -18,6 +18,7 @@ describe("publishInitRequestSchema", () => {
     pack: "pr-quality",
     version: "0.1.0",
     manifestSha256: "a".repeat(64),
+    manifestBytes: 1024,
     files: [{ path: "SKILL.md", sha256: "b".repeat(64), bytes: 1024 }],
     metadata: { name: "PR Quality", description: "x", tags: [], compatibilities: [] },
   };
@@ -42,7 +43,7 @@ describe("publishInitRequestSchema", () => {
     expect(() =>
       publishInitRequestSchema.parse({
         ...ok,
-        files: [{ path: "../secret", sha256: "b".repeat(64), bytes: 0 }],
+        files: [{ path: "../secret", sha256: "b".repeat(64), bytes: 1024 }],
       })
     ).toThrow();
   });
