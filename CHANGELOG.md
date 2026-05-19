@@ -48,6 +48,15 @@ Medium-severity items (in-memory device-code store, low userCode entropy, CSRF o
 
 All workspace test suites green. 250 tests passing (238 from v0.3.0-rc.1 + 12 new signing envelope tests).
 
+**Verification pass + regression fixes (commit `014bb67`)**
+
+End-of-session sweep against every ROADMAP gate criterion. Two regressions surfaced and fixed inline before the session closed:
+
+- `workgraph install examples/pr-quality` (local path with a slash) matched the Phase 5 `REMOTE_ID_RE` and fell through to the remote fetcher, returning "fetch failed" against the default registry. Fix: stat the path first; if it's a directory, prefer local. Remote-id still wins when there's no matching directory.
+- `apps/registry/tests/protocol-schemas.test.ts` was missing `manifestBytes` in the well-formed body fixture after the H2 schema tightening, leaving 1 registry test red. Updated.
+
+Verification matrix shipped offline-green for Phases 1-6: doctor/validate/inspect/plan/init/pack-export×5; install/verify-clean/drift→exit-2/diff/history/uninstall-conflict/uninstall--force; registry JSON-fallback boot (`/`, `/packs`, `/packs/<pub>/<slug>` all 200; `/api/v1/health` 503-degraded shape correct; `/api/v1/.../signatures` 503 db_unconfigured); Phase 4 envelope tests + CLI flag surfaces + `verify --sig --strict` → exit 5 + `install --require-sig` local → exit 2 + "Unsigned" badge rendered in HTML; cache + login/whoami/tokens subcommands; Phase 6 gate doc verified. Live deploy + live Sigstore round-trip remain the only deferred gates — both blocked on user-supplied credentials.
+
 ## 0.3.0-rc.1 — 2026-05-18 (Phase 3 + Phase 5 scaffold)
 
 End-to-end supply chain skeleton: publish → fetch → install → verify all wired in code. Real Neon DB, GitHub OAuth, and R2 bucket plug in via env vars; the build, tests, and typecheck run cleanly without them. 117 new ISCs (ISC-151..267).
