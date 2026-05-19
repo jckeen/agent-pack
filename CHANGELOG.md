@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.0-dev — 2026-05-19 (git-source install — registry becomes optional)
+
+AgentPack's primary install path is now **git**. `workgraph install github:owner/repo@ref[#subpath]` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine, and the enterprise self-host path (Phase 6 — still gated). For everyday OSS publishing, the leaner path is now the default.
+
+**New surfaces**
+
+- `@workgraph/core/git-source` — `parseGitId(input)` returns a structured `GitSource` for `github:owner/repo[@ref][#subpath]` and `github.com/owner/repo[@ref][#subpath]`; `fetchGitPack({ source })` materializes a tmpRoot via `raw.githubusercontent.com` per-file fetch and returns the path. Same contract as `fetchRemotePack` — feeds into the existing `planInstall` pipeline. Trailing `.git` tolerated; branch refs with slashes supported; default-branch resolution via GitHub API when `@ref` omitted.
+- CLI `install` command — new source-detection order: local path → git source → registry id. Local always wins; git prefix (`github:` or `github.com/`) wins over registry-id format because git has an unambiguous prefix. No registry-id behavior changes.
+- 11 new vitest cases in `packages/core/tests/git-source.test.ts` — 8 `parseGitId` table cases (happy + ref-with-slash + `.git` strip + null returns) + 3 `fetchGitPack` mocked-fetch cases (happy roundtrip + path-traversal rejection + 404 surfacing).
+- New `docs/git-source.md` — full syntax + examples + signature notes + comparison-vs-registry table.
+- `docs/registry.md` opens with a "you might not need this" preamble pointing readers at the git path; the rest of the engineering reference is unchanged.
+- README quickstart rewritten — leads with `workgraph install github:jckeen/agent-pack@master#examples/pr-quality`; "Hosted registry (optional)" is a smaller subsection at the bottom.
+
+**Deferred to v0.5.1**
+
+- Git-source signature verification (`workgraph install github:... --require-sig`). Today the CLI exits 2 with a clear "cosign-on-tag arrives in v0.5.1" message. Phase 4 cosign signs registry-published manifests; extending it to git tags is on the roadmap.
+- Non-GitHub git hosts (`gitlab:`, `bitbucket:`, generic `git+https://...`). Parser is host-aware and extends cleanly when there's demand.
+- Tarball-based fetch (one HTTP request, one extraction). Current per-file fetch is fine for typical packs (10-20 files) and avoids a `tar` dependency.
+
+**Test status**
+
+- 269 tests passing across 24 files (189 core + 19 db + 35 cli + 26 registry). 11 added this session.
+- `pnpm verify` exit 0; no new npm deps; existing 258 tests all green.
+
+---
+
 ## 0.4.0-dev — 2026-05-19 (OSS launch — admin quarantine UI + community files + repo public)
 
 **AgentPack went public today.** Repo flipped to PUBLIC at github.com/jckeen/agent-pack. Standard, registry, CLI, and adapters are all MIT-licensed; the hosted registry (when it lands at a stable URL) is a convenience, not a requirement.

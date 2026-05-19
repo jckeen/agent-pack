@@ -1,5 +1,11 @@
 # Workgraph Registry (Phase 3)
 
+> **Heads up — you might not need this.** AgentPack's default distribution mechanism is **git**: `workgraph install github:owner/repo@ref` works without any hosted registry. The registry exists as an *optional* convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the enterprise self-host path (Phase 6 — 🔒 gated). For everyday OSS publishing, see [`docs/git-source.md`](./git-source.md) — that's the leaner path.
+>
+> Read on if you specifically want a hosted catalog, signed-by-default-served-by-the-host UX, or are evaluating the enterprise unlock.
+
+---
+
 The Workgraph Registry is the hosted catalog that maps `publisher/pack@version`
 identities to immutable bytes. Phase 3 (v0.3.0) ships the registry backend
 itself — schema, auth, publish flow, search, and read API. Phase 1's pack

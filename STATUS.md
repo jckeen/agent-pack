@@ -4,9 +4,9 @@ Last updated: 2026-05-19 (OSS launch — Phase 4 admin UI shipped, repo public)
 
 ## Where we are
 
-**AgentPack is OPEN SOURCE.** Standard, registry, CLI, and adapters are all MIT-licensed. The repo at `github.com/jckeen/agent-pack` is public. The hosted registry (when it lands at a stable URL) is a convenience, not a requirement — self-host is a first-class deployment shape.
+**AgentPack is OPEN SOURCE.** Standard, registry, CLI, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `workgraph install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
-**Phases 1–5 are shipped in code; v0.3.0 is one live-smoke run from promotion; Phase 6 is 🔒 gated.**
+**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
 
 ## Shipped phases
 
@@ -14,6 +14,7 @@ Last updated: 2026-05-19 (OSS launch — Phase 4 admin UI shipped, repo public)
 - **Phase 2** (v0.2.0, 2026-05-18): install engine with WAL-protected `applyInstall`, classified `planInstall`, backup engine, per-atom + per-file SHA-256 lockfile, hash-chained `history.jsonl`, recovery sweep, `verify` with drift detection, `rollback` with supersession refusal, 6 new CLI subcommands.
 - **Phase 3 + Phase 5 scaffold** (v0.3.0-rc.1, 2026-05-18): `@workgraph/db` Drizzle schema (13 registry tables + 3 Auth.js tables) + queries + migration SQL; protocol module pinning wire shapes + token format + error envelopes + exit codes; `packages/core/src/registry-client/` with sha256 verification; `packages/core/src/cache/` content-addressed blob store; `packages/core/src/policy/` for `workgraph.policy.json`; full registry app with NextAuth v5 + GitHub OAuth, two-phase publish API (presigned R2 PUT + finalize), full read API, Postgres FTS search, device-code CLI auth flow, token management UI; 5 new CLI commands (`login`, `whoami`, `tokens`, `publish`, `cache`); `install` extended with remote-identity branch.
 - **Phase 4** (v0.4.0-dev, 2026-05-19): `@workgraph/core/signing` cosign keyless module (Sigstore Fulcio + Rekor); `workgraph publish --sign` populates lockfile `signatures.manifest` slot; `workgraph verify --sig --strict` exits non-zero on unsigned/invalid; registry stores + serves signature + Rekor URL; pack detail page shows "Signed by @<github>" badge; admin quarantine UI at `/admin/packs` (owner-of-publisher role gate); audit-events hash-chained writer; quarantined version returns 451 + red banner on pack detail in place of install command.
+- **v0.5 git-source** (2026-05-19, this session): `@workgraph/core/git-source` — `parseGitId("github:owner/repo[@ref][#subpath]")` + `fetchGitPack(source)` materialize a tmpRoot via `raw.githubusercontent.com` per-file fetch. CLI `install` command source detection order: local path → git source → registry id. 11 new vitest cases. `--require-sig` + git source exits 2 with v0.5.1 deferral. Registry stays available as optional convenience for cross-org discovery + enterprise self-host (Phase 6, gated). New `docs/git-source.md`; `docs/registry.md` opens with "you might not need this."
 
 ## Open-source readiness (2026-05-19)
 
@@ -28,7 +29,7 @@ Last updated: 2026-05-19 (OSS launch — Phase 4 admin UI shipped, repo public)
 
 ## Test status
 
-- **258 tests passing** across 23 files: 178 core + 19 db + 35 cli + 26 registry (+8 new admin-status tests this session).
+- **269 tests passing** across 24 files: 189 core + 19 db + 35 cli + 26 registry (+11 new git-source tests this session).
 - All four workspace packages typecheck + lint + build cleanly.
 - Registry builds Next.js 15 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.

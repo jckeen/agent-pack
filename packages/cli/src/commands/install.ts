@@ -9,14 +9,17 @@ import {
   DEFAULT_REGISTRY_URL,
   enforcePolicy,
   ExitCode,
+  fetchGitPack,
   HttpRegistryClient,
   IntegrityError,
   loadPolicy,
+  parseGitId,
   planInstall,
   applyInstall,
   recoverIncomplete,
   resolveLatestVersion,
   signing,
+  type GitSource,
   type RegistryClient,
   type TargetPlatform,
 } from "@workgraph/core";
@@ -77,22 +80,59 @@ export function registerInstall(program: Command): void {
           }
           let source = pack ?? process.cwd();
 
-          // Remote-identity branch: pack arg matches <publisher>/<pack>[@<version>].
-          // BUT: if the same string also resolves to an existing local directory
-          // (e.g. `examples/pr-quality`), we treat that as a local-path install.
-          // Local always wins — the user can disambiguate by passing a registry
-          // identity with an `@<version>` suffix or by using `--registry` to
-          // override.
-          let remoteMatch = pack ? pack.match(REMOTE_ID_RE) : null;
-          if (remoteMatch && pack) {
+          // Source detection order (v0.5): local path → git source → registry id.
+          //
+          //   1. If `pack` resolves to a directory, that's a local-path install.
+          //      Local always wins — explicit beats inferred.
+          //   2. Otherwise, if it matches the git-source grammar
+          //      (`github:owner/repo[@ref][#subpath]` or `github.com/...`),
+          //      fetch from raw.githubusercontent.com.
+          //   3. Otherwise, if it matches `<publisher>/<pack>[@<version>]`,
+          //      fetch from the configured registry.
+          //
+          // The git source has an unambiguous prefix, so it can sit between
+          // the local stat-check and the registry-id branch without conflicting
+          // with either.
+          let isLocalDir = false;
+          if (pack) {
             try {
               const stat = await fs.stat(path.resolve(process.cwd(), pack));
-              if (stat.isDirectory()) {
-                remoteMatch = null;
-              }
+              if (stat.isDirectory()) isLocalDir = true;
             } catch {
-              // ENOENT — not a local directory; remote-id stands.
+              // ENOENT — not a local directory.
             }
+          }
+
+          const gitSource: GitSource | null =
+            !isLocalDir && pack ? parseGitId(pack) : null;
+          let remoteMatch: RegExpMatchArray | null = null;
+          if (!isLocalDir && !gitSource && pack) {
+            remoteMatch = pack.match(REMOTE_ID_RE);
+          }
+
+          if (gitSource) {
+            if (options.requireSig) {
+              console.error(
+                pc.red(
+                  "✗ --require-sig with a git source is not supported in v0.5.\n" +
+                    "  Git-source signature verification (cosign-on-tag) arrives in v0.5.1.\n" +
+                    "  For signed-by-default today, publish to a registry and install via\n" +
+                    "  `workgraph install <publisher>/<pack>@<version> --require-sig`."
+                )
+              );
+              process.exit(2);
+            }
+            source = await fetchGitPack({
+              source: gitSource,
+              fetchImpl: globalThis.fetch,
+            });
+            console.log(
+              pc.dim(
+                `Installed from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}${
+                  gitSource.ref ? "@" + gitSource.ref : " (default branch)"
+                }${gitSource.subpath ? "#" + gitSource.subpath : ""}`
+              )
+            );
           }
           if (remoteMatch) {
             const [, publisher, packSlug, requestedVersion] = remoteMatch;

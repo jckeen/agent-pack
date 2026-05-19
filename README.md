@@ -23,50 +23,66 @@ AgentPack fixes that with a single portable manifest, a permissioned planner tha
 
 ## Quickstart (≤5 minutes)
 
+**Install a pack directly from a git ref — no registry required:**
+
+```bash
+# Install the bundled PR-Quality pack straight from GitHub
+workgraph install github:jckeen/agent-pack@master#examples/pr-quality \
+  --target claude-code --profile safe \
+  --project ./my-project --yes
+```
+
+That's it. The CLI fetches the manifest from `raw.githubusercontent.com` at the named ref, derives the file list from the AGENTPACK.yaml, materializes everything into a tmpdir, and runs the same WAL-protected install pipeline used for local paths. Lockfile, history, verify, and rollback all work identically.
+
+See [`docs/git-source.md`](./docs/git-source.md) for the full git source syntax (`github:owner/repo[@ref][#subpath]`, `github.com/owner/repo`, branch refs with slashes, signature notes).
+
+**Develop locally:**
+
 ```bash
 git clone https://github.com/jckeen/agent-pack
 cd agent-pack
 pnpm install
 pnpm build
-pnpm test                                  # 250+ tests green
+pnpm test                                  # 269 tests green
 ```
 
 ```bash
-# Validate the bundled example pack
+# Validate, inspect, plan — all read-only
 pnpm cli validate examples/pr-quality
-
-# Plan an install for Claude Code, safe profile
-pnpm cli plan examples/pr-quality \
-  --target claude-code --profile safe
+pnpm cli inspect  examples/pr-quality
+pnpm cli plan     examples/pr-quality --target claude-code --profile safe
 
 # Compile to native files (export — never touches your project)
 pnpm cli pack export examples/pr-quality \
-  --target claude-code --profile safe \
-  --out dist/claude
+  --target claude-code --profile safe --out dist/claude
 
-# Actually install (Phase 2): diff → confirm → backup → write → lockfile + history
+# Install into a project (Phase 2): diff → backup → write → lockfile + history
 pnpm cli install examples/pr-quality \
   --target claude-code --profile safe \
   --project /tmp/my-claude-project --yes
 
-# Drift detection (Phase 2)
+# Drift detection, rollback, history (Phase 2)
 pnpm cli verify workgraph.pr-quality --project /tmp/my-claude-project
-
-# Undo (Phase 2)
 pnpm cli uninstall workgraph.pr-quality --project /tmp/my-claude-project --yes
+pnpm cli history --project /tmp/my-claude-project
 
 # Sign on publish (Phase 4 — keyless via Sigstore Fulcio + Rekor)
 pnpm cli publish examples/pr-quality --sign
 
 # Verify a signed install (Phase 4)
 pnpm cli verify workgraph.pr-quality --project /tmp/my-claude-project --sig --strict
+```
 
-# Browse the registry web app locally
+### Hosted registry (optional)
+
+You don't *need* a hosted registry to use AgentPack — git is the default distribution. The registry exists as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the eventual enterprise self-host path. See [`docs/registry.md`](./docs/registry.md) for when it earns its keep.
+
+To browse the registry web app locally (boots in JSON-fallback mode without any env vars):
+
+```bash
 pnpm dev
 # → http://localhost:3030
 ```
-
-The registry boots in **JSON-fallback mode** without any environment variables (good for browsing). For the full DB-backed mode, see [`docs/registry.md`](./docs/registry.md) — `DATABASE_URL` (Postgres), `R2_*` (Cloudflare R2), `AUTH_GITHUB_ID/SECRET`, `AUTH_SECRET` get you to a live registry.
 
 ---
 

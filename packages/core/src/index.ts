@@ -7,6 +7,15 @@ export * from "./protocol/index.js";
 // Phase 4 signing & verification (Sigstore keyless).
 export * as signing from "./signing/index.js";
 
+// v0.5 git-source install path — install AgentPacks directly from a git ref,
+// no registry required. Registry stays available as an optional convenience.
+export {
+  parseGitId,
+  fetchGitPack,
+  type GitSource,
+  type FetchGitPackOptions,
+} from "./git-source/index.js";
+
 // Iteration-4 modules (Phase 3 + Phase 5).
 export * as cache from "./cache/index.js";
 export {
