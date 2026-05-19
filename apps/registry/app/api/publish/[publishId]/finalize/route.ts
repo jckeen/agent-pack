@@ -2,19 +2,21 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
 import type { PublishFinalizeResponse } from "@workgraph/core";
+import { signing } from "@workgraph/core";
 
 import {
   atoms,
   compatibilities,
   getDb,
   packFiles,
+  packSignatures,
   packVersions,
   packs,
   publishers,
   publishes,
 } from "@/lib/db";
 import { headObject, R2NotConfiguredError } from "@/lib/r2";
-import { verifyBearer } from "@/lib/tokens";
+import { requireScope, verifyBearer } from "@/lib/tokens";
 
 export async function POST(
   req: Request,
@@ -39,6 +41,22 @@ export async function POST(
   if (!pub) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
+
+  // Security-reviewer C1 fix — only the token that INITIATED this publish
+  // can finalize it, AND that token must still hold publish scope on the
+  // target publisher. The original code accepted any authenticated bearer
+  // token, which let a logged-in attacker hijack a pending publishId and
+  // even silently auto-create publisher namespaces with zero members.
+  if (pub.createdBy !== verified.userId) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  try {
+    requireScope(verified, "publish:packs", pub.publisherSlug);
+  } catch (e) {
+    if (e instanceof Response) return e;
+    throw e;
+  }
+
   if (pub.status !== "pending") {
     return NextResponse.json(
       { error: "already_finalized" },
@@ -50,6 +68,49 @@ export async function POST(
       { error: "publish_expired", publishId },
       { status: 410 }
     );
+  }
+
+  // Optional signature in the body. If present, parse + verify server-side
+  // BEFORE inserting the version row so a bogus signature aborts the publish.
+  let parsedSignature: signing.SignedManifest | null = null;
+  try {
+    const bodyText = await req.text();
+    if (bodyText.length > 0) {
+      const body = JSON.parse(bodyText) as { signature?: unknown };
+      if (body.signature !== undefined && body.signature !== null) {
+        const parsed = signing.signedManifestSchema.safeParse(body.signature);
+        if (!parsed.success) {
+          return NextResponse.json(
+            { error: "invalid_signature_envelope", issues: parsed.error.issues },
+            { status: 422 }
+          );
+        }
+        parsedSignature = parsed.data;
+        // Cryptographically verify against the manifest hash the publisher
+        // declared at init time. If they disagree, refuse before persistence.
+        const manifestFileForSig = pub.presignedFiles.find(
+          (f) => f.path === "AGENTPACK.yaml"
+        );
+        const expectedChecksum = manifestFileForSig?.sha256 ?? "";
+        const result = await signing.verifyManifestSignature({
+          manifestChecksum: expectedChecksum,
+          signed: parsedSignature,
+        });
+        if (!result.valid) {
+          return NextResponse.json(
+            {
+              error: "signature_invalid",
+              reason: result.reason,
+              detail: result.detail,
+            },
+            { status: 422 }
+          );
+        }
+      }
+    }
+  } catch {
+    // Bad JSON in body is fine — finalize is allowed to be called with no
+    // body. We only validate JSON that successfully parses.
   }
 
   // Verify each file's size via R2 HEAD.
@@ -81,25 +142,23 @@ export async function POST(
     );
   }
 
-  // Find or create publisher.
-  let pubsId: string;
+  // Resolve publisher. We require an existing row — auto-create was a
+  // namespace-squat amplifier (security-reviewer C1, second leg). Membership
+  // is enforced via requireScope() above; the only way to get here is to
+  // already be a recognized member of pub.publisherSlug, which itself
+  // implies the publishers row exists.
   const existingPub = await db
     .select()
     .from(publishers)
     .where(eq(publishers.slug, pub.publisherSlug))
     .limit(1);
-  if (existingPub[0]) {
-    pubsId = existingPub[0].id;
-  } else {
-    const inserted = await db
-      .insert(publishers)
-      .values({ slug: pub.publisherSlug, displayName: pub.publisherSlug })
-      .returning({ id: publishers.id });
-    if (!inserted[0]) {
-      return NextResponse.json({ error: "publisher_insert_failed" }, { status: 500 });
-    }
-    pubsId = inserted[0].id;
+  if (!existingPub[0]) {
+    return NextResponse.json(
+      { error: "publisher_not_found", publisher: pub.publisherSlug },
+      { status: 404 }
+    );
   }
+  const pubsId = existingPub[0].id;
 
   // Find or create pack.
   let pkId: string;
@@ -157,6 +216,24 @@ export async function POST(
         r2Key: f.r2Key,
       }))
     );
+  }
+
+  // Insert signature row if the publisher signed. This is the canonical
+  // storage location — the registry will surface it via /signatures + on
+  // the pack detail page and CLI `verify --sig` will fetch it from here.
+  if (parsedSignature) {
+    await db.insert(packSignatures).values({
+      packVersionId: versionId,
+      bundleB64: parsedSignature.bundleB64,
+      signerSan: parsedSignature.metadata.identity.san,
+      signerIssuer: parsedSignature.metadata.identity.issuer,
+      rekorLogIndex: parsedSignature.metadata.rekorLogIndex,
+      rekorLogId: parsedSignature.metadata.rekorLogId,
+      rekorLogUrl: parsedSignature.metadata.rekorLogUrl,
+      manifestSha256: parsedSignature.manifestChecksum,
+      envelopeVersion: parsedSignature.envelopeVersion,
+      signedAt: new Date(parsedSignature.metadata.signedAt),
+    });
   }
 
   // Insert atoms placeholder rows from the presigned-files atom IDs. Real atom

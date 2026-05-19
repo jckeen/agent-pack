@@ -10,6 +10,7 @@ import {
   ExitCode,
   loadManifest,
   resolveAtoms,
+  signing,
   type AgentPackManifest,
 } from "@workgraph/core";
 
@@ -48,10 +49,16 @@ export function registerPublish(program: Command): void {
     .description("Publish a pack to the Workgraph Registry.")
     .option("--registry <url>", "registry URL", DEFAULT_REGISTRY_URL)
     .option("-y, --yes", "skip confirmation", false)
+    .option(
+      "--sign",
+      "sign the manifest with Sigstore keyless (default if OIDC token available)",
+      true
+    )
+    .option("--no-sign", "skip signing; pack will be unsigned in the registry")
     .action(
       async (
         pathArg: string | undefined,
-        options: { registry: string; yes: boolean }
+        options: { registry: string; yes: boolean; sign: boolean }
       ) => {
         try {
           const registry = options.registry.replace(/\/+$/, "");
@@ -98,15 +105,16 @@ export function registerPublish(program: Command): void {
               pack: manifest.metadata.slug,
               version: manifest.metadata.version,
               manifestSha256,
-              files: [
-                { path: "AGENTPACK.yaml", sha256: manifestSha256, bytes: manifestBytes.length },
-                ...files.map((f) => ({
-                  path: f.path,
-                  sha256: f.sha256,
-                  bytes: f.bytes,
-                  ...(f.atomId ? { atomId: f.atomId } : {}),
-                })),
-              ],
+              // manifestBytes was missing from the wire format pre-Phase-4
+              // hardening; the registry synthesizes the manifest entry from
+              // these two fields and DOES NOT expect AGENTPACK.yaml in `files`.
+              manifestBytes: manifestBytes.length,
+              files: files.map((f) => ({
+                path: f.path,
+                sha256: f.sha256,
+                bytes: f.bytes,
+                ...(f.atomId ? { atomId: f.atomId } : {}),
+              })),
               metadata: {
                 name: manifest.metadata.name,
                 description: manifest.metadata.description,
@@ -154,7 +162,42 @@ export function registerPublish(program: Command): void {
             await putBlob(presigned, bytes, f.path);
           }
 
-          // 3. POST /api/publish/<id>/finalize
+          // 3a. (Optional) sign manifest via Sigstore keyless.
+          let signedEnvelope: signing.SignedManifest | undefined;
+          if (options.sign) {
+            const hasToken =
+              !!process.env["SIGSTORE_ID_TOKEN"] ||
+              (!!process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] &&
+                !!process.env["ACTIONS_ID_TOKEN_REQUEST_URL"]);
+            if (!hasToken) {
+              console.error(
+                pc.yellow(
+                  "\n⚠ --sign was requested but no OIDC token is available. " +
+                    "Set SIGSTORE_ID_TOKEN (e.g. `gh auth token`) or pass --no-sign.\n" +
+                    "Aborting before finalize so you don't ship an unsigned version " +
+                    "you meant to sign."
+                )
+              );
+              process.exit(ExitCode.Generic);
+            }
+            try {
+              console.log(pc.dim("  signing manifest via Sigstore Fulcio + Rekor…"));
+              signedEnvelope = await signing.signManifestChecksum({
+                manifestChecksum: manifestSha256,
+              });
+              console.log(
+                pc.green(
+                  `  ✓ signed by ${signedEnvelope.metadata.identity.san} (rekor #${signedEnvelope.metadata.rekorLogIndex})`
+                )
+              );
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(pc.red(`signing failed: ${msg}`));
+              process.exit(ExitCode.Generic);
+            }
+          }
+
+          // 3b. POST /api/publish/<id>/finalize (with optional signature).
           const finalizeRes = await fetch(
             `${registry}/api/publish/${init.publishId}/finalize`,
             {
@@ -163,7 +206,10 @@ export function registerPublish(program: Command): void {
                 Authorization: `Bearer ${token}`,
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ publishId: init.publishId }),
+              body: JSON.stringify({
+                publishId: init.publishId,
+                ...(signedEnvelope ? { signature: signedEnvelope } : {}),
+              }),
             }
           );
           if (finalizeRes.status === 410) {

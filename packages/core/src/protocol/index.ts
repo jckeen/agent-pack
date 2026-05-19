@@ -113,10 +113,21 @@ export const tokenSchema = z.string().regex(TOKEN_REGEX, "invalid wgp_live_ toke
 // PublishInit request/response
 // ---------------------------------------------------------------------------
 
+// Registry-side limits. Trip these and the registry refuses the publish at
+// init time. Tuned for typical packs (manifests ~10-50 KB, atom files
+// ~few KB each, packs total well under 10 MB) with comfortable headroom.
+// Trojan/DoS amplification was the security-reviewer's finding here — the
+// uncapped versions let a token-holder bombard init with 10k files of
+// 100 GB each.
+export const MAX_MANIFEST_BYTES = 1 * 1024 * 1024;        // 1 MiB
+export const MAX_FILE_BYTES     = 50 * 1024 * 1024;       // 50 MiB per file
+export const MAX_PACK_BYTES     = 200 * 1024 * 1024;      // 200 MiB total
+export const MAX_FILES_PER_PACK = 2000;
+
 export const publishFileEntrySchema = z.object({
   path: relativePathSchema,
   sha256: sha256HexSchema,
-  bytes: z.number().int().nonnegative(),
+  bytes: z.number().int().positive().max(MAX_FILE_BYTES),
   atomId: z.string().min(1).optional(),
 });
 
@@ -136,14 +147,31 @@ export const publishMetadataSchema = z.object({
 
 export type PublishMetadata = z.infer<typeof publishMetadataSchema>;
 
-export const publishInitRequestSchema = z.object({
-  publisher: slugSchema,
-  pack: slugSchema,
-  version: semverSchema,
-  manifestSha256: sha256HexSchema,
-  files: z.array(publishFileEntrySchema).min(1),
-  metadata: publishMetadataSchema,
-});
+export const publishInitRequestSchema = z
+  .object({
+    publisher: slugSchema,
+    pack: slugSchema,
+    version: semverSchema,
+    manifestSha256: sha256HexSchema,
+    // Size of the AGENTPACK.yaml in bytes. Bounded so init-time presign
+    // sets a real ContentLength + checksum-sha256 conditional on R2.
+    manifestBytes: z.number().int().positive().max(MAX_MANIFEST_BYTES),
+    files: z
+      .array(publishFileEntrySchema)
+      .min(1)
+      .max(MAX_FILES_PER_PACK),
+    metadata: publishMetadataSchema,
+  })
+  .superRefine((v, ctx) => {
+    const total = v.files.reduce((s, f) => s + f.bytes, 0) + v.manifestBytes;
+    if (total > MAX_PACK_BYTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `pack size ${total} exceeds limit ${MAX_PACK_BYTES}`,
+        path: ["files"],
+      });
+    }
+  });
 
 export type PublishInitRequest = z.infer<typeof publishInitRequestSchema>;
 

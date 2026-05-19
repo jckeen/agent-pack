@@ -35,6 +35,7 @@ describe("TABLE_NAMES", () => {
       publisherMembers: "publisher_members",
       packs: "packs",
       packVersions: "pack_versions",
+      packSignatures: "pack_signatures",
       atoms: "atoms",
       packFiles: "pack_files",
       compatibilities: "compatibilities",

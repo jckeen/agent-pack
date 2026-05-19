@@ -1,8 +1,16 @@
 # agent-pack — STATUS
 
-Last updated: 2026-05-18 (post Phase 3 + Phase 5 scaffold)
+Last updated: 2026-05-19 (mid Phase 3+5 → v0.3.0 promotion sprint)
 
 ## Where we are
+
+**v0.3.0-rc.1 → v0.3.0 in flight + Phase 4 (cosign keyless) in flight. AgentPack is OPEN SOURCE — MIT-licensed standard, registry, CLI, and adapters; the hosted registry at agentpack.dev is a convenience, not a requirement.**
+
+This session (2026-05-19):
+
+- **D1 (in flight):** live infra wiring (`scripts/bring-up-prod.sh`, `scripts/smoke-e2e.sh`, `apps/registry/vercel.json`, `.env.example`, health endpoint).
+- **D2 (in flight):** Phase 4 cosign keyless signing — Sigstore Fulcio + Rekor via `@sigstore/sign` + `@sigstore/verify` (or umbrella `sigstore@4.0.0`).
+- **D5 (done):** Phase 6 (orgs + WorkOS SSO) **🔒 Gated** — see `Plans/PHASE-6-GATE.md`. Triggers on first paying-customer conversation about enterprise self-host.
 
 **v0.3.0-rc.1 — Phase 3 (registry backend) + Phase 5 (remote install) scaffold — landed in code.**
 
@@ -55,15 +63,12 @@ pnpm dev
 Without any of those env vars, the registry boots in JSON-fallback mode for
 local browsing; publish/auth/manifest-byte routes return 503.
 
-## What's next (Phases 4, 6, 7 — out of this session)
+## What's next
 
-- **Phase 4** (cosign signatures) — `workgraph verify --sig`, Fulcio keyless flow on publish, quarantine/yank UI. Lockfile `signatures.{manifest,cert}` slots already reserved.
-- **Phase 6** (enterprise) — orgs first-class, WorkOS SSO, `audit_events` chain wiring, policy overlay. Schema already includes `audit_events` + nullable `org_id`.
-- **Phase 7** (Workgraph integration) — `POST /api/v1/import/workgraph`, trust signals, Agent Commons publish bridge.
-
-All three require external partner integration that doesn't exist in this
-session: Sigstore CA trust roots, WorkOS tenant, Workgraph product API, Agent
-Commons publishing endpoint.
+- **v0.3.0 promotion** — live infra wired (Vercel + Neon + R2 + GitHub OAuth), smoke harness green, packages bumped 0.3.0-rc.1 → 0.3.0, git tag.
+- **Phase 4** (cosign signatures, in flight) — `workgraph verify --sig`, Fulcio keyless flow on publish, quarantine/yank UI. Lockfile `signatures.{manifest,cert}` slots already reserved. Ships as v0.4.0.
+- **Phase 6** (enterprise) — 🔒 **Gated.** Triggers on first paying-customer conversation about enterprise self-host. Schema slots preserved (`org_id` nullable, `audit_events` table exists). See `Plans/PHASE-6-GATE.md`.
+- **Phase 7** (Workgraph integration) — `POST /api/v1/import/workgraph`, trust signals, Agent Commons publish bridge. Requires Workgraph product API + Agent Commons publishing endpoint.
 
 ## Living docs
 

@@ -4,6 +4,9 @@
 // Source of truth: Plans/PROTOCOL.md.
 export * from "./protocol/index.js";
 
+// Phase 4 signing & verification (Sigstore keyless).
+export * as signing from "./signing/index.js";
+
 // Iteration-4 modules (Phase 3 + Phase 5).
 export * as cache from "./cache/index.js";
 export {

@@ -92,7 +92,8 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  // Presign each file.
+  // Presign each file. The manifest entry now carries its real byte count
+  // (security-reviewer H2 fix — bytes: 0 was a checksum-skip footgun).
   let presignedUploads;
   try {
     presignedUploads = await Promise.all(
@@ -100,7 +101,7 @@ export async function POST(req: Request): Promise<Response> {
         {
           path: "AGENTPACK.yaml",
           sha256: parsed.manifestSha256,
-          bytes: 0, // unknown; client owns
+          bytes: parsed.manifestBytes,
         },
         ...parsed.files,
       ].map(async (f) => {

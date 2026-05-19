@@ -58,30 +58,45 @@ export function __resetR2ForTests(): void {
 }
 
 /**
- * Produce a presigned PUT URL with an enforced `x-amz-meta-sha256` header
- * and a fixed Content-Length. The CLI must echo both back exactly on upload.
+ * Produce a presigned PUT URL with a strict size + sha256 commitment.
+ *
+ * Three things make this airtight against malicious uploads:
+ *
+ *  1. **ChecksumSHA256** — base64-encoded sha256 of the bytes is signed into
+ *     the URL. R2/S3 computes sha256 of the actual upload body and REJECTS
+ *     the PUT if it doesn't match. The pre-fix `Metadata.sha256` approach
+ *     was a label R2 stored unchecked — security-reviewer flagged it as
+ *     letting publishers upload arbitrary bytes while declaring a benign hash.
+ *  2. **ContentLength** — fixed at signing time. PUT bodies of any other
+ *     size are rejected by the signature itself.
+ *  3. **Short expiry** — default 1 h so a leaked presign can't be replayed.
+ *
+ * The returned `headers` map MUST be sent verbatim by the client on upload.
  */
 export async function presignPutUrl(
   key: string,
   opts: { sha256: string; bytes: number; expiresIn?: number }
 ): Promise<{ url: string; headers: Record<string, string> }> {
   const { client, bucket } = r2Client();
+  // sha256 arrives as 64-char hex. S3 ChecksumSHA256 wants base64 of the raw
+  // 32-byte digest.
+  const checksumBase64 = Buffer.from(opts.sha256, "hex").toString("base64");
   const cmd = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
     ContentLength: opts.bytes,
-    Metadata: {
-      sha256: opts.sha256,
-    },
+    ChecksumSHA256: checksumBase64,
   });
   const url = await getSignedUrl(client, cmd, {
     expiresIn: opts.expiresIn ?? 3600,
+    // Hash both these headers into the signature so the client can't tamper.
+    unhoistableHeaders: new Set(["content-length", "x-amz-checksum-sha256"]),
   });
   return {
     url,
     headers: {
       "content-length": String(opts.bytes),
-      "x-amz-meta-sha256": opts.sha256,
+      "x-amz-checksum-sha256": checksumBase64,
     },
   };
 }

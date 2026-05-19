@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.4.0-dev / 0.3.0 — 2026-05-19 (Phase 4 cosign + production wiring + security hardening)
+
+**AgentPack is open source.** Adding Phase 4 supply-chain trust (cosign keyless signing), wiring the registry for live Vercel + Neon + R2 deploy, and gating Phase 6 (orgs + WorkOS SSO) behind explicit demand signal in `Plans/PHASE-6-GATE.md`.
+
+**Phase 4 — Sigstore keyless signing & verification**
+
+- `@workgraph/core/signing` — new module wrapping `@sigstore/sign` (Fulcio CA + Rekor witness) and `@sigstore/verify`. Exposes `signManifestChecksum(opts)` and `verifyManifestSignature(opts)`. Bundle JSON is base64-encoded into the existing `lockfile.signatures.manifest` string slot (reserved in v0.2.0); no `lockfileVersion: 2` bump.
+- `workgraph publish --sign` (default on when OIDC token available; `--no-sign` to opt out). Signs the manifest sha256, sends the envelope in the finalize body. Aborts before finalize if `--sign` was requested but no token is available (`SIGSTORE_ID_TOKEN` env or GitHub Actions ambient).
+- `workgraph verify --sig` validates signature in addition to drift; `--strict` exits non-zero on unsigned packs. Per-roadmap exit codes: 0 ok, 2 drift, 3 chain broken, 4 signature invalid, 5 unsigned-when-required.
+- Registry — new `pack_signatures` table (migration `0002_signatures.sql`), `POST /api/publish/<id>/finalize` accepts and server-verifies the signature before persisting, `GET /api/v1/packs/<pub>/<pack>/versions/<v>/signatures` exposes the proof.
+- Registry UI — `SignatureBadge` component renders "Signed by @<github>" with link to the Rekor entry, or muted "Unsigned" otherwise.
+- 12 new envelope-schema + identity-gate tests; live Fulcio/Rekor smoke deferred to the publish→install smoke harness.
+
+**Security hardening — pre-Phase-4 audit findings**
+
+Pre-Phase-4 security review flagged four issues that would have shipped to production without an audit. All four landed in this release before any signing code wrapped them:
+
+- **C1 (critical)** — `POST /api/publish/<id>/finalize` no longer accepts arbitrary authenticated bearer tokens. The token MUST own the original publish (`pub.createdBy === verified.userId`) AND hold `publish:packs:<publisher>` scope. Removes the publisher-namespace squat vector.
+- **H1 (high)** — R2 presigned PUT URLs now use S3 `ChecksumSHA256` (base64-encoded sha256 of the bytes) signed into the URL. R2 rejects the upload if the actual body hash doesn't match. The pre-fix `x-amz-meta-sha256` was an unchecked label.
+- **H2 (high)** — `publishInitRequestSchema` now requires `manifestBytes` (positive integer, capped at 1 MiB). The pre-fix path presigned the manifest with `ContentLength: 0`, leaving it unbounded and unverified.
+- **H3 (high)** — Per-file size cap (50 MiB), per-pack size cap (200 MiB), file-count cap (2000). Prevents resource-exhaustion via init-bomb.
+
+Medium-severity items (in-memory device-code store, low userCode entropy, CSRF on `approve`, AUTH_SECRET soft-fail) are tracked for the next hardening pass; none block the v0.3.0 promotion since exploitation requires already holding a valid session.
+
+**Live infra wiring**
+
+- `apps/registry/vercel.json` — framework + region (`iad1`) + monorepo-aware install + build commands + security headers.
+- `apps/registry/.env.example` — comprehensive template for `DATABASE_URL`, `AUTH_SECRET`, `AUTH_GITHUB_ID/SECRET`, `R2_*`, `NEXT_PUBLIC_REGISTRY_URL`, optional `SIGSTORE_ID_TOKEN`.
+- `scripts/bring-up-prod.sh` — guided runbook: create Vercel project under the `keen-media` team, create Neon project + DB, create Cloudflare R2 bucket + token, register a GitHub OAuth app, set every secret in Vercel, run `db:push` against live Neon, seed publishers, deploy.
+- `scripts/smoke-e2e.sh` — end-to-end publish → install → verify smoke. Exercises live `/api/v1/health`, publishes a smoke version, installs into a tempdir, asserts lockfile manifestChecksum matches the registry, runs `workgraph verify` on the install. Records results to `smoke-results.json` with exit-code taxonomy (0 green, 2 registry down, 3 publish failed, 4 install failed, 5 checksum mismatch, 6 drift).
+- `apps/registry/app/api/v1/health/route.ts` — probes Postgres + R2 reachability, returns `{ status, db, r2, version, duration_ms, timestamp }`; 200 ok / 503 degraded.
+
+**Phase 6 — explicit deferral gate**
+
+- `Plans/PHASE-6-GATE.md` — pins the trigger condition ("first paying-customer conversation about enterprise self-host"), names the 4 concrete qualifiers, lists the 8 design decisions to revisit when triggered, confirms schema slots already reserved (`org_id` nullable, `audit_events` table) stay valid through Phase 4 so the unlock is a migration not a re-architecture. Includes the gate-flip procedure for when the trigger fires.
+- ROADMAP § Phase 6 prefixed with 🔒 GATED marker pointing to the gate doc.
+- STATUS.md updated to reflect open-source positioning + Phase 6 gated state.
+
+**Agent-stall investigation (PAI-internal, no AgentPack code impact)**
+
+- Root cause identified: codex CLI's auto-prepend of `AGENTS.md`/`AGENTS.local.md` (~30 KB / ~8K tokens) accumulates across tool-call rounds, crossing the 1M-token context window on medium-sized codebases and triggering silent termination of GPT-5.4 reasoning=high.
+- Investigation memo + feedback memory + doctrine-change proposal landed in `Plans/algorithm-v6.4.0-changes.md`.
+- Net effect for AgentPack: every Phase 4 file in this release was written inline by the primary rather than delegated to Forge, per the new canary mandate.
+
+**Test status**
+
+All workspace test suites green. 250 tests passing (238 from v0.3.0-rc.1 + 12 new signing envelope tests).
+
 ## 0.3.0-rc.1 — 2026-05-18 (Phase 3 + Phase 5 scaffold)
 
 End-to-end supply chain skeleton: publish → fetch → install → verify all wired in code. Real Neon DB, GitHub OAuth, and R2 bucket plug in via env vars; the build, tests, and typecheck run cleanly without them. 117 new ISCs (ISC-151..267).

@@ -11,7 +11,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { BlobNotFoundError, IntegrityError } from "./errors.js";
-import { getBlobPath, getCachePaths, type CachePaths } from "./paths.js";
+import { getBlobPath, type CachePaths } from "./paths.js";
 
 export async function hasBlob(sha256: string, paths?: CachePaths): Promise<boolean> {
   const blobPath = getBlobPath(sha256, paths);

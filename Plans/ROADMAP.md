@@ -427,7 +427,9 @@ CLI loads it on every install/verify invocation. Violations are hard refusals wi
 
 ---
 
-## Phase 6 — Enterprise (v0.6.0)
+## Phase 6 — Enterprise (v0.6.0) — 🔒 **GATED**
+
+> **Implementation deferred until the first paying-customer conversation about enterprise self-host.** Trigger conditions, design-space, and gate-flip procedure are in `Plans/PHASE-6-GATE.md`. Schema slots (`org_id` nullable on `users`+`packs`, `audit_events` table) stay reserved so the unlock is a migration, not a re-architecture. Do not implement Phase 6 code until the gate flips.
 
 **Intent.** Make the registry + CLI + auth respect org boundaries, central policy, and audit-trail expectations. The enterprise unlock — orgs pay for what individuals don't.
 

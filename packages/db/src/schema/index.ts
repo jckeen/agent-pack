@@ -12,6 +12,7 @@ export const TABLE_NAMES = {
   publisherMembers: "publisher_members",
   packs: "packs",
   packVersions: "pack_versions",
+  packSignatures: "pack_signatures",
   atoms: "atoms",
   packFiles: "pack_files",
   compatibilities: "compatibilities",
@@ -45,6 +46,11 @@ export {
   type NewPackVersion,
   type VersionStatusEnum,
 } from "./packVersions.js";
+export {
+  packSignatures,
+  type PackSignature,
+  type PackSignatureInsert,
+} from "./packSignatures.js";
 export { atoms, type AtomRow, type NewAtomRow } from "./atoms.js";
 export { packFiles, type PackFile, type NewPackFile } from "./packFiles.js";
 export {

@@ -4,10 +4,12 @@ import { SEED_PACKS, getSeedPack } from "@/lib/seed";
 import { getPackDetail } from "@/lib/manifest";
 import { CompatibilityMatrix } from "@/components/CompatibilityMatrix";
 import { RiskBadge } from "@/components/RiskBadge";
+import { SignatureBadge } from "@/components/SignatureBadge";
 import { PermissionSummary } from "@/components/PermissionSummary";
 import { InstallCommandBox } from "@/components/InstallCommandBox";
 import { AtomList } from "@/components/AtomList";
 import { ManifestViewer } from "@/components/ManifestViewer";
+import { getLatestSignatureForPack } from "@/lib/signatures";
 
 export async function generateStaticParams() {
   return SEED_PACKS.map((p) => ({
@@ -26,6 +28,11 @@ export default async function PackDetailPage({
   if (!seed) notFound();
 
   const detail = await getPackDetail(seed);
+  const signature = await getLatestSignatureForPack(
+    seed.publisher,
+    seed.slug,
+    seed.version
+  );
   const profiles = detail.manifest
     ? Object.keys(detail.manifest.profiles)
     : ["safe"];
@@ -65,8 +72,11 @@ export default async function PackDetailPage({
               ))}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <RiskBadge level={detail.riskLevel} size="md" />
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-2">
+              <SignatureBadge signature={signature} size="md" />
+              <RiskBadge level={detail.riskLevel} size="md" />
+            </div>
             <span className="text-xs text-ink-400">
               v{seed.version} · {seed.publisher}
             </span>

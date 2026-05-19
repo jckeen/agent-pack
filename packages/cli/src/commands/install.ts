@@ -16,6 +16,7 @@ import {
   applyInstall,
   recoverIncomplete,
   resolveLatestVersion,
+  signing,
   type RegistryClient,
   type TargetPlatform,
 } from "@workgraph/core";
@@ -46,6 +47,11 @@ export function registerInstall(program: Command): void {
     .option("--dry-run", "print diff and exit without writing", false)
     .option("--force", "overwrite existing files without an AgentPack marker", false)
     .option("--registry <url>", "registry URL for remote installs", DEFAULT_REGISTRY_URL)
+    .option(
+      "--require-sig",
+      "refuse to install if the registry has no valid Sigstore signature for this version",
+      false
+    )
     .action(
       async (
         pack: string | undefined,
@@ -57,6 +63,7 @@ export function registerInstall(program: Command): void {
           dryRun: boolean;
           force: boolean;
           registry: string;
+          requireSig: boolean;
         },
       ) => {
         try {
@@ -86,6 +93,48 @@ export function registerInstall(program: Command): void {
               profile: options.profile ?? "safe",
               projectRoot: options.project,
             });
+
+            // --require-sig: per ROADMAP exit-code taxonomy 0=ok, 2=drift,
+            // 3=chain, 4=sig invalid, 5=unsigned-when-required. We enforce
+            // BEFORE planInstall so a refused install touches zero files.
+            if (options.requireSig) {
+              const sigCheck = await verifyRegistrySignature({
+                registry: options.registry,
+                publisher,
+                pack: packSlug,
+                version: requestedVersion,
+              });
+              if (sigCheck.code === "unsigned") {
+                console.error(
+                  pc.red(
+                    `\n✗ ${publisher}/${packSlug}${requestedVersion ? "@" + requestedVersion : ""} is unsigned — --require-sig refuses.\n` +
+                      `  To install anyway, rerun without --require-sig.`
+                  )
+                );
+                process.exit(5);
+              }
+              if (sigCheck.code === "invalid") {
+                console.error(
+                  pc.red(
+                    `\n✗ ${publisher}/${packSlug} signature INVALID — ${sigCheck.reason}${sigCheck.detail ? ` (${sigCheck.detail})` : ""}.\n` +
+                      `  Refusing to install. If the publisher recently re-signed, try again.`
+                  )
+                );
+                process.exit(4);
+              }
+              console.log(
+                pc.green(
+                  `  ✓ signature verified — signed by ${sigCheck.san}`
+                )
+              );
+            }
+          } else if (options.requireSig) {
+            console.error(
+              pc.red(
+                "✗ --require-sig requires a remote pack identity (publisher/pack[@version]); local-path installs cannot be signature-checked."
+              )
+            );
+            process.exit(2);
           }
           // Run recovery sweep on every install — if a previous install
           // crashed, this is when we clean up. Idempotent on clean state.
@@ -314,6 +363,86 @@ async function fetchManifestExtra(
   // Files without an atom id (e.g. README) are rare in iter-4. Return empty
   // for now; future iterations can extend the client interface.
   return Buffer.alloc(0);
+}
+
+/**
+ * Fetch the registry's signatures for a pack version and verify the most
+ * recent one against the manifestChecksum we'll be installing. Returns a
+ * three-state result aligned with the verify-CLI exit codes:
+ *   - { code: "ok", san }      → 0
+ *   - { code: "unsigned" }     → 5 (registry has no signature rows)
+ *   - { code: "invalid", ... } → 4 (signature is present but verification failed)
+ */
+interface SigOk {
+  code: "ok";
+  san: string;
+}
+interface SigUnsigned {
+  code: "unsigned";
+}
+interface SigInvalid {
+  code: "invalid";
+  reason: string;
+  detail?: string | undefined;
+}
+type SigCheck = SigOk | SigUnsigned | SigInvalid;
+
+async function verifyRegistrySignature(params: {
+  registry: string;
+  publisher: string;
+  pack: string;
+  version: string | undefined;
+}): Promise<SigCheck> {
+  const versionPath = params.version ?? "latest";
+  const url = `${params.registry.replace(/\/+$/, "")}/api/v1/packs/${params.publisher}/${params.pack}/versions/${versionPath}/signatures`;
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    return {
+      code: "invalid",
+      reason: "network_error",
+      detail: (err as Error).message,
+    };
+  }
+  if (!res.ok) {
+    return {
+      code: "invalid",
+      reason: `registry_error_${res.status}`,
+      detail: res.statusText,
+    };
+  }
+  const data = (await res.json()) as {
+    manifestSha256: string;
+    signatures: Array<{
+      bundleB64: string;
+      manifestChecksum: string;
+      envelopeVersion: number;
+      metadata: signing.SignatureMetadata;
+    }>;
+  };
+  if (data.signatures.length === 0) return { code: "unsigned" };
+
+  // Verify the newest signature (registry sorts newest-first).
+  const latest = data.signatures[0];
+  if (!latest) return { code: "unsigned" };
+  const result = await signing.verifyManifestSignature({
+    manifestChecksum: data.manifestSha256,
+    signed: {
+      manifestChecksum: latest.manifestChecksum,
+      bundleB64: latest.bundleB64,
+      metadata: latest.metadata,
+      envelopeVersion: 1,
+    },
+  });
+  if (result.valid) {
+    return { code: "ok", san: result.metadata.identity.san };
+  }
+  return {
+    code: "invalid",
+    reason: result.reason,
+    detail: result.detail,
+  };
 }
 
 function printPlanSummary(plan: ReturnType<typeof planInstall> extends Promise<infer T> ? T : never): void {
