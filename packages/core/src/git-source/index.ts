@@ -51,13 +51,20 @@ const GIT_ID_RE =
   /^(github(?:\.com)?)[:/]([A-Za-z0-9_.-]{1,39})\/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?(?:@([^#]+))?(?:#(.+))?$/;
 
 /**
- * Allowed characters in a git ref. Tags can have slashes, dots, dashes,
- * underscores; refs CAN'T contain `\n`, `\r`, NUL, or any other control
- * char (which would otherwise smuggle into log lines and `raw.gh.com` URL
- * paths). Cap at 255 chars — GitHub's actual ref-name limit is well below
- * this. From security-reviewer 2026-05-19 (iter-5 HIGH-4).
+ * Allowed characters in a git ref. Mirrors the safe subset of `git
+ * check-ref-format` rules:
+ *   - letters, digits, `.`, `_`, `-`, `/`, `+` (semver build metadata
+ *     like `v1.0.0+build.1` is a real-world case)
+ *   - rejects every C0/C1 control char (newline, CR, NUL etc.) and the
+ *     shell metacharacters that would smuggle into log lines or the
+ *     raw.gh.com URL path
+ *   - rejects spaces and `~`, `^`, `:`, `?`, `*`, `[`, backslash,
+ *     apostrophe (all forbidden by git itself)
+ * Cap at 255 chars — GitHub's effective ref-name limit is below this.
+ * From security-reviewer HIGH-4 (iter-5); widened in codex P2 review to
+ * allow `+`.
  */
-const REF_RE = /^[A-Za-z0-9._/-]{1,255}$/;
+const REF_RE = /^[A-Za-z0-9._/+-]{1,255}$/;
 
 export function parseGitId(input: string): GitSource | null {
   if (!input || typeof input !== "string") return null;

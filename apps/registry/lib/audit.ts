@@ -8,7 +8,7 @@
  */
 
 import crypto from "node:crypto";
-import { desc, eq, isNull } from "drizzle-orm";
+import { desc, eq, isNull, sql } from "drizzle-orm";
 
 import { auditEvents, type Database } from "./db";
 
@@ -58,6 +58,21 @@ export async function appendAuditEvent(
     opts;
 
   return await db.transaction(async (tx) => {
+    // Take a Postgres advisory lock keyed by the chain partition BEFORE
+    // touching the head row. This is critical for the genesis case: when
+    // the table is empty for this chain, `SELECT … FOR UPDATE` returns no
+    // rows so two concurrent transactions can both observe "empty" and
+    // both insert as genesis, forking the chain on its very first entry.
+    // An advisory lock serializes ALL writers to the same chain regardless
+    // of whether a head row exists yet. From codex P1 review (iter-5).
+    //
+    // Key: stable 64-bit hash of "audit:" + (orgId ?? "_null_"). 32-bit
+    // form of `pg_advisory_xact_lock(int)` is plenty for collision
+    // avoidance at the scale of orgs we expect.
+    const chainKey = `audit:${orgId ?? "_null_"}`;
+    const advisoryKey = signedInt32Hash(chainKey);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${advisoryKey})`);
+
     // Find the chain head INSIDE the transaction with row-level lock so no
     // other tx can read the same head and produce a forked chain.
     const headRows = await tx
@@ -101,4 +116,16 @@ export async function appendAuditEvent(
 
     return inserted[0]?.id ?? "";
   });
+}
+
+/**
+ * Stable 32-bit signed-int hash of a string, suitable for
+ * `pg_advisory_xact_lock(int)` (Postgres takes one bigint or two ints).
+ * SHA-256 first 4 bytes folded into a signed int32 — deterministic and
+ * collision-resistant for the small set of audit chain keys we expect.
+ */
+function signedInt32Hash(s: string): number {
+  const digest = crypto.createHash("sha256").update(s, "utf8").digest();
+  // Take first 4 bytes, interpret as signed big-endian int32.
+  return digest.readInt32BE(0);
 }

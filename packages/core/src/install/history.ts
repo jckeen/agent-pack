@@ -282,7 +282,14 @@ async function withFileLock<T>(
   const lockDir = p.historyLockFile;
   const start = Date.now();
   const timeoutMs = 10_000;
-  const staleMs = 5 * 60_000;
+  // A live holder heartbeats every HEARTBEAT_MS by touching its nonce file
+  // (write same content, mtime updates). Stale detection waits 3× the
+  // heartbeat interval to tolerate slow disk + scheduler jitter. Together,
+  // a process that's actively working — even on a very long install —
+  // cannot have its lock stolen, while a crashed holder is reclaimed in
+  // bounded time. From codex P1 review (iter-5).
+  const HEARTBEAT_MS = 5_000;
+  const staleMs = HEARTBEAT_MS * 3 + 5_000; // 20s grace
   await fs.mkdir(p.agentpackDir, { recursive: true });
   let nonce = "";
   while (true) {
@@ -319,9 +326,19 @@ async function withFileLock<T>(
       await sleep(50);
     }
   }
+  // Heartbeat: re-write the nonce file every HEARTBEAT_MS to refresh mtime
+  // so another waiter doesn't decide we're stale during a long install.
+  // unref() so this timer doesn't keep the process alive after fn returns.
+  const heartbeat = setInterval(() => {
+    fs.writeFile(`${lockDir}/nonce`, nonce, "utf8").catch(() => {
+      /* lock holder may have already been reclaimed; bail silently */
+    });
+  }, HEARTBEAT_MS);
+  heartbeat.unref();
   try {
     return await fn();
   } finally {
+    clearInterval(heartbeat);
     // Only remove the lock if the nonce inside still matches the one we
     // wrote — otherwise another process has already acquired.
     try {
