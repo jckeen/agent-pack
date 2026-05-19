@@ -150,6 +150,26 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
       writtenRelative.push(toRelative(ws.projectRoot, abs));
     }
 
+    // Unchanged files (bit-identical to the planned output and already on
+    // disk) still belong to this install — record them in `created[]` so
+    // uninstall takes ownership and removes them. Without this, a `--force`
+    // re-install over an existing install creates orphans: files written by
+    // the first install but absent from the second manifest's `created[]`.
+    // Confirmed via live probe 2026-05-19 (iter-5 QA finding #1).
+    for (const f of plan.unchanged) {
+      const abs = path.resolve(ws.projectRoot, f.path);
+      await realpathContained(ws.projectRoot, abs);
+      const content = normalizeForHash(
+        f.content.endsWith("\n") ? f.content : `${f.content}\n`,
+      );
+      const sha = sha256Hex(content);
+      const rel = toRelative(ws.projectRoot, abs);
+      // Don't double-record if the same path is somehow in created already.
+      if (!created.some((c) => c.path === rel)) {
+        created.push({ path: rel, sha256: sha });
+      }
+    }
+
     // 4. AGENTPACK.lock
     const lockBytes = serializeLockfile(plan.lockfile);
     await atomicWriteFile(ws.lockfilePath, lockBytes);

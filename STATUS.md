@@ -1,6 +1,6 @@
 # agent-pack — STATUS
 
-Last updated: 2026-05-19 (OSS launch — Phase 4 admin UI shipped, repo public)
+Last updated: 2026-05-19 (iteration-5 launch-readiness pass — Next.js + vitest CVE bumps, doc rewrite, live install probe)
 
 ## Where we are
 
@@ -25,14 +25,16 @@ Last updated: 2026-05-19 (OSS launch — Phase 4 admin UI shipped, repo public)
 - `.github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml` — structured forms.
 - `.github/PULL_REQUEST_TEMPLATE.md` — checklist with `pnpm verify` gate.
 - README badge row: MIT · Node ≥22 · pnpm 9.15 · CI status.
-- Repo visibility: PUBLIC (flipped 2026-05-19).
+- Repo visibility: ⚠️ **still PRIVATE as of 2026-05-19 14:00 ET.** Earlier doc copy assumed the flip had landed; it has not. The visibility change is a one-way action — flip via `gh repo edit jckeen/agent-pack --visibility public` (operator-only) when ready to announce. Until then, the `workgraph install github:jckeen/agent-pack@…` quickstart will 404 against `raw.githubusercontent.com` for anonymous fetches.
 
 ## Test status
 
-- **269 tests passing** across 24 files: 189 core + 19 db + 35 cli + 26 registry (+11 new git-source tests this session).
+- **269 tests passing** across 24 files: 189 core + 19 db + 35 cli + 26 registry (+11 new git-source tests in v0.5).
 - All four workspace packages typecheck + lint + build cleanly.
-- Registry builds Next.js 15 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
+- Registry builds Next.js 15.5.18 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.
+- `pnpm audit --prod` — 0 critical, 0 high, 7 moderate (Next.js Image-Optimizer variants — registry stays in JSON-fallback for OSS launch; revisit when DB-backed live), 2 low.
+- Iteration-5 dep bumps (2026-05-19): `next 15.1.3 → 15.5.18` (patches 2 CRITICAL + 8 HIGH per `pnpm audit`), `vitest 2.1.8 → 2.1.9` (patches 1 CRITICAL RCE).
 
 ## How to bring it up locally
 
@@ -51,11 +53,11 @@ For DB-backed mode (browseable AT a public URL with real publish/install round-t
 ## What's next
 
 - **v0.3.0 promotion** — held until live smoke (`scripts/smoke-e2e.sh`) round-trips publish→install against the hosted registry. Blocked on operator-provided DATABASE_URL + R2 credentials + GitHub OAuth app + DNS.
-- **Vercel preview deploy** — project linked at `keen-media/agent-pack-registry`. Initial deploy failed because `rootDirectory` needs to be set to `apps/registry` in the dashboard (Vercel CLI does not expose that field). One-click fix at https://vercel.com/keen-media/agent-pack-registry/settings, then `vercel --prod=false` from the repo root.
-- **Phase 4 final touches** — live Sigstore round-trip from CI; `--require-sig` enforcement flag in v0.4.0.
+- **Repo visibility flip** — operator one-time action; see "Open-source readiness" above.
+- **Vercel preview deploy** — Vercel project linked; `rootDirectory` must be set to `apps/registry` in the project's Settings page in the Vercel dashboard before `vercel --prod=false` from the repo root will succeed (the CLI does not expose this setting). One-click fix; documented for the operator.
+- **Phase 4 final touches** — live Sigstore round-trip from CI; deeper signature-identity enforcement (registry-side SAN-allowlist per publisher); CSRF/Origin check on admin status POST route. See iteration-5 Decisions in `ISA.md` for the audit findings list.
 - **Phase 6** (enterprise) — 🔒 **Gated.** Triggers on first paying-customer conversation about enterprise self-host. Schema slots preserved (`org_id` nullable, `audit_events` table exists, audit hash-chain writer landed). See `Plans/PHASE-6-GATE.md`.
 - **Phase 7** (Workgraph integration) — `POST /api/v1/import/workgraph`, trust signals, Agent Commons publish bridge. Requires Workgraph product API + Agent Commons publishing endpoint.
-- **Algorithm v6.4.0 doctrine** — proposed changes from the 2026-05-19 agent-stall investigation live in `Plans/algorithm-v6.4.0-changes.md`. Surface to user; not auto-merged.
 
 ## Living docs
 

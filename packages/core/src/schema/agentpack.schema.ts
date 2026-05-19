@@ -206,10 +206,18 @@ const baseAtomFields = {
     })
     // Reject `..` inside the slug — although the slug can't contain `/`, the
     // slug is interpolated into file paths (e.g. `.claude/skills/<slug>/`)
-    // and a slug of `..` would walk up the output tree.
-    .refine((id) => !id.split(":")[1]!.split(".").includes(""), {
-      message: "Atom id slug must not contain empty segments (e.g. `..`)",
-    }),
+    // and a slug of `..` would walk up the output tree. Guard the split: if
+    // the id has no `:` (already rejected by the regex above), the earlier
+    // error is the one the user should see.
+    .refine(
+      (id) => {
+        const slug = id.split(":")[1];
+        return slug === undefined || !slug.split(".").includes("");
+      },
+      {
+        message: "Atom id slug must not contain empty segments (e.g. `..`)",
+      },
+    ),
   type: atomTypeSchema,
   name: z.string().min(1),
   description: z.string().min(1),

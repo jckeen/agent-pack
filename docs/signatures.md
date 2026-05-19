@@ -39,7 +39,7 @@ You need an OIDC token. The simplest path:
 # Use a GitHub Personal Access Token. AgentPack only ever uses it to obtain
 # a short-lived Sigstore cert — it is never sent to the registry.
 export SIGSTORE_ID_TOKEN="$(gh auth token)"
-workgraph publish ./AGENTPACK.yaml --registry https://agentpack.dev
+workgraph publish ./AGENTPACK.yaml --registry https://registry.workgraph.dev
 ```
 
 When `--sign` is in effect (the default), the CLI:
@@ -64,7 +64,7 @@ jobs:
   publish:
     steps:
       - uses: actions/checkout@v4
-      - run: pnpm workgraph publish ./AGENTPACK.yaml --registry https://agentpack.dev
+      - run: pnpm workgraph publish ./AGENTPACK.yaml --registry https://registry.workgraph.dev
 ```
 
 The signature's identity claim will be the workflow URI, e.g. `https://github.com/<owner>/<repo>/.github/workflows/<wf>.yml@<ref>`.

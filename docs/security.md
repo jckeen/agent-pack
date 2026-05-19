@@ -9,7 +9,7 @@ AgentPacks can alter agent behavior, expose data, run commands, install hooks, c
 3. **Warn loudly** on hooks, shell execution, secrets, network, repo write, package install.
 4. **Honest about platforms** — adapter outputs for evolving platform surfaces (ChatGPT Apps SDK, Codex hooks) are marked conservative/experimental.
 5. **No silent capability escalation.** Pack-level `permissions:` declarations describe the *possible* surface; the **active** surface is determined by the resolved atom subset.
-6. **Reversibility is a feature.** MVP does not yet install into a project root; when it does, every install writes an uninstall manifest first.
+6. **Reversibility is a feature.** Every install writes a WAL-protected install manifest at `.workgraph/installed/<packId>.json` with per-file SHA-256 + backup paths, so `workgraph uninstall <packId>` restores the project to its pre-install state. The hash-chained `.workgraph/history.jsonl` lets `workgraph rollback` walk back through multiple installs.
 
 ## Permission categories
 

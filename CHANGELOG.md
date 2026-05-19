@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.0-dev — 2026-05-19 (iteration-5 launch-readiness pass)
+
+Pre-launch verification session. No new product surface — this iteration audits, patches, and tightens the existing v0.5 codebase so the public launch starts from a known-clean state.
+
+**Security**
+
+- `next 15.1.3 → 15.5.18` — patches 2 CRITICAL CVEs (Middleware Auth Bypass GHSA-f82v-jwr5-mffw, RCE in React flight protocol GHSA-3h52-269p-cp9r) + 8 HIGH (DoS, SSRF, request smuggling).
+- `vitest 2.1.8 → 2.1.9` and `@vitest/coverage-v8 2.1.8 → 2.1.9` — patches 1 CRITICAL (CVE-2025-24964, dev-server RCE via malicious site).
+- `pnpm audit --prod` now reports 0 critical / 0 high / 7 moderate (Next.js Image-Optimizer variants — registry stays in JSON-fallback for OSS launch) / 2 low.
+
+**Install engine — bug fixes**
+
+- **`workgraph install --force` over an existing install no longer orphans unchanged files on uninstall.** Reproducer: `install` → tamper one file → `install --force` → `uninstall` previously left bit-identical files on disk because the new manifest's `created[]` only tracked the file that actually differed. Fix records `plan.unchanged[]` paths in `created[]` so uninstall takes full ownership. (`packages/core/src/install/apply.ts`)
+- **Atom-id missing the `:` separator now produces a friendly zod error instead of a `"Cannot read properties of undefined (reading 'split')"` runtime panic.** Reproducer: `id: "no-colon-here"` in `AGENTPACK.yaml`. (`packages/core/src/schema/agentpack.schema.ts`)
+
+**Documentation**
+
+- `CONTRIBUTING.md` — rewritten to reflect actual v0.5 state (was stuck at v0.1 / 67 tests / "no npm artifact yet"). Documents `pnpm verify`, the 5-package layout, and the per-add-a-target / per-add-a-command checklist.
+- `docs/cli.md` — rewritten to cover all 19 commands (was Phase-1 era — missing `install`, `verify`, `rollback`, `diff`, `history`, `uninstall`, `login`, `publish`, `tokens`, `cache`, plus `--sig`/`--strict`/`--require-sig` flags). Exit codes now match the ROADMAP taxonomy.
+- `docs/security.md` — removed stale "MVP does not yet install into a project root" claim (Phase 2 shipped install in v0.2.0).
+- `docs/signatures.md` and `apps/registry/.env.example` — registry URL standardized to `registry.workgraph.dev` (was inconsistent — `agentpack.dev` in some examples).
+- `docs/registry.md` — fixed inline-link text mismatch.
+- `README.md` — quickstart now leads with the clone+build path (since `workgraph` isn't on npm yet); status banner clarifies that the hosted registry is not yet live; CTA added.
+- `STATUS.md` — surfaces the still-private repo state honestly; removed internal-only operator details (Vercel team slug, Algorithm doctrine pointer).
+
+**Live verification**
+
+- Probed `install → verify → drift-detect → restore → uninstall` round-trip on a fresh tmpdir, claude-code/safe profile. All 4 files written, drift detected on tamper, force-restore clean, uninstall removed all 4 + restored backups. (Iteration-5 ISCs in `ISA.md`.)
+- All 5 adapter targets (`claude-code`, `codex`, `cursor`, `chatgpt`, `generic`) export cleanly; determinism confirmed (two runs → byte-identical files).
+- `pnpm verify` (typecheck + lint + test + build) exit 0 with the dep bumps + bug fixes applied.
+
+**Surfaced for operator decision (not auto-applied)**
+
+- **Repo visibility flip from PRIVATE → PUBLIC** — earlier doc copy claimed this had landed on 2026-05-19; it hasn't. One-way action, operator must run `gh repo edit jckeen/agent-pack --visibility public` when ready. Until then, the git-source quickstart `workgraph install github:jckeen/agent-pack@…` returns 404.
+- **Outstanding security findings** (audited by `security-reviewer` 2026-05-19): Sigstore identity-mismatch enforcement currently optional (caller must pass `expectedSAN`); audit-events race on concurrent writes; missing CSRF/Origin check on `/api/admin/.../status`; `parseGitId` accepts refs with control characters; `fetchGitPack` doesn't pin SHAs for branch refs. None are runtime-critical for OSS launch (registry isn't live); all queued for v0.5.1 hardening.
+- **Outstanding bugs from QA pass** (audited by `qa-lead` 2026-05-19): concurrent `workgraph install` race against the same project root; non-typed exit codes for `uninstall not-found` etc.; Windows-reserved-name validation in atom paths. Queued for v0.5.1.
+
+---
+
 ## 0.5.0-dev — 2026-05-19 (git-source install — registry becomes optional)
 
 AgentPack's primary install path is now **git**. `workgraph install github:owner/repo@ref[#subpath]` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine, and the enterprise self-host path (Phase 6 — still gated). For everyday OSS publishing, the leaner path is now the default.
@@ -67,7 +106,7 @@ AgentPack's primary install path is now **git**. `workgraph install github:owner
 
 ---
 
-## 0.4.0-dev / 0.3.0 — 2026-05-19 (Phase 4 cosign + production wiring + security hardening)
+## 0.4.0-dev / 0.3.0 (pre-public) — 2026-05-19 (Phase 4 cosign + production wiring + security hardening)
 
 **AgentPack is open source.** Adding Phase 4 supply-chain trust (cosign keyless signing), wiring the registry for live Vercel + Neon + R2 deploy, and gating Phase 6 (orgs + WorkOS SSO) behind explicit demand signal in `Plans/PHASE-6-GATE.md`.
 
