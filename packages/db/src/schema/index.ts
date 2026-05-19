@@ -1,10 +1,9 @@
 /**
- * Stub barrel for the Drizzle schema. The Foundation worktree (W1) replaces
- * this with concrete table definitions.
+ * Drizzle schema barrel. Table objects exported from here are the source of
+ * truth for both `apps/registry` API routes and `scripts/seed-import.ts`.
  *
- * Table names pinned by `Plans/PROTOCOL.md` § 4. Worktree agents MUST use
- * these exact names — they are part of the public contract that other
- * workstreams import.
+ * `TABLE_NAMES` (preserved from the protocol-commit stub) is the pinned set
+ * of Postgres table identifiers per `Plans/PROTOCOL.md` § 4.
  */
 
 export const TABLE_NAMES = {
@@ -20,10 +19,63 @@ export const TABLE_NAMES = {
   publishes: "publishes",
   reviews: "reviews",
   auditEvents: "audit_events",
-  // NextAuth + Drizzle adapter tables
   accounts: "accounts",
   sessions: "sessions",
   verificationTokens: "verification_tokens",
 } as const;
 
 export type TableName = (typeof TABLE_NAMES)[keyof typeof TABLE_NAMES];
+
+export { users, type User, type NewUser } from "./users.js";
+export {
+  publishers,
+  publisherMembers,
+  type Publisher,
+  type NewPublisher,
+  type PublisherMember,
+  type NewPublisherMember,
+  type PublisherRole,
+} from "./publishers.js";
+export { packs, tsvector, type Pack, type NewPack } from "./packs.js";
+export {
+  packVersions,
+  versionStatusEnum,
+  VERSION_STATUS,
+  type PackVersion,
+  type NewPackVersion,
+  type VersionStatusEnum,
+} from "./packVersions.js";
+export { atoms, type AtomRow, type NewAtomRow } from "./atoms.js";
+export { packFiles, type PackFile, type NewPackFile } from "./packFiles.js";
+export {
+  compatibilities,
+  type Compatibility,
+  type NewCompatibility,
+} from "./compatibilities.js";
+export {
+  apiTokens,
+  type ApiToken,
+  type NewApiToken,
+} from "./apiTokens.js";
+export {
+  publishes,
+  PUBLISH_STATUS,
+  type Publish,
+  type NewPublish,
+  type PublishStatus,
+  type PresignedFileEntry,
+} from "./publishes.js";
+export { reviews, type Review, type NewReview } from "./reviews.js";
+export {
+  auditEvents,
+  type AuditEvent,
+  type NewAuditEvent,
+} from "./auditEvents.js";
+export {
+  accounts,
+  sessions,
+  verificationTokens,
+  type Account,
+  type Session,
+  type VerificationToken,
+} from "./authjs.js";

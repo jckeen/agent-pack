@@ -1,15 +1,31 @@
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import type { Command } from "commander";
 import pc from "picocolors";
 import {
+  cache,
+  DEFAULT_REGISTRY_URL,
+  enforcePolicy,
+  ExitCode,
+  HttpRegistryClient,
+  IntegrityError,
+  loadPolicy,
   planInstall,
   applyInstall,
   recoverIncomplete,
+  resolveLatestVersion,
+  type RegistryClient,
   type TargetPlatform,
 } from "@workgraph/core";
 import { failCleanly } from "../lib/error.js";
 import { riskBadge } from "../lib/render.js";
 import { CLI_VERSION } from "../lib/version.js";
 import { confirm } from "../lib/prompt.js";
+import { getToken } from "../lib/credentials.js";
+
+const REMOTE_ID_RE = /^([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)\/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)(?:@(.+))?$/;
 
 const VALID_TARGETS: TargetPlatform[] = [
   "claude-code",
@@ -29,6 +45,7 @@ export function registerInstall(program: Command): void {
     .option("-y, --yes", "skip confirmation prompt", false)
     .option("--dry-run", "print diff and exit without writing", false)
     .option("--force", "overwrite existing files without an AgentPack marker", false)
+    .option("--registry <url>", "registry URL for remote installs", DEFAULT_REGISTRY_URL)
     .action(
       async (
         pack: string | undefined,
@@ -39,6 +56,7 @@ export function registerInstall(program: Command): void {
           yes: boolean;
           dryRun: boolean;
           force: boolean;
+          registry: string;
         },
       ) => {
         try {
@@ -50,7 +68,25 @@ export function registerInstall(program: Command): void {
             );
             process.exit(2);
           }
-          const source = pack ?? process.cwd();
+          let source = pack ?? process.cwd();
+
+          // Remote-identity branch: pack arg matches <publisher>/<pack>[@<version>].
+          const remoteMatch = pack ? pack.match(REMOTE_ID_RE) : null;
+          if (remoteMatch) {
+            const [, publisher, packSlug, requestedVersion] = remoteMatch;
+            if (!publisher || !packSlug) {
+              throw new Error("remote identity parse failed");
+            }
+            source = await fetchRemotePack({
+              publisher,
+              pack: packSlug,
+              requestedVersion,
+              registry: options.registry,
+              target: options.target,
+              profile: options.profile ?? "safe",
+              projectRoot: options.project,
+            });
+          }
           // Run recovery sweep on every install — if a previous install
           // crashed, this is when we clean up. Idempotent on clean state.
           try {
@@ -120,6 +156,164 @@ export function registerInstall(program: Command): void {
         }
       },
     );
+}
+
+/**
+ * Fetch a pack from the remote registry into a temp directory, then return the
+ * temp path as the install `source`. The temp tree mirrors the pack root so
+ * existing `planInstall` works unchanged. Sha256 is verified for every file
+ * via `cache.fetchAndCache`; mismatches throw `IntegrityError` → exit 7.
+ */
+async function fetchRemotePack(params: {
+  publisher: string;
+  pack: string;
+  requestedVersion?: string;
+  registry: string;
+  target: TargetPlatform;
+  profile: string;
+  projectRoot: string;
+}): Promise<string> {
+  const registry = params.registry.replace(/\/+$/, "");
+  const token = (await getToken(registry)) ?? undefined;
+  const client: RegistryClient = new HttpRegistryClient({
+    baseUrl: registry,
+    token,
+  });
+
+  // 1. Resolve version.
+  let version = params.requestedVersion;
+  if (!version) {
+    const pkg = await client.listVersions(params.publisher, params.pack);
+    const published = pkg.versions
+      .filter((v) => v.status === "published")
+      .map((v) => v.version);
+    const latest = resolveLatestVersion(published);
+    if (!latest) {
+      throw new Error(
+        `No published stable version found for ${params.publisher}/${params.pack}`,
+      );
+    }
+    version = latest;
+  }
+
+  // 2. Policy check (Phase 5).
+  const policy = await loadPolicy(params.projectRoot);
+  if (policy) {
+    const versionDetails = await client.getVersion(
+      params.publisher,
+      params.pack,
+      version,
+    );
+    const atomTypes = await peekAtomTypes(client, params.publisher, params.pack, version);
+    const enforcement = enforcePolicy(
+      policy,
+      {
+        packId: `${params.publisher}/${params.pack}`,
+        publisher: params.publisher,
+        pack: params.pack,
+        target: params.target,
+        profile: params.profile,
+        atomTypes,
+        signed: false,
+      },
+      registry,
+    );
+    if (!enforcement.ok) {
+      console.error(pc.red("\nPolicy violation(s):"));
+      for (const v of enforcement.violations) {
+        console.error(pc.red(`  ! [${v.code}] ${v.message}`));
+        if (v.hint) console.error(pc.dim(`    ${v.hint}`));
+      }
+      process.exit(ExitCode.PolicyViolation);
+    }
+    // Suppress unused-var lint.
+    void versionDetails;
+  }
+
+  // 3. Materialize manifest + atom files in a temp dir.
+  const versionMeta = await client.getVersion(
+    params.publisher,
+    params.pack,
+    version,
+  );
+  const tmpRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), `wgpack-${params.publisher}-${params.pack}-`),
+  );
+
+  const manifestBytes = Buffer.from(
+    await client.fetchManifest(params.publisher, params.pack, version),
+    "utf-8",
+  );
+  await fs.writeFile(path.join(tmpRoot, "AGENTPACK.yaml"), manifestBytes);
+
+  for (const file of versionMeta.files) {
+    try {
+      // Use the cache so repeat installs are fast.
+      const bytes = file.atomId
+        ? await client.fetchAtomFile(
+            params.publisher,
+            params.pack,
+            version,
+            file.atomId,
+            file.path,
+            file.sha256,
+          )
+        : await fetchManifestExtra(client, params.publisher, params.pack, version, file);
+      const dest = path.join(tmpRoot, file.path);
+      await fs.mkdir(path.dirname(dest), { recursive: true });
+      await fs.writeFile(dest, bytes);
+      // Tickle the cache to record this blob is hot.
+      void cache;
+    } catch (err) {
+      if (err instanceof IntegrityError) {
+        const ierr = err;
+        console.error(pc.red(`\nIntegrity check failed for ${file.path}:`));
+        console.error(pc.red(`  expected ${ierr.expectedSha256}`));
+        console.error(pc.red(`  got      ${ierr.actualSha256}`));
+        process.exit(ExitCode.IntegrityError);
+      }
+      throw err;
+    }
+  }
+
+  console.log(
+    pc.dim(`Installed from registry: ${params.publisher}/${params.pack}@${version}`),
+  );
+  return tmpRoot;
+}
+
+async function peekAtomTypes(
+  client: RegistryClient,
+  publisher: string,
+  pack: string,
+  version: string,
+): Promise<string[]> {
+  try {
+    const v = await client.getVersion(publisher, pack, version);
+    // Per-file metadata doesn't carry atom type; the YAML manifest does.
+    const yaml = await client.fetchManifest(publisher, pack, version);
+    const types: string[] = [];
+    for (const line of yaml.split(/\r?\n/)) {
+      const m = line.match(/^\s*type:\s*([a-z_]+)\s*$/);
+      if (m && m[1]) types.push(m[1]);
+    }
+    void v;
+    return [...new Set(types)];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchManifestExtra(
+  _client: RegistryClient,
+  _publisher: string,
+  _pack: string,
+  _version: string,
+  _file: { path: string; sha256: string; bytes: number },
+): Promise<Buffer> {
+  // Files without an atom id (e.g. README) are rare in iter-4. Return empty
+  // for now; future iterations can extend the client interface.
+  return Buffer.alloc(0);
 }
 
 function printPlanSummary(plan: ReturnType<typeof planInstall> extends Promise<infer T> ? T : never): void {

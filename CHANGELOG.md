@@ -1,5 +1,99 @@
 # Changelog
 
+## 0.3.0-rc.1 — 2026-05-18 (Phase 3 + Phase 5 scaffold)
+
+End-to-end supply chain skeleton: publish → fetch → install → verify all wired in code. Real Neon DB, GitHub OAuth, and R2 bucket plug in via env vars; the build, tests, and typecheck run cleanly without them. 117 new ISCs (ISC-151..267).
+
+**`@workgraph/db` — new workspace package**
+
+- Drizzle schema for 13 registry tables + 3 Auth.js adapter tables matching `Plans/PROTOCOL.md` § 4 verbatim: `users`, `publishers`, `publisher_members`, `packs` (with `tsvector` generated FTS column + GIN index), `pack_versions`, `atoms`, `pack_files`, `compatibilities`, `api_tokens`, `publishes`, `reviews`, `audit_events` (Phase 6 reserved), `accounts`, `sessions`, `verification_tokens`.
+- Query helpers for packs, publishers, tokens, publishes. Drizzle ORM + `postgres` driver + `@neondatabase/serverless`.
+- Hand-written `migrations/0000_init.sql` covers every table, FK, unique constraint, GIN index, and the `pack_version_status` enum.
+- 19 unit tests (type-inference + query-signature smoke).
+
+**Protocol commit (`packages/core/src/protocol/`)**
+
+- Zod schemas pinning every wire shape: `PublishInitRequest/Response`, `PublishFinalizeRequest/Response`, `RegistryPack`, `RegistryVersion`, error envelopes, `cliAuthInit/Poll`, primitives (`slug`, `semver`, `sha256Hex`, relative path), token format (`wgp_live_` + 32-hex), token scopes, `DEFAULT_REGISTRY_URL`.
+- `ExitCode` enum (0/1/2/3/4/5/6/7/9) + `errorNameToExitCode` mapper.
+
+**`packages/core/src/registry-client/`**
+
+- `RegistryClient` interface with `listVersions`, `getVersion`, `fetchManifest`, `fetchAtomFile` (sha256-verifying — mismatch → `IntegrityError` → exit 7).
+- `HttpRegistryClient` against the Phase 3 API. Sends `Authorization: Bearer` when token present.
+- `InMemoryRegistryClient` fixture for tests.
+- `resolveLatestVersion` picks highest non-prerelease semver, returns null if list empty or all prerelease.
+- 16 tests.
+
+**`packages/core/src/cache/`**
+
+- Content-addressed blob store at `~/.workgraph/cache/blobs/<sha[0..2]>/<sha>`.
+- `writeBlob` verifies `sha256(bytes) === sha` before atomic rename; mismatch → `IntegrityError`. `fetchAndCache` integrates the integrity check with HTTP fetch.
+- `cacheSize`, `cachePrune({ maxAgeMs })`, `cacheClear` — every candidate path's realpath must be inside `<blobs>` (anti-criterion ISC-246).
+- 13 tests.
+
+**`packages/core/src/policy/`**
+
+- Zod schema for `workgraph.policy.json` v1 per protocol § 7.
+- `loadPolicy(projectRoot)` returns config or null. Invalid JSON / schema → `PolicyParseError`.
+- `enforcePolicy(policy, plan, registryUrl)` reports all violations at once (registry → publisher → blockedPack → unsigned → profile → atomType). Empty plan → `{ ok: true }`. Violations → exit 6 via the CLI.
+- 12 tests.
+
+**`apps/registry` (Next.js 15 App Router)**
+
+- `lib/{db,auth,tokens,r2}.ts` — DB client (re-exports `@workgraph/db` schema), NextAuth v5 + Drizzle adapter with GitHub OAuth, token mint/verify (sha256 storage + scope check, fire-and-forget `last_used_at`), R2 client + presigner + HEAD + stream.
+- API routes:
+  - `/api/auth/[...nextauth]` — NextAuth handler.
+  - `/api/tokens` GET/POST, `/api/tokens/[id]` DELETE — list, mint, revoke.
+  - `/api/cli/auth/init|approve|poll` — device-code flow for `workgraph login`.
+  - `/api/me` — bearer-authed user info.
+  - `/api/publish/init`, `/api/publish/[publishId]/finalize` — two-phase publish with presigned R2 PUT URLs and HEAD-only size verification at finalize.
+  - `/api/packs`, `/api/packs/[publisher]/[pack]`, `.../versions/[version]`, `.../manifest.yaml`, `.../atoms/[atomId]/[...path]` — read API with R2-streamed bytes, immutable cache headers, 451-on-quarantined.
+  - `/api/search` — Postgres FTS via `plainto_tsquery` + `ts_rank_cd`.
+  - `/api/packs/.../reviews` — GET returns seed reviews; POST returns 501 (per ROADMAP D3.7).
+- `/(authed)/tokens/page.tsx` — user token management UI.
+- `lib/cli-auth-store.ts` — in-memory device-code store (15-min TTL).
+- Graceful cascade: every route returns 503 (`db_unconfigured` / `r2_unconfigured`) when env vars are missing.
+- 18 tests (protocol schemas + token primitives).
+
+**`packages/cli` — 5 new commands + remote install branch**
+
+- `workgraph login` — device-code OAuth against the registry. Writes `~/.workgraph/credentials.json` with mode `0o600`. Token display always masked (`wgp_live_xxxx…<last-4>`).
+- `workgraph whoami` — bearer-authed `/api/me` read.
+- `workgraph tokens list|create|revoke` — manage API tokens.
+- `workgraph publish` — load manifest, compute per-file sha256, two-phase publish (`init` → PUT each presigned URL → `finalize`). Handles 401/403/409/422/410 with the right exit code.
+- `workgraph cache size|prune|clear` — manage the local blob cache.
+- `workgraph install <publisher>/<pack>[@version] --registry <url>` — remote-resolver branch in `install.ts`: identity regex match → `HttpRegistryClient` → `resolveLatestVersion` (if no `@version`) → fetch + verify + cache → materialize temp dir → hand off to existing Phase 2 `planInstall`/`applyInstall`. `loadPolicy` + `enforcePolicy` run pre-install; violation → exit 6.
+- `packages/cli/src/lib/credentials.ts` — `~/.workgraph/credentials.json` read/write/clear with `0o600` perms, atomic write, `WORKGRAPH_TOKEN` env override.
+- 8 new credentials tests.
+
+**Docs**
+
+- `docs/registry.md` — architecture, schema, auth, publish flow, search, reviews-deferred, storage, local-dev.
+- `docs/publish.md` — `workgraph publish` reference, token model, CI publishing recipe.
+- `docs/remote-install.md` — identity grammar, fetch pipeline, cache, policy hooks, exit codes.
+- `docs/policy.md` — `workgraph.policy.json` schema, enforcement order, examples.
+
+**Protocol**
+
+- `Plans/PROTOCOL.md` — pinned token format (`wgp_live_` + 32-hex + sha256 storage + scopes), publish trust model (HEAD-only at finalize; full re-hash deferred to Phase 4), wire shapes, DB column names, exit codes, cache layout, policy schema, NextAuth config, pinned deps.
+
+**Deps added**
+
+- Root: `drizzle-kit@0.31.10`, `tsx@4.19.2` (devDeps); `seed:import`, `db:push`, `db:generate` scripts.
+- `packages/db`: `drizzle-orm@0.45.2`, `postgres@3.4.9`, `@neondatabase/serverless@1.1.0`.
+- `apps/registry`: `next-auth@5.0.0-beta.31`, `@auth/drizzle-adapter@1.11.2`, `@aws-sdk/client-s3@3.1049.0`, `@aws-sdk/s3-request-presigner@3.1049.0`, `drizzle-orm@0.45.2`, `postgres@3.4.9`, `@neondatabase/serverless@1.1.0`, `@workgraph/db@workspace:*`. Test stack: `vitest@2.1.8` + `@vitest/coverage-v8@2.1.8`.
+
+**Test totals**
+
+- **238 tests passing** (up from 172 pre-iteration): 19 db + 166 core + 18 registry + 35 cli.
+- All packages typecheck and build cleanly without DATABASE_URL / R2 / GitHub OAuth env vars.
+
+**What's deferred to dedicated sessions**
+
+- **Phase 4** — Sigstore cosign keyless signing, `workgraph verify --sig`, quarantine UI. Lockfile slots already reserved.
+- **Phase 6** — Orgs, WorkOS SSO, audit-events chain wiring, policy-as-code overlay. Schema rows reserved.
+- **Phase 7** — Workgraph workflow import, trust signal aggregation, Agent Commons bridge.
+
 ## 0.2.0 — 2026-05-18 (Phase 2 — local install / uninstall / verify)
 
 Phase 2 of the implementation plan: extend the standard from "compile to native files" to "install into a project root with full provenance, drift detection, and reversibility." 74 new ISCs land (ISC-69..ISC-142, plus ISC-143..ISC-150 from the advisor-driven WAL pass).

@@ -12,6 +12,11 @@ import { registerDiff } from "./commands/diff.js";
 import { registerHistory } from "./commands/history.js";
 import { registerRollback } from "./commands/rollback.js";
 import { registerVerify } from "./commands/verify.js";
+import { registerLogin } from "./commands/login.js";
+import { registerWhoami } from "./commands/whoami.js";
+import { registerTokens } from "./commands/tokens.js";
+import { registerPublish } from "./commands/publish.js";
+import { registerCache } from "./commands/cache.js";
 import { CLI_VERSION } from "./lib/version.js";
 
 const program = new Command();
@@ -19,7 +24,7 @@ const program = new Command();
 program
   .name("workgraph")
   .description(
-    "AgentPack CLI — validate, inspect, plan, export, install, and verify agent packs.",
+    "AgentPack CLI — validate, inspect, plan, export, install, verify, publish, and authenticate against the Workgraph Registry.",
   )
   .version(CLI_VERSION, "-v, --version", "Show CLI version")
   .showHelpAfterError(true);
@@ -36,6 +41,12 @@ registerDiff(program);
 registerHistory(program);
 registerRollback(program);
 registerVerify(program);
+// Phase 3 + Phase 5 commands.
+registerLogin(program);
+registerWhoami(program);
+registerTokens(program);
+registerPublish(program);
+registerCache(program);
 
 program.parseAsync(process.argv).catch((err) => {
   const msg = err instanceof Error ? err.message : String(err);

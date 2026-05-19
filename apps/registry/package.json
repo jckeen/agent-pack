@@ -11,7 +11,8 @@
     "start": "next start -p 3030",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint: not configured'",
-    "test": "echo 'no registry tests in MVP'"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "1.11.2",
@@ -33,9 +34,11 @@
     "@types/node": "22.10.2",
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",
+    "@vitest/coverage-v8": "2.1.8",
     "autoprefixer": "10.4.20",
     "postcss": "8.4.49",
     "tailwindcss": "3.4.17",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
   }
 }

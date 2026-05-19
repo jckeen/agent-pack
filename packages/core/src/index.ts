@@ -4,6 +4,32 @@
 // Source of truth: Plans/PROTOCOL.md.
 export * from "./protocol/index.js";
 
+// Iteration-4 modules (Phase 3 + Phase 5).
+export * as cache from "./cache/index.js";
+export {
+  HttpRegistryClient,
+  InMemoryRegistryClient,
+  IntegrityError,
+  makeFixture,
+  RegistryError,
+  VersionNotFoundError,
+  resolveLatestVersion,
+  type RegistryClient,
+  type HttpRegistryClientOptions,
+  type InMemoryFixture,
+} from "./registry-client/index.js";
+export {
+  POLICY_VERSION,
+  policyConfigSchema,
+  loadPolicy,
+  enforcePolicy,
+  PolicyParseError,
+  type PolicyConfig,
+  type PolicyEnforcementPlan,
+  type PolicyEnforcementResult,
+  type PolicyViolation,
+} from "./policy/index.js";
+
 export * from "./schema/types.js";
 export { agentPackManifestSchema } from "./schema/agentpack.schema.js";
 export {
