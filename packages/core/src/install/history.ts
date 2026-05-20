@@ -301,7 +301,12 @@ async function withFileLock<T>(
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       try {
-        const stat = await fs.stat(lockDir);
+        // Stale check reads the NONCE FILE's mtime, not the lockDir's.
+        // The heartbeat refreshes the nonce file; writing to a child does
+        // not bubble mtime to its parent dir on POSIX, so reading lockDir
+        // would still see the original mkdir time and falsely declare the
+        // lock stale. From codex P1 review (iter-5 round 4).
+        const stat = await fs.stat(`${lockDir}/nonce`);
         if (Date.now() - stat.mtimeMs > staleMs) {
           // Read the nonce, then re-read it after a tiny pause. If both
           // reads agree, the holder is genuinely abandoned.
@@ -326,8 +331,8 @@ async function withFileLock<T>(
       await sleep(50);
     }
   }
-  // Heartbeat: re-write the nonce file every HEARTBEAT_MS to refresh mtime
-  // so another waiter doesn't decide we're stale during a long install.
+  // Heartbeat: re-write the nonce file every HEARTBEAT_MS so its mtime
+  // stays current (this is the signal the stale-check above reads).
   // unref() so this timer doesn't keep the process alive after fn returns.
   const heartbeat = setInterval(() => {
     fs.writeFile(`${lockDir}/nonce`, nonce, "utf8").catch(() => {
