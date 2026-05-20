@@ -116,6 +116,6 @@ export function registerInit(program: Command): void {
       await writeOnce(manifestPath, STARTER_TEMPLATE);
       await writeOnce(instructionPath, STARTER_INSTRUCTION);
       await writeOnce(skillPath, STARTER_SKILL_MD);
-      console.log(pc.bold("\nNext: edit AGENTPACK.yaml, then run `workgraph validate`."));
+      console.log(pc.bold("\nNext: edit AGENTPACK.yaml, then run `agentpack validate`."));
     });
 }

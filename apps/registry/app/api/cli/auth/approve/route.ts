@@ -32,7 +32,7 @@ export async function POST(req: Request): Promise<Response> {
 
   await db.insert(apiTokens).values({
     userId: session.user.id,
-    name: "workgraph-cli",
+    name: "agentpack-cli",
     tokenPrefix: prefix,
     tokenSha256: sha256,
     scopes: ["read:packs", "publish:packs"],

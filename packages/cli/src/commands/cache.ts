@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import pc from "picocolors";
 
-import { cache } from "@workgraph/core";
+import { cache } from "@agentpack/core";
 
 import { confirm } from "../lib/prompt.js";
 

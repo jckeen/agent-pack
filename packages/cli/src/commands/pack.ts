@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import pc from "picocolors";
 import ora from "ora";
-import { exportPack, type TargetPlatform } from "@workgraph/core";
+import { exportPack, type TargetPlatform } from "@agentpack/core";
 import { renderInstallPlan } from "../lib/render.js";
 
 const VALID_TARGETS: TargetPlatform[] = [

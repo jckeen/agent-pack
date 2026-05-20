@@ -51,7 +51,7 @@ export function QuarantineBanner({
 
       <p className="mt-3 text-xs text-red-700">
         If you have already installed this version,{" "}
-        <code className="font-mono">workgraph verify --sig</code> will warn,
+        <code className="font-mono">agentpack verify --sig</code> will warn,
         and the registry will return HTTP 451 on any new install attempt. See{" "}
         <a
           href="/docs/security"

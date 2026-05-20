@@ -14,7 +14,7 @@ const TARGETS: TargetPlatform[] = [
   "generic",
 ];
 
-const tmpRoot = path.join(os.tmpdir(), `workgraph-adapter-test-${Date.now()}`);
+const tmpRoot = path.join(os.tmpdir(), `agentpack-adapter-test-${Date.now()}`);
 
 async function runExport(target: TargetPlatform, profile: string) {
   const outDir = path.join(tmpRoot, `${target}-${profile}`);
@@ -144,8 +144,8 @@ describe("adapters write expected files", () => {
         const p = path.join(r.outDir, fileName);
         if (!(await pathExists(p))) continue;
         const body = await fs.readFile(p, "utf8");
-        expect(body).toContain("<!-- BEGIN AGENTPACK: workgraph.pr-quality -->");
-        expect(body).toContain("<!-- END AGENTPACK: workgraph.pr-quality -->");
+        expect(body).toContain("<!-- BEGIN AGENTPACK: agentpack.pr-quality -->");
+        expect(body).toContain("<!-- END AGENTPACK: agentpack.pr-quality -->");
       }
     }
   });

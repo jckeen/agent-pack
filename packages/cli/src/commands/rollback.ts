@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import pc from "picocolors";
-import { rollback } from "@workgraph/core";
+import { rollback } from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 import { confirm } from "../lib/prompt.js";
 

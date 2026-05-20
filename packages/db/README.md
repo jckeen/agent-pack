@@ -1,6 +1,6 @@
-# @workgraph/db
+# @agentpack/db
 
-Drizzle schema, queries, and migrations for the Workgraph Registry.
+Drizzle schema, queries, and migrations for the AgentPack Registry.
 
 **Source of truth:** `Plans/PROTOCOL.md` § 4 for table/column names; ISA.md
 iteration-4 for ISC list.
@@ -18,8 +18,8 @@ migrations/
 
 ## Scripts
 
-- `pnpm --filter @workgraph/db build` — compile TS
-- `pnpm --filter @workgraph/db test` — run unit tests (no live DB needed)
-- `pnpm --filter @workgraph/db db:generate` — emit migration from schema diff
-- `pnpm --filter @workgraph/db db:push` — apply schema to `DATABASE_URL`
-- `pnpm --filter @workgraph/db db:studio` — Drizzle Studio
+- `pnpm --filter @agentpack/db build` — compile TS
+- `pnpm --filter @agentpack/db test` — run unit tests (no live DB needed)
+- `pnpm --filter @agentpack/db db:generate` — emit migration from schema diff
+- `pnpm --filter @agentpack/db db:push` — apply schema to `DATABASE_URL`
+- `pnpm --filter @agentpack/db db:studio` — Drizzle Studio

@@ -6,7 +6,7 @@ import {
   loadManifest,
   validateManifest,
   type TargetPlatform,
-} from "@workgraph/core";
+} from "@agentpack/core";
 import { renderInstallPlan } from "../lib/render.js";
 import { failCleanly } from "../lib/error.js";
 
@@ -44,7 +44,7 @@ export function registerPlan(program: Command): void {
           const validation = validateManifest(loaded.manifest);
           if (!validation.valid) {
             console.error(
-              pc.red(`✗ Manifest is invalid — run \`workgraph validate\` first.`),
+              pc.red(`✗ Manifest is invalid — run \`agentpack validate\` first.`),
             );
             for (const err of validation.errors) {
               console.error(`  • [${err.code}] ${err.path}: ${err.message}`);

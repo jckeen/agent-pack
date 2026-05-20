@@ -210,7 +210,7 @@ export default async function AdminPacksPage({
         <p className="mt-2 max-w-2xl text-ink-600">
           You can quarantine versions of packs you own. A quarantined version is
           refused by{" "}
-          <code className="font-mono">workgraph install</code>, returns HTTP
+          <code className="font-mono">agentpack install</code>, returns HTTP
           451 on the read API, and is replaced with a red banner on the pack
           detail page in place of the install command. Every status change
           writes a row to{" "}
@@ -248,7 +248,7 @@ export default async function AdminPacksPage({
           <p className="text-ink-600">
             You don&apos;t own any packs yet, or none have been published. Once
             you publish a pack with{" "}
-            <code className="font-mono">workgraph publish</code>, its versions
+            <code className="font-mono">agentpack publish</code>, its versions
             will appear here.
           </p>
         </div>

@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import pc from "picocolors";
 
-import { DEFAULT_REGISTRY_URL } from "@workgraph/core";
+import { DEFAULT_REGISTRY_URL } from "@agentpack/core";
 
 import { getToken } from "../lib/credentials.js";
 
@@ -20,7 +20,7 @@ export function registerWhoami(program: Command): void {
       const registry = options.registry.replace(/\/+$/, "");
       const token = await getToken(registry);
       if (!token) {
-        console.log(pc.dim("Not logged in. Run `workgraph login`."));
+        console.log(pc.dim("Not logged in. Run `agentpack login`."));
         process.exit(0);
       }
       try {
@@ -29,7 +29,7 @@ export function registerWhoami(program: Command): void {
         });
         if (res.status === 401) {
           console.error(
-            pc.red("Token rejected. Re-run `workgraph login`.")
+            pc.red("Token rejected. Re-run `agentpack login`.")
           );
           process.exit(1);
         }

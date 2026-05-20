@@ -1,7 +1,7 @@
 "use server";
 
 import { validateRawYaml } from "@/lib/manifest";
-import type { ValidationResult } from "@workgraph/core";
+import type { ValidationResult } from "@agentpack/core";
 
 export interface ValidatePayload {
   parseError: string | null;

@@ -4,7 +4,7 @@ import {
   planInstall,
   diffPlan,
   type TargetPlatform,
-} from "@workgraph/core";
+} from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 import { CLI_VERSION } from "../lib/version.js";
 

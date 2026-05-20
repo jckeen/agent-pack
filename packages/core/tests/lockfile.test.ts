@@ -10,12 +10,12 @@ import type { LockfileV1 } from "../src/install/types.js";
 
 function fixture(overrides: Partial<Parameters<typeof buildLockfile>[0]> = {}): LockfileV1 {
   return buildLockfile({
-    packId: "workgraph.test",
+    packId: "agentpack.test",
     packVersion: "0.1.0",
     target: "generic",
     profile: "safe",
     generator: { cli: "0.2.0", adapter: "0.2.0" },
-    manifestRawBytes: "agentpack: '1.0'\nmetadata:\n  id: workgraph.test\n",
+    manifestRawBytes: "agentpack: '1.0'\nmetadata:\n  id: agentpack.test\n",
     atomOutputs: [
       {
         atomId: "code-review",
@@ -36,7 +36,7 @@ describe("buildLockfile", () => {
     const lock = fixture();
     const parsed = lockfileSchema.parse(lock);
     expect(parsed.lockfileVersion).toBe(1);
-    expect(parsed.packId).toBe("workgraph.test");
+    expect(parsed.packId).toBe("agentpack.test");
     expect(parsed.atoms).toHaveLength(1);
     expect(parsed.atoms[0]?.outputs).toHaveLength(1);
   });

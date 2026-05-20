@@ -102,12 +102,12 @@ export const tokenScopeSchema = z.string().refine((s) => {
   );
 }, "invalid token scope");
 
-export const TOKEN_PREFIX = "wgp_live_";
+export const TOKEN_PREFIX = "agp_live_";
 export const TOKEN_BODY_LENGTH = 32;
 export const TOKEN_TOTAL_LENGTH = TOKEN_PREFIX.length + TOKEN_BODY_LENGTH;
-export const TOKEN_REGEX = /^wgp_live_[0-9a-f]{32}$/;
+export const TOKEN_REGEX = /^agp_live_[0-9a-f]{32}$/;
 
-export const tokenSchema = z.string().regex(TOKEN_REGEX, "invalid wgp_live_ token");
+export const tokenSchema = z.string().regex(TOKEN_REGEX, "invalid agp_live_ token");
 
 // ---------------------------------------------------------------------------
 // PublishInit request/response
@@ -300,11 +300,11 @@ export const versionExistsResponseSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// CLI device-code auth (used by `workgraph login`)
+// CLI device-code auth (used by `agentpack login`)
 // ---------------------------------------------------------------------------
 
 export const cliAuthInitRequestSchema = z.object({
-  clientName: z.string().min(1).default("workgraph-cli"),
+  clientName: z.string().min(1).default("agentpack-cli"),
 });
 
 export const cliAuthInitResponseSchema = z.object({
@@ -352,4 +352,4 @@ export type { ProfileName, RiskLevel };
 // env var. Pinned here so worktree agents don't drift on the literal.
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_REGISTRY_URL = "https://registry.workgraph.dev";
+export const DEFAULT_REGISTRY_URL = "https://registry.agentpack.dev";

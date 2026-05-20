@@ -1,11 +1,11 @@
-# Claude Code Start Here: Build AgentPack + Workgraph Registry
+# Claude Code Start Here: Build AgentPack + AgentPack Registry
 
 You are Claude Code operating as a founding engineer, product-minded infrastructure architect, and senior TypeScript/Next.js builder.
 
 We are building a real product from scratch:
 
 - **Standard:** AgentPack
-- **Registry/Product:** Workgraph Registry
+- **Registry/Product:** AgentPack Registry
 - **CLI:** `workgraph`
 - **Package manifest:** `AGENTPACK.yaml`
 - **Package units:** atoms
@@ -13,11 +13,11 @@ We are building a real product from scratch:
 
 ## Mission
 
-Build the first working version of **AgentPack + Workgraph Registry**.
+Build the first working version of **AgentPack + AgentPack Registry**.
 
 AgentPack is an open, atomic packaging standard for AI workflows, skills, hooks, plugins, rules, MCP tools, subagents, commands, context packs, templates, evals, and platform-specific agent customizations.
 
-Workgraph Registry is the cross-platform registry, browser, validator, export system, and eventual installer for AgentPacks.
+AgentPack Registry is the cross-platform registry, browser, validator, export system, and eventual installer for AgentPacks.
 
 The product thesis:
 
@@ -213,16 +213,16 @@ Create:
 Implement:
 
 ```bash
-workgraph init
-workgraph validate [path]
-workgraph inspect [path]
-workgraph plan [path] --target claude-code --profile safe
-workgraph pack export [path] --target claude-code --out dist/claude
-workgraph pack export [path] --target codex --out dist/codex
-workgraph pack export [path] --target cursor --out dist/cursor
-workgraph pack export [path] --target chatgpt --out dist/chatgpt
-workgraph pack export [path] --target generic --out dist/generic
-workgraph doctor
+agentpack init
+agentpack validate [path]
+agentpack inspect [path]
+agentpack plan [path] --target claude-code --profile safe
+agentpack pack export [path] --target claude-code --out dist/claude
+agentpack pack export [path] --target codex --out dist/codex
+agentpack pack export [path] --target cursor --out dist/cursor
+agentpack pack export [path] --target chatgpt --out dist/chatgpt
+agentpack pack export [path] --target generic --out dist/generic
+agentpack doctor
 ```
 
 ## Required behavior
@@ -283,15 +283,15 @@ The build is successful when:
 2. `pnpm build` works.
 3. `pnpm test` works.
 4. `pnpm dev` starts the registry app.
-5. `pnpm --filter @workgraph/cli build` works.
-6. `workgraph validate examples/pr-quality` validates the example pack.
-7. `workgraph inspect examples/pr-quality` prints the pack summary.
-8. `workgraph plan examples/pr-quality --target claude-code --profile safe` prints a low-risk plan.
-9. `workgraph plan examples/pr-quality --target claude-code --profile full` warns about hooks, shell execution, GitHub MCP, and `GITHUB_TOKEN`.
-10. `workgraph pack export examples/pr-quality --target claude-code --out dist/claude` writes `CLAUDE.md` and `.claude/skills/code-review/SKILL.md`.
-11. `workgraph pack export examples/pr-quality --target codex --out dist/codex` writes `AGENTS.md` and `.codex/config.toml`.
-12. `workgraph pack export examples/pr-quality --target cursor --out dist/cursor` writes `AGENTS.md` and `.cursor/rules/security-review-required.mdc`.
-13. `workgraph pack export examples/pr-quality --target generic --out dist/generic` writes `AGENTS.md`, `skills/code-review/SKILL.md`, and `agentpack.json`.
+5. `pnpm --filter @agentpack/cli build` works.
+6. `agentpack validate examples/pr-quality` validates the example pack.
+7. `agentpack inspect examples/pr-quality` prints the pack summary.
+8. `agentpack plan examples/pr-quality --target claude-code --profile safe` prints a low-risk plan.
+9. `agentpack plan examples/pr-quality --target claude-code --profile full` warns about hooks, shell execution, GitHub MCP, and `GITHUB_TOKEN`.
+10. `agentpack pack export examples/pr-quality --target claude-code --out dist/claude` writes `CLAUDE.md` and `.claude/skills/code-review/SKILL.md`.
+11. `agentpack pack export examples/pr-quality --target codex --out dist/codex` writes `AGENTS.md` and `.codex/config.toml`.
+12. `agentpack pack export examples/pr-quality --target cursor --out dist/cursor` writes `AGENTS.md` and `.cursor/rules/security-review-required.mdc`.
+13. `agentpack pack export examples/pr-quality --target generic --out dist/generic` writes `AGENTS.md`, `skills/code-review/SKILL.md`, and `agentpack.json`.
 14. The web app renders the seed pack browser and detail pages.
 15. The validate page validates pasted YAML.
 16. README explains the standard, CLI, security model, adapters, and limitations.

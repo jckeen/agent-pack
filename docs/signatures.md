@@ -39,7 +39,7 @@ You need an OIDC token. The simplest path:
 # Use a GitHub Personal Access Token. AgentPack only ever uses it to obtain
 # a short-lived Sigstore cert — it is never sent to the registry.
 export SIGSTORE_ID_TOKEN="$(gh auth token)"
-workgraph publish ./AGENTPACK.yaml --registry https://agentpack.dev
+agentpack publish ./AGENTPACK.yaml --registry https://registry.agentpack.dev
 ```
 
 When `--sign` is in effect (the default), the CLI:
@@ -64,7 +64,7 @@ jobs:
   publish:
     steps:
       - uses: actions/checkout@v4
-      - run: pnpm workgraph publish ./AGENTPACK.yaml --registry https://agentpack.dev
+      - run: pnpm agentpack publish ./AGENTPACK.yaml --registry https://registry.agentpack.dev
 ```
 
 The signature's identity claim will be the workflow URI, e.g. `https://github.com/<owner>/<repo>/.github/workflows/<wf>.yml@<ref>`.
@@ -75,27 +75,27 @@ Two layers:
 
 ```bash
 # Verify drift only (Phase 2 baseline).
-workgraph verify <packId>
+agentpack verify <packId>
 
 # Verify drift AND Sigstore signature (Phase 4).
-workgraph verify <packId> --sig
+agentpack verify <packId> --sig
 
 # Same, but refuse if unsigned.
-workgraph verify <packId> --sig --strict
+agentpack verify <packId> --sig --strict
 ```
 
 For remote installs:
 
 ```bash
 # Refuse to install if the registry has no valid signature for this version.
-workgraph install workgraph/pr-quality@0.1.0 --require-sig
+agentpack install agentpack/pr-quality@0.1.0 --require-sig
 ```
 
 The CLI's `--require-sig` flag is the enforcement primitive — without it, signing is decorative. Use it in CI pipelines and production install scripts.
 
 ## Offline verification
 
-Once a pack is installed with a valid signature, `workgraph verify --sig` is **mostly offline**: it decodes the lockfile-embedded bundle, checks the cert chain against Sigstore's bundled trusted root (no network), checks the signature math (no network), and — by default — also reaches out to Rekor to confirm the inclusion proof.
+Once a pack is installed with a valid signature, `agentpack verify --sig` is **mostly offline**: it decodes the lockfile-embedded bundle, checks the cert chain against Sigstore's bundled trusted root (no network), checks the signature math (no network), and — by default — also reaches out to Rekor to confirm the inclusion proof.
 
 Pass `--offline` to `signing.verifyManifestSignature` (programmatic) to skip the Rekor check entirely. This is appropriate when the lockfile is being verified in an air-gapped environment that has already seen the Rekor proof bundled in. CLI flag exposure for `--offline` is coming in v0.4.1.
 

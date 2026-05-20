@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://workgraph.dev/schemas/agentpack.schema.json",
+  "$id": "https://agentpack.dev/schemas/agentpack.schema.json",
   "title": "AgentPack Manifest",
   "type": "object",
   "required": [

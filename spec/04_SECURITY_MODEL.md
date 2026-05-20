@@ -122,7 +122,7 @@ Each published version should eventually include:
 
 ```json
 {
-  "packId": "workgraph.pr-quality",
+  "packId": "agentpack.pr-quality",
   "version": "0.1.0",
   "source": {
     "type": "git",
@@ -131,7 +131,7 @@ Each published version should eventually include:
     "tag": "..."
   },
   "builder": {
-    "name": "workgraph-cli",
+    "name": "agentpack-cli",
     "version": "0.1.0"
   },
   "createdAt": "..."

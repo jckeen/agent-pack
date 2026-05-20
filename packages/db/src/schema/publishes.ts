@@ -26,8 +26,8 @@ export type PublishStatus = (typeof PUBLISH_STATUS)[number];
 
 /**
  * Shape of each entry in `presigned_files`. Mirrors `PublishFileEntry` in
- * `@workgraph/core/protocol`. Kept inline (not imported) so the DB package
- * has zero dependency on `@workgraph/core` at runtime; the protocol module
+ * `@agentpack/core/protocol`. Kept inline (not imported) so the DB package
+ * has zero dependency on `@agentpack/core` at runtime; the protocol module
  * is the source of truth for the wire shape.
  */
 export interface PresignedFileEntry {

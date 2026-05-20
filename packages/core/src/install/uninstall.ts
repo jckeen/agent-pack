@@ -1,9 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { InstallManifestV1 } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
 import {
-  resolveWorkgraphPaths,
+  resolveAgentpackPaths,
   fromRelative,
   realpathContained,
 } from "./paths.js";
@@ -59,7 +59,7 @@ export class UninstallConflictError extends Error {
  *   2. For every `backups[]` entry: restore the backup over the current file
  *      IF the current file's sha256 matches the manifest's recorded `modified`
  *      sha256 (proof the user hasn't edited since).
- *   3. Delete the install manifest at `.workgraph/installed/<packId>.json`.
+ *   3. Delete the install manifest at `.agentpack/installed/<packId>.json`.
  *   4. Append `uninstall` history entry.
  *
  * Files where the user has edited since install are surfaced as conflicts.
@@ -67,7 +67,7 @@ export class UninstallConflictError extends Error {
  * user owns it; deleting on uninstall would erase audit history.
  */
 export async function uninstall(opts: UninstallOptions): Promise<UninstallResult> {
-  const ws = await resolveWorkgraphPaths(opts.projectRoot);
+  const ws = await resolveAgentpackPaths(opts.projectRoot);
   const manifest = await readInstallManifest(ws, opts.packId);
 
   const removed: string[] = [];
@@ -180,5 +180,5 @@ async function pruneEmptyParents(
 }
 
 // Re-export for the public surface.
-export { resolveWorkgraphPaths };
-export type { InstallManifestV1, WorkgraphPaths };
+export { resolveAgentpackPaths };
+export type { InstallManifestV1, AgentpackPaths };

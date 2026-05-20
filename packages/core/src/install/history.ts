@@ -1,11 +1,12 @@
 import * as fs from "node:fs/promises";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type {
   TargetPlatform,
 } from "../schema/types.js";
 import type { HistoryEntryV1 } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
 import { canonicalJson, sha256Hex } from "./checksum.js";
 
 const TARGETS = [
@@ -78,7 +79,7 @@ function stripChecksum<T extends { entryChecksum: string }>(o: T): Omit<T, "entr
  * Read every history entry. Returns an empty array if the file does not exist.
  * Lines that fail to parse are surfaced as errors (no silent skip).
  */
-export async function readHistory(p: WorkgraphPaths): Promise<HistoryEntryV1[]> {
+export async function readHistory(p: AgentpackPaths): Promise<HistoryEntryV1[]> {
   let raw: string;
   try {
     raw = await fs.readFile(p.historyFile, "utf8");
@@ -120,10 +121,10 @@ export async function readHistory(p: WorkgraphPaths): Promise<HistoryEntryV1[]> 
  * via `sealEntry()`; this function only writes.
  */
 export async function appendHistoryEntry(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   entry: HistoryEntryV1,
 ): Promise<void> {
-  await withHistoryLock(p, async () => {
+  await withProjectLock(p, async () => {
     const line = JSON.stringify(entry) + "\n";
     await fs.appendFile(p.historyFile, line, { encoding: "utf8" });
   });
@@ -157,10 +158,10 @@ const CONTROL_CHAR_RX = new RegExp(
  * smuggle data into the immortalized chain. See security-reviewer #5.
  */
 export async function recordHistory(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   partial: Omit<HistoryEntryV1, "previousEntryId" | "entryChecksum">,
 ): Promise<HistoryEntryV1> {
-  return withHistoryLock(p, async () => {
+  return withProjectLock(p, async () => {
     const tail = await readHistoryTailUnlocked(p);
     const prevId = tail?.id ?? "";
     const sanitized = {
@@ -185,7 +186,7 @@ function sanitizeError(s: string): string {
 }
 
 async function readHistoryTailUnlocked(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
 ): Promise<HistoryEntryV1 | undefined> {
   let raw: string;
   try {
@@ -243,19 +244,53 @@ export function verifyChain(
  * flagged in finding #4).
  *
  * Phase 2 ships with this hand-rolled lock to avoid the proper-lockfile
- * dependency in @workgraph/core. The contract is "single user, single host,
+ * dependency in @agentpack/core. The contract is "single user, single host,
  * cooperative concurrent CLI invocations." Phase 3 may swap in
  * proper-lockfile if multi-host workflows arrive.
  */
-async function withHistoryLock<T>(
-  p: WorkgraphPaths,
+/**
+ * Per-async-context set of project roots whose lock is currently held by
+ * the calling async flow. Reentrant within the same flow (so an outer
+ * `applyInstall` can call inner `recordHistory` without deadlocking) but
+ * NOT across independent async flows (concurrent `recordHistory` calls in
+ * the same process still serialize through the on-disk mkdir). Same async
+ * context = same logical request; different awaited Promises spawned in
+ * parallel get independent stores.
+ */
+const LOCK_CTX = new AsyncLocalStorage<Set<string>>();
+
+export async function withProjectLock<T>(
+  p: AgentpackPaths,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const key = p.projectRoot;
+  const inherited = LOCK_CTX.getStore();
+  if (inherited && inherited.has(key)) {
+    // Reentrant call within the same async flow — outer scope already
+    // serialized; do NOT re-acquire the file lock (would deadlock).
+    return await fn();
+  }
+  const held = new Set(inherited ?? []);
+  held.add(key);
+  return LOCK_CTX.run(held, () => withFileLock(p, fn));
+}
+
+async function withFileLock<T>(
+  p: AgentpackPaths,
   fn: () => Promise<T>,
 ): Promise<T> {
   const lockDir = p.historyLockFile;
   const start = Date.now();
   const timeoutMs = 10_000;
-  const staleMs = 5 * 60_000;
-  await fs.mkdir(p.workgraphDir, { recursive: true });
+  // A live holder heartbeats every HEARTBEAT_MS by touching its nonce file
+  // (write same content, mtime updates). Stale detection waits 3× the
+  // heartbeat interval to tolerate slow disk + scheduler jitter. Together,
+  // a process that's actively working — even on a very long install —
+  // cannot have its lock stolen, while a crashed holder is reclaimed in
+  // bounded time. From codex P1 review (iter-5).
+  const HEARTBEAT_MS = 5_000;
+  const staleMs = HEARTBEAT_MS * 3 + 5_000; // 20s grace
+  await fs.mkdir(p.agentpackDir, { recursive: true });
   let nonce = "";
   while (true) {
     try {
@@ -266,7 +301,12 @@ async function withHistoryLock<T>(
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       try {
-        const stat = await fs.stat(lockDir);
+        // Stale check reads the NONCE FILE's mtime, not the lockDir's.
+        // The heartbeat refreshes the nonce file; writing to a child does
+        // not bubble mtime to its parent dir on POSIX, so reading lockDir
+        // would still see the original mkdir time and falsely declare the
+        // lock stale. From codex P1 review (iter-5 round 4).
+        const stat = await fs.stat(`${lockDir}/nonce`);
         if (Date.now() - stat.mtimeMs > staleMs) {
           // Read the nonce, then re-read it after a tiny pause. If both
           // reads agree, the holder is genuinely abandoned.
@@ -285,15 +325,25 @@ async function withHistoryLock<T>(
       }
       if (Date.now() - start > timeoutMs) {
         throw new Error(
-          `Could not acquire .workgraph/.lock within ${timeoutMs}ms — another workgraph CLI may be running.`,
+          `Could not acquire .agentpack/.lock within ${timeoutMs}ms — another agentpack CLI may be running.`,
         );
       }
       await sleep(50);
     }
   }
+  // Heartbeat: re-write the nonce file every HEARTBEAT_MS so its mtime
+  // stays current (this is the signal the stale-check above reads).
+  // unref() so this timer doesn't keep the process alive after fn returns.
+  const heartbeat = setInterval(() => {
+    fs.writeFile(`${lockDir}/nonce`, nonce, "utf8").catch(() => {
+      /* lock holder may have already been reclaimed; bail silently */
+    });
+  }, HEARTBEAT_MS);
+  heartbeat.unref();
   try {
     return await fn();
   } finally {
+    clearInterval(heartbeat);
     // Only remove the lock if the nonce inside still matches the one we
     // wrote — otherwise another process has already acquired.
     try {

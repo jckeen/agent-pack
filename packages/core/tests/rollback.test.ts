@@ -11,7 +11,7 @@ import {
   readHistory,
   recordHistory,
   newHistoryId,
-  resolveWorkgraphPaths,
+  resolveAgentpackPaths,
 } from "../src/install/index.js";
 
 const EXAMPLE_PACK = path.resolve(__dirname, "../../../examples/pr-quality");
@@ -36,7 +36,7 @@ describe("rollback", () => {
     expect(r.undone.length).toBe(1);
     expect(r.uninstalledPacks).toContain(plan.packId);
     // The install manifest should be gone.
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     const installedDir = ws.installedDir;
     const entries = await fs.readdir(installedDir).catch(() => []);
     expect(entries).toEqual([]);
@@ -79,7 +79,7 @@ describe("rollback", () => {
     });
     await applyInstall({ plan });
     await rollback({ projectRoot: dir });
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     const history = await readHistory(ws);
     expect(history.at(-1)?.action).toBe("rollback");
     await fs.rm(dir, { recursive: true, force: true });
@@ -89,7 +89,7 @@ describe("rollback", () => {
 describe("recoverIncomplete", () => {
   it("rolls back a dangling install_begin where no files exist", async () => {
     const dir = await tempProject();
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     // Write a begin entry with plannedFiles that don't exist on disk.
     await recordHistory(ws, {
       id: newHistoryId(),
@@ -111,7 +111,7 @@ describe("recoverIncomplete", () => {
 
   it("is idempotent — re-running on clean state is a no-op", async () => {
     const dir = await tempProject();
-    await fs.mkdir(path.join(dir, ".workgraph"), { recursive: true });
+    await fs.mkdir(path.join(dir, ".agentpack"), { recursive: true });
     const a = await recoverIncomplete(dir);
     const b = await recoverIncomplete(dir);
     expect(a.found).toBe(0);
@@ -132,7 +132,7 @@ describe("recoverIncomplete", () => {
     await applyInstall({ plan });
     // Then synthesize a dangling install_begin for a SECOND fake pack whose
     // planned files happen to be ones we actually have on disk: AGENTS.md.
-    const ws = await resolveWorkgraphPaths(dir);
+    const ws = await resolveAgentpackPaths(dir);
     const agentsHash = (await readHistory(ws))
       .find((e) => e.action === "install_begin")
       ?.plannedFiles?.find((f) => f.path === "AGENTS.md")?.sha256;

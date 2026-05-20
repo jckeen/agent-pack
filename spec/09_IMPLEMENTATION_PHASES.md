@@ -61,7 +61,7 @@ Add:
 
 Add:
 
-- `workgraph install publisher/pack`
+- `agentpack install publisher/pack`
 - version pinning
 - registry auth
 - private packs
@@ -80,7 +80,7 @@ Add:
 - admin-approved install profiles
 - policy-as-code
 
-## Phase 7: Workgraph integration
+## Phase 7: AgentPack integration
 
 Add:
 

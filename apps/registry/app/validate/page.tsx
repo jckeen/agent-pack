@@ -8,7 +8,7 @@ export default function ValidatePage() {
         <p className="mt-2 max-w-2xl text-ink-600">
           Paste a <code className="font-mono">AGENTPACK.yaml</code> below. The
           validator runs the same schema and semantic checks as{" "}
-          <code className="font-mono">workgraph validate</code> in the CLI.
+          <code className="font-mono">agentpack validate</code> in the CLI.
         </p>
       </header>
       <ValidateForm />

@@ -3,7 +3,7 @@
 AgentPack's primary distribution mechanism is **git**. Any AgentPack manifest committed to a public (or accessible-private) git repo at a stable ref is a valid install source — no registry required.
 
 ```bash
-workgraph install github:owner/repo[@ref][#subpath] \
+agentpack install github:owner/repo[@ref][#subpath] \
   --target claude-code --profile safe \
   --project ./my-project --yes
 ```
@@ -33,7 +33,7 @@ The CLI's `install [pack]` command resolves the `pack` argument in this order:
 
 1. **Local path** — if the argument resolves to a directory on disk, treat it as a local-path install. Local always wins; the user can disambiguate by passing `github:` explicitly.
 2. **Git source** — if the argument matches the git syntax above, fetch from `raw.githubusercontent.com`.
-3. **Registry id** — if the argument matches `publisher/pack[@version]`, fetch from the configured registry (default: `https://registry.workgraph.dev`).
+3. **Registry id** — if the argument matches `publisher/pack[@version]`, fetch from the configured registry (default: `https://registry.agentpack.dev`).
 
 ## What gets fetched
 
@@ -49,13 +49,13 @@ The lockfile records the resolved ref, the per-file sha256 of what was actually 
 
 ### Signature verification for git sources (v0.5.1)
 
-`workgraph install <git-source> --require-sig` currently exits 2 with a clear deferral message:
+`agentpack install <git-source> --require-sig` currently exits 2 with a clear deferral message:
 
 ```
 ✗ --require-sig with a git source is not supported in v0.5.
   Git-source signature verification (cosign-on-tag) arrives in v0.5.1.
   For signed-by-default today, publish to a registry and install via
-  `workgraph install <publisher>/<pack>@<version> --require-sig`.
+  `agentpack install <publisher>/<pack>@<version> --require-sig`.
 ```
 
 Phase 4 cosign keyless signs the **manifest** content via Sigstore Fulcio + Rekor at publish time. Extending the same to git-tag signatures (`git tag -s` + `sigstore-tag verify`) is on the v0.5.1 roadmap.
@@ -90,7 +90,7 @@ For **public OSS distribution**, git is the leaner choice. For **private cross-o
 Install the AgentPack repo's bundled PR-Quality example pack from a specific tag:
 
 ```bash
-workgraph install github:jckeen/agent-pack@v0.5.0#examples/pr-quality \
+agentpack install github:jckeen/agent-pack@v0.5.0#examples/pr-quality \
   --target claude-code --profile safe \
   --project ./my-project --yes
 ```
@@ -98,14 +98,14 @@ workgraph install github:jckeen/agent-pack@v0.5.0#examples/pr-quality \
 Install the same pack from the current `master` (moving target):
 
 ```bash
-workgraph install github:jckeen/agent-pack@master#examples/pr-quality \
+agentpack install github:jckeen/agent-pack@master#examples/pr-quality \
   --target codex --profile standard --project ./my-project --yes
 ```
 
 Install from a private repo (requires a GitHub token in env that has read access; signature verification still deferred to v0.5.1):
 
 ```bash
-GITHUB_TOKEN=ghp_... workgraph install github:my-org/private-pack@v1.0.0 \
+GITHUB_TOKEN=ghp_... agentpack install github:my-org/private-pack@v1.0.0 \
   --target claude-code --profile full --project ./my-project --yes
 ```
 

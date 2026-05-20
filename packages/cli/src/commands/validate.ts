@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import pc from "picocolors";
-import { loadManifest, validateManifest } from "@workgraph/core";
+import { loadManifest, validateManifest } from "@agentpack/core";
 import { renderValidation } from "../lib/render.js";
 import { failCleanly } from "../lib/error.js";
 

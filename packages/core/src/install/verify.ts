@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import type { VerifyResult } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
-import { resolveWorkgraphPaths, fromRelative } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
+import { resolveAgentpackPaths, fromRelative } from "./paths.js";
 import { readInstallManifest } from "./manifest.js";
 import { parseLockfile } from "./lockfile.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
@@ -22,7 +22,7 @@ export interface VerifyOptions {
  * `chainOk` is set only when `checkChain` is true.
  */
 export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> {
-  const ws = await resolveWorkgraphPaths(opts.projectRoot);
+  const ws = await resolveAgentpackPaths(opts.projectRoot);
   const manifest = await readInstallManifest(ws, opts.packId);
 
   // Cross-check: lockfile checksum recorded at install vs. current lockfile
@@ -91,5 +91,5 @@ export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> 
   };
 }
 
-export { resolveWorkgraphPaths };
-export type { WorkgraphPaths };
+export { resolveAgentpackPaths };
+export type { AgentpackPaths };

@@ -8,7 +8,7 @@ import {
   validateManifest,
   type CompatibilityStatus,
   type TargetPlatform,
-} from "@workgraph/core";
+} from "@agentpack/core";
 import { header, renderPermissionSummary, riskBadge } from "../lib/render.js";
 import { failCleanly } from "../lib/error.js";
 
@@ -114,7 +114,7 @@ export function registerInspect(program: Command): void {
         if (!validation.valid) {
           console.log(
             pc.red(
-              `✗ Manifest validation failed (${validation.errors.length} error(s)). Run \`workgraph validate\` for details.`,
+              `✗ Manifest validation failed (${validation.errors.length} error(s)). Run \`agentpack validate\` for details.`,
             ),
           );
           process.exit(1);

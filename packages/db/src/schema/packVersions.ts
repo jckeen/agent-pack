@@ -2,7 +2,7 @@
  * `pack_versions` — one row per published version of a pack.
  *
  * Column shape pinned by `Plans/PROTOCOL.md` § 4. Status enum mirrors
- * `versionStatusSchema` from `@workgraph/core/protocol`.
+ * `versionStatusSchema` from `@agentpack/core/protocol`.
  */
 
 import {

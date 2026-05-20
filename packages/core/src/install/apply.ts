@@ -2,16 +2,20 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { InstallPlanV2, InstallManifestV1, HistoryEntryV1 } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
 import {
-  resolveWorkgraphPaths,
-  ensureWorkgraphDirs,
+  resolveAgentpackPaths,
+  ensureAgentpackDirs,
   realpathContained,
   toRelative,
   backupDirForInstall,
 } from "./paths.js";
-import { writeInstallManifest } from "./manifest.js";
-import { recordHistory, newHistoryId } from "./history.js";
+import {
+  InstallManifestNotFoundError,
+  readInstallManifest,
+  writeInstallManifest,
+} from "./manifest.js";
+import { recordHistory, newHistoryId, withProjectLock } from "./history.js";
 import { serializeLockfile, lockfileChecksum } from "./lockfile.js";
 import { sha256Hex, normalizeForHash } from "./checksum.js";
 
@@ -40,10 +44,10 @@ export interface ApplyInstallResult {
  *   1. WAL: write `install_begin` history entry with plannedFiles[] BEFORE
  *      any project file is touched.
  *   2. For every `modified` and `conflict` (under --force) target, copy the
- *      existing file to `.workgraph/backups/<packId>/<ts>.<nonce>/...`.
+ *      existing file to `.agentpack/backups/<packId>/<ts>.<nonce>/...`.
  *   3. Write every staged file atomically (write to .tmp, fsync, rename).
  *   4. Write AGENTPACK.lock at projectRoot.
- *   5. Write `.workgraph/installed/<packId>.json`.
+ *   5. Write `.agentpack/installed/<packId>.json`.
  *   6. WAL: write `install_commit` history entry.
  *
  * If any step fails between begin and commit, the begin entry is left in
@@ -58,8 +62,22 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
       `Install refused: ${plan.conflicts.length} conflict(s) (no AgentPack marker or marker belongs to another pack):\n${paths}\nPass --force to back up and overwrite.`,
     );
   }
-  const ws = await resolveWorkgraphPaths(plan.projectRoot);
-  await ensureWorkgraphDirs(ws);
+  const ws = await resolveAgentpackPaths(plan.projectRoot);
+  await ensureAgentpackDirs(ws);
+  // Serialize the entire install (plan → write → commit) against any other
+  // concurrent `agentpack install` running against the same projectRoot.
+  // Without this, two concurrent installs both pass `plan` and clash on
+  // `atomicWriteFile(..., "wx")`, leaving an orphan `install_begin` row.
+  // Reentrant: `recordHistory` calls inside the locked region detect the
+  // outer hold and skip re-acquiring. From qa-lead HIGH-3 (iter-5).
+  return withProjectLock(ws, async () => applyInstallLocked(opts, ws));
+}
+
+async function applyInstallLocked(
+  opts: ApplyInstallOptions,
+  ws: import("./paths.js").AgentpackPaths,
+): Promise<ApplyInstallResult> {
+  const plan = opts.plan;
 
   // 1. WAL begin
   const beginEntry = await recordHistory(ws, {
@@ -112,7 +130,7 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
         const original = await fs.readFile(abs, "utf8").catch(() => undefined);
         if (original !== undefined) {
           const backupRel = path.posix.join(
-            ".workgraph",
+            ".agentpack",
             "backups",
             sanitizePack(plan.packId),
             path.basename(backupBase),
@@ -148,6 +166,49 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
       await realpathContained(ws.projectRoot, abs);
       writtenAbsolute.push(abs);
       writtenRelative.push(toRelative(ws.projectRoot, abs));
+    }
+
+    // Carry ownership across a re-install: an `unchanged` file may already
+    // be owned by THIS pack from a previous install. If so, the new manifest
+    // must record it so uninstall still does the right thing; otherwise the
+    // prior install's tracked file becomes an orphan. We only re-claim what
+    // the prior manifest already claimed — user-owned files that happen to
+    // be bit-identical (a separate, valid `unchanged` case) must NOT be
+    // adopted. Also: if the prior manifest had this path as `modified` with
+    // a backup of the user's original, preserve BOTH the modified status
+    // and the backup record — otherwise uninstall would delete the file
+    // instead of restoring the user's pre-install version.
+    // Confirmed via live probe 2026-05-19 (iter-5 QA finding #1; codex P1).
+    const prior = await readPriorManifest(ws, plan.packId);
+    const priorCreatedSet = new Set(prior?.created.map((c) => c.path) ?? []);
+    const priorModifiedSet = new Set(prior?.modified.map((m) => m.path) ?? []);
+    for (const f of plan.unchanged) {
+      const rel = f.path;
+      const wasCreated = priorCreatedSet.has(rel);
+      const wasModified = priorModifiedSet.has(rel);
+      if (!wasCreated && !wasModified) continue;
+      const abs = path.resolve(ws.projectRoot, rel);
+      await realpathContained(ws.projectRoot, abs);
+      const content = normalizeForHash(
+        f.content.endsWith("\n") ? f.content : `${f.content}\n`,
+      );
+      const sha = sha256Hex(content);
+      const alreadyInCreated = created.some((c) => c.path === rel);
+      const alreadyInModified = modifiedRecords.some((m) => m.path === rel);
+      if (alreadyInCreated || alreadyInModified) continue;
+      if (wasModified) {
+        modifiedRecords.push({ path: rel, sha256: sha });
+        // Carry forward the prior install's backup so uninstall can restore
+        // the user's pre-install content. Without this, the new manifest has
+        // no backup record for this path and `--force-restore` has nothing
+        // to restore from.
+        const priorBackup = prior?.backups.find((b) => b.original === rel);
+        if (priorBackup && !backups.some((b) => b.original === rel)) {
+          backups.push(priorBackup);
+        }
+      } else {
+        created.push({ path: rel, sha256: sha });
+      }
     }
 
     // 4. AGENTPACK.lock
@@ -250,6 +311,25 @@ async function atomicWriteFile(
   await fs.rename(tmp, target);
 }
 
+/**
+ * Read the prior install manifest for `packId` if one exists. Used to preserve
+ * cross-install ownership of `plan.unchanged` files (re-install case) without
+ * incorrectly claiming user-owned files that happen to be bit-identical, and
+ * to carry forward backups for paths previously installed as `modified`.
+ * Returns null on first install (no prior manifest).
+ */
+async function readPriorManifest(
+  ws: AgentpackPaths,
+  packId: string,
+): Promise<import("./types.js").InstallManifestV1 | null> {
+  try {
+    return await readInstallManifest(ws, packId);
+  } catch (err) {
+    if (err instanceof InstallManifestNotFoundError) return null;
+    throw err;
+  }
+}
+
 // Re-exported for tests + cli convenience.
-export { resolveWorkgraphPaths };
-export type { WorkgraphPaths };
+export { resolveAgentpackPaths };
+export type { AgentpackPaths };

@@ -1,6 +1,6 @@
 /**
  * Smoke tests for the protocol zod schemas as consumed by the registry API
- * routes. Verifies the registry's wire contract matches `@workgraph/core`'s.
+ * routes. Verifies the registry's wire contract matches `@agentpack/core`'s.
  */
 
 import { describe, expect, it } from "vitest";
@@ -10,11 +10,11 @@ import {
   publishFinalizeRequestSchema,
   TOKEN_REGEX,
   versionStatusSchema,
-} from "@workgraph/core";
+} from "@agentpack/core";
 
 describe("publishInitRequestSchema", () => {
   const ok = {
-    publisher: "workgraph",
+    publisher: "agentpack",
     pack: "pr-quality",
     version: "0.1.0",
     manifestSha256: "a".repeat(64),
@@ -71,14 +71,14 @@ describe("publishFinalizeRequestSchema", () => {
 });
 
 describe("TOKEN_REGEX", () => {
-  it("matches wgp_live_<32 hex>", () => {
-    expect(TOKEN_REGEX.test("wgp_live_" + "a".repeat(32))).toBe(true);
+  it("matches agp_live_<32 hex>", () => {
+    expect(TOKEN_REGEX.test("agp_live_" + "a".repeat(32))).toBe(true);
   });
   it("rejects wrong prefix", () => {
     expect(TOKEN_REGEX.test("wgp_test_" + "a".repeat(32))).toBe(false);
   });
   it("rejects short body", () => {
-    expect(TOKEN_REGEX.test("wgp_live_" + "a".repeat(16))).toBe(false);
+    expect(TOKEN_REGEX.test("agp_live_" + "a".repeat(16))).toBe(false);
   });
 });
 

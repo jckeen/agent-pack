@@ -73,13 +73,13 @@ jobs:
           node packages/cli/dist/index.js install examples/pr-quality \
             --target generic --profile safe --project "$SMOKE" --yes
           test -f "$SMOKE/AGENTPACK.lock"
-          test -f "$SMOKE/.workgraph/installed/workgraph.pr-quality.json"
-          test -f "$SMOKE/.workgraph/history.jsonl"
-          node packages/cli/dist/index.js verify workgraph.pr-quality --project "$SMOKE"
-          node packages/cli/dist/index.js verify workgraph.pr-quality --project "$SMOKE" --chain
+          test -f "$SMOKE/.agentpack/installed/agentpack.pr-quality.json"
+          test -f "$SMOKE/.agentpack/history.jsonl"
+          node packages/cli/dist/index.js verify agentpack.pr-quality --project "$SMOKE"
+          node packages/cli/dist/index.js verify agentpack.pr-quality --project "$SMOKE" --chain
           node packages/cli/dist/index.js history --project "$SMOKE" --limit 5
-          node packages/cli/dist/index.js uninstall workgraph.pr-quality --project "$SMOKE" --yes
-          test ! -e "$SMOKE/.workgraph/installed/workgraph.pr-quality.json"
+          node packages/cli/dist/index.js uninstall agentpack.pr-quality --project "$SMOKE" --yes
+          test ! -e "$SMOKE/.agentpack/installed/agentpack.pr-quality.json"
 
       - name: Lockfile determinism (Phase 2)
         run: |

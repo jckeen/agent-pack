@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import pc from "picocolors";
 
-import { DEFAULT_REGISTRY_URL } from "@workgraph/core";
+import { DEFAULT_REGISTRY_URL } from "@agentpack/core";
 
 import { getToken, maskToken } from "../lib/credentials.js";
 
@@ -27,7 +27,7 @@ export function registerTokens(program: Command): void {
       const registry = options.registry.replace(/\/+$/, "");
       const bearer = await getToken(registry);
       if (!bearer) {
-        console.log(pc.dim("Not logged in. Run `workgraph login`."));
+        console.log(pc.dim("Not logged in. Run `agentpack login`."));
         process.exit(0);
       }
       const res = await fetch(`${registry}/api/tokens`, {
@@ -62,7 +62,7 @@ export function registerTokens(program: Command): void {
         const registry = options.registry.replace(/\/+$/, "");
         const bearer = await getToken(registry);
         if (!bearer) {
-          console.error(pc.red("Not logged in. Run `workgraph login`."));
+          console.error(pc.red("Not logged in. Run `agentpack login`."));
           process.exit(1);
         }
         const scopes = options.scopes
@@ -103,7 +103,7 @@ export function registerTokens(program: Command): void {
       const registry = options.registry.replace(/\/+$/, "");
       const bearer = await getToken(registry);
       if (!bearer) {
-        console.error(pc.red("Not logged in. Run `workgraph login`."));
+        console.error(pc.red("Not logged in. Run `agentpack login`."));
         process.exit(1);
       }
       const res = await fetch(`${registry}/api/tokens/${tokenId}`, {

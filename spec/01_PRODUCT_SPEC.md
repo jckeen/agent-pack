@@ -1,9 +1,9 @@
-# Product Spec: AgentPack + Workgraph Registry
+# Product Spec: AgentPack + AgentPack Registry
 
 ## Product names
 
 - Standard: **AgentPack**
-- Registry/Product: **Workgraph Registry**
+- Registry/Product: **AgentPack Registry**
 - CLI: **workgraph**
 - Manifest: `AGENTPACK.yaml`
 - Package object: AgentPack
@@ -34,16 +34,16 @@ AgentPack is the missing layer above existing standards:
 
 ## Product separation
 
-AgentPack + Workgraph Registry is separate from any AI social network or Workgraph context-sharing product.
+AgentPack + AgentPack Registry is separate from any AI social network or Workgraph context-sharing product.
 
 Future connection points:
 
 - Workgraph can generate AgentPacks from real user/team workflows.
 - Agent Commons can let trusted users share AgentPacks.
-- Workgraph Registry can publish public or private AgentPacks.
+- AgentPack Registry can publish public or private AgentPacks.
 - AgentPack can include context packs exported from Workgraph.
 
-For now, AgentPack and Workgraph Registry stand alone.
+For now, AgentPack and AgentPack Registry stand alone.
 
 ## Who it serves
 
@@ -102,7 +102,7 @@ The first flagship example is the **Pull Request Quality Pack** because it has o
 
 ## Long-term vision
 
-Workgraph Registry becomes the marketplace, package manager, trust layer, and distribution network for AI agent behavior.
+AgentPack Registry becomes the marketplace, package manager, trust layer, and distribution network for AI agent behavior.
 
 It should feel like:
 

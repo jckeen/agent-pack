@@ -66,6 +66,15 @@ export interface VerifyOptions {
   expectedIssuer?: string;
   /** Allow offline verification — skip Rekor network check. Default false. */
   offline?: boolean;
+  /**
+   * When true, fail verification if neither `expectedSAN` nor
+   * `expectedIssuer` is supplied. Trust-decision paths (`--require-sig`,
+   * registry publish-finalize) MUST set this so that ANY valid Sigstore
+   * signature can't pass — only signatures bound to a known publisher
+   * identity should. Default false for back-compat with audit-only call
+   * sites. Added 2026-05-19 (iter-5 security-reviewer CRITICAL-1).
+   */
+  requireIdentity?: boolean;
 }
 
 /**
@@ -99,7 +108,7 @@ export async function signManifestChecksum(
   let bundle: Bundle;
   try {
     bundle = await bundler.create({
-      type: "application/vnd.workgraph.agentpack-manifest+text",
+      type: "application/vnd.agentpack.manifest+text",
       data: Buffer.from(opts.manifestChecksum, "utf-8"),
     });
   } catch (err) {
@@ -152,6 +161,19 @@ export async function verifyManifestSignature(
   }
 
   // 3. Identity gate — refuse early if the surfaced SAN/issuer doesn't match.
+  // When `requireIdentity: true` is passed, an absent expectedSAN AND
+  // expectedIssuer is itself a failure — without that, ANY valid Sigstore
+  // signature passes (including one minted by an attacker's GitHub account).
+  // Callers in trust-decision paths (--require-sig, registry publish flow)
+  // MUST set requireIdentity. From security-reviewer CRITICAL-1 (iter-5).
+  if (opts.requireIdentity && !opts.expectedSAN && !opts.expectedIssuer) {
+    return {
+      valid: false,
+      reason: "identity_mismatch",
+      detail:
+        "requireIdentity set but no expectedSAN/expectedIssuer provided — refusing trust-on-first-publish",
+    };
+  }
   if (opts.expectedSAN && envelope.metadata.identity.san !== opts.expectedSAN) {
     return {
       valid: false,

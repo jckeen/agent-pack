@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   experimental: {
     typedRoutes: false,
   },
-  transpilePackages: ["@workgraph/core"],
+  transpilePackages: ["@agentpack/core"],
 };
 
 export default nextConfig;

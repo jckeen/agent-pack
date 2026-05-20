@@ -8,7 +8,7 @@ const CLI_ENTRY = path.resolve(__dirname, "../dist/index.js");
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const EXAMPLE = path.resolve(REPO_ROOT, "examples/pr-quality");
 
-const TMP_ROOT = path.join(os.tmpdir(), `workgraph-install-cli-${Date.now()}`);
+const TMP_ROOT = path.join(os.tmpdir(), `agentpack-install-cli-${Date.now()}`);
 
 interface RunResult {
   stdout: string;
@@ -44,7 +44,7 @@ afterAll(async () => {
   await fs.rm(TMP_ROOT, { recursive: true, force: true });
 });
 
-describe("workgraph install (CLI)", () => {
+describe("agentpack install (CLI)", () => {
   it("--help mentions every Phase 2 command", async () => {
     const r = await run(["--help"]);
     expect(r.code).toBe(0);
@@ -94,7 +94,7 @@ describe("workgraph install (CLI)", () => {
     const lockBytes = await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8");
     expect(lockBytes).toContain('"lockfileVersion": 1');
 
-    const verify = await run(["verify", "workgraph.pr-quality", "--project", dir]);
+    const verify = await run(["verify", "agentpack.pr-quality", "--project", dir]);
     expect(verify.code).toBe(0);
     expect(verify.stdout).toContain("clean");
 
@@ -104,7 +104,7 @@ describe("workgraph install (CLI)", () => {
 
     const uninstall = await run([
       "uninstall",
-      "workgraph.pr-quality",
+      "agentpack.pr-quality",
       "--project",
       dir,
       "--yes",
@@ -112,7 +112,7 @@ describe("workgraph install (CLI)", () => {
     expect(uninstall.code).toBe(0);
     expect(uninstall.stdout).toContain("Uninstalled");
 
-    const post = await run(["verify", "workgraph.pr-quality", "--project", dir]);
+    const post = await run(["verify", "agentpack.pr-quality", "--project", dir]);
     expect(post.code).not.toBe(0);
     expect(post.stderr).toMatch(/No install manifest/);
   });
@@ -131,7 +131,7 @@ describe("workgraph install (CLI)", () => {
       "--yes",
     ]);
     await fs.appendFile(path.join(dir, "AGENTS.md"), "\ntampered\n");
-    const r = await run(["verify", "workgraph.pr-quality", "--project", dir]);
+    const r = await run(["verify", "agentpack.pr-quality", "--project", dir]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("drift");
     expect(r.stderr).toContain("AGENTS.md");
@@ -154,7 +154,7 @@ describe("workgraph install (CLI)", () => {
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("Rolled back");
     const lockExists = await fs
-      .stat(path.join(dir, ".workgraph/installed/workgraph.pr-quality.json"))
+      .stat(path.join(dir, ".agentpack/installed/agentpack.pr-quality.json"))
       .catch(() => null);
     expect(lockExists).toBeNull();
   });

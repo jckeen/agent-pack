@@ -1,4 +1,4 @@
-# MASTER PROMPT: Build AgentPack + Workgraph Registry
+# MASTER PROMPT: Build AgentPack + AgentPack Registry
 
 You are an elite AI infrastructure architect, prompt engineer, protocol designer, product strategist, software supply chain security engineer, and full-stack TypeScript systems engineer.
 
@@ -6,7 +6,7 @@ We are starting a new project from scratch.
 
 The project is **AgentPack**, an open, atomic packaging standard for AI workflows, skills, hooks, plugins, rules, MCP tools, subagents, commands, context packs, templates, evals, and platform-specific agent customizations.
 
-The product built around it is **Workgraph Registry**, a cross-platform registry, browser, validator, installer, and export system for AgentPacks.
+The product built around it is **AgentPack Registry**, a cross-platform registry, browser, validator, installer, and export system for AgentPacks.
 
 The CLI is called `workgraph`.
 
@@ -139,16 +139,16 @@ Use:
 Implement:
 
 ```bash
-workgraph init
-workgraph validate [path]
-workgraph inspect [path]
-workgraph plan [path] --target claude-code --profile safe
-workgraph pack export [path] --target claude-code --out dist/claude
-workgraph pack export [path] --target codex --out dist/codex
-workgraph pack export [path] --target cursor --out dist/cursor
-workgraph pack export [path] --target chatgpt --out dist/chatgpt
-workgraph pack export [path] --target generic --out dist/generic
-workgraph doctor
+agentpack init
+agentpack validate [path]
+agentpack inspect [path]
+agentpack plan [path] --target claude-code --profile safe
+agentpack pack export [path] --target claude-code --out dist/claude
+agentpack pack export [path] --target codex --out dist/codex
+agentpack pack export [path] --target cursor --out dist/cursor
+agentpack pack export [path] --target chatgpt --out dist/chatgpt
+agentpack pack export [path] --target generic --out dist/generic
+agentpack doctor
 ```
 
 ## Web app routes
@@ -232,9 +232,9 @@ The build is complete when:
 - `pnpm build` works
 - `pnpm test` works
 - `pnpm dev` starts the web app
-- `workgraph validate examples/pr-quality` passes
-- `workgraph plan examples/pr-quality --target claude-code --profile safe` shows low-risk plan
-- `workgraph plan examples/pr-quality --target claude-code --profile full` warns about shell/hooks/MCP/secrets
+- `agentpack validate examples/pr-quality` passes
+- `agentpack plan examples/pr-quality --target claude-code --profile safe` shows low-risk plan
+- `agentpack plan examples/pr-quality --target claude-code --profile full` warns about shell/hooks/MCP/secrets
 - export commands generate expected target files
 - web UI renders seed packs and detail pages
 - validate page validates YAML

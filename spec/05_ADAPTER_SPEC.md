@@ -50,10 +50,10 @@ CLAUDE.md
 ### Instruction block format
 
 ```md
-<!-- BEGIN AGENTPACK: workgraph.pr-quality -->
+<!-- BEGIN AGENTPACK: agentpack.pr-quality -->
 # Pull Request Quality Pack
 ...
-<!-- END AGENTPACK: workgraph.pr-quality -->
+<!-- END AGENTPACK: agentpack.pr-quality -->
 ```
 
 ## Codex adapter

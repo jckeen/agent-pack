@@ -1,5 +1,5 @@
 /**
- * Credentials file for the CLI — `~/.workgraph/credentials.json`.
+ * Credentials file for the CLI — `~/.agentpack/credentials.json`.
  *
  * Honors `WORKGRAPH_HOME` env override for tests. Mode `0o600` on POSIX (no-op
  * on Windows). Atomic write via temp file + rename. Token storage is plain —
@@ -23,7 +23,7 @@ export interface CredentialsFile {
 }
 
 const WORKGRAPH_HOME = (): string =>
-  process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".workgraph");
+  process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".agentpack");
 
 export function credentialsPath(): string {
   return path.join(WORKGRAPH_HOME(), "credentials.json");
@@ -64,7 +64,7 @@ export async function clearCredentials(registryUrl: string): Promise<void> {
 export async function getToken(
   registryUrl: string
 ): Promise<string | null> {
-  const envToken = process.env.WORKGRAPH_TOKEN;
+  const envToken = process.env.AGENTPACK_TOKEN;
   if (envToken) return envToken;
   const creds = await readCredentials();
   return creds.registries[registryUrl]?.token ?? null;

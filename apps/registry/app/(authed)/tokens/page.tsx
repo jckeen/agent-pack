@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
-import { TOKEN_SCOPES } from "@workgraph/core";
+import { TOKEN_SCOPES } from "@agentpack/core";
 
 import { auth, signIn } from "@/lib/auth";
 import { apiTokens, getDb } from "@/lib/db";

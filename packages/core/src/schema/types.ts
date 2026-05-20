@@ -3,7 +3,7 @@
 // These mirror `schemas/AGENTPACK.schema.json` and the bundled spec docs. The
 // runtime zod schema in ./agentpack.schema.ts is the source of truth for
 // validation. This file is the source of truth for the *static* developer
-// experience — consumers should import from `@workgraph/core` (re-exported in
+// experience — consumers should import from `@agentpack/core` (re-exported in
 // the package entry).
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";

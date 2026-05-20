@@ -1,16 +1,16 @@
 agentpack: "1.0"
 
 metadata:
-  id: "workgraph.pr-quality"
+  id: "agentpack.pr-quality"
   name: "Pull Request Quality Pack"
   slug: "pr-quality"
   description: "Cross-platform pull request review workflow with code review, security review, formatting, and PR summary generation."
   version: "0.1.0"
   license: "MIT"
-  publisher: "workgraph"
+  publisher: "agentpack"
   authors:
-    - name: "Workgraph"
-      email: "hello@workgraph.dev"
+    - name: "AgentPack"
+      email: "hello@agentpack.dev"
   tags:
     - pull-request
     - code-review

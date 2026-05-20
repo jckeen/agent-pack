@@ -2,8 +2,8 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import {
   readHistory,
-  resolveWorkgraphPaths,
-} from "@workgraph/core";
+  resolveAgentpackPaths,
+} from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 
 export function registerHistory(program: Command): void {
@@ -22,7 +22,7 @@ export function registerHistory(program: Command): void {
         json: boolean;
       }) => {
         try {
-          const ws = await resolveWorkgraphPaths(options.project);
+          const ws = await resolveAgentpackPaths(options.project);
           const all = await readHistory(ws);
           const filtered = options.pack
             ? all.filter((e) => e.packId === options.pack)

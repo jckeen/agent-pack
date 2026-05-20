@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["iad1"],
-  "buildCommand": "cd ../.. && pnpm --filter @workgraph/core build && pnpm --filter @workgraph/db build && pnpm --filter @workgraph/registry build",
+  "buildCommand": "cd ../.. && pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm --filter @agentpack/registry build",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "outputDirectory": ".next",
   "headers": [

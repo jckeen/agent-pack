@@ -1,7 +1,7 @@
 # Remote install (Phase 5)
 
-`workgraph install <publisher>/<pack>[@<version>]` fetches a pack from the
-Workgraph Registry, verifies its integrity, and applies the same
+`agentpack install <publisher>/<pack>[@<version>]` fetches a pack from the
+AgentPack Registry, verifies its integrity, and applies the same
 `planInstall → applyInstall` pipeline that local-path install uses (Phase 2).
 
 This document is the operator/developer reference. The wire contract is in
@@ -13,19 +13,19 @@ This document is the operator/developer reference. The wire contract is in
 
 ```bash
 # Install latest stable
-workgraph install workgraph/pr-quality --target claude-code --profile safe
+agentpack install agentpack/pr-quality --target claude-code --profile safe
 
 # Install a specific version
-workgraph install workgraph/pr-quality@0.1.0 --target claude-code --profile safe
+agentpack install agentpack/pr-quality@0.1.0 --target claude-code --profile safe
 
 # Dry-run (no writes)
-workgraph install workgraph/pr-quality --target claude-code --profile safe --dry-run
+agentpack install agentpack/pr-quality --target claude-code --profile safe --dry-run
 
 # Install from a non-default registry
-workgraph install workgraph/pr-quality --registry https://internal.example.com
+agentpack install agentpack/pr-quality --registry https://internal.example.com
 ```
 
-The local-path install (`workgraph install ./path/to/pack`) is unchanged — the
+The local-path install (`agentpack install ./path/to/pack`) is unchanged — the
 remote branch only fires when the argument matches `<publisher>/<pack>[@<version>]`.
 
 ---
@@ -57,7 +57,7 @@ If no published-non-prerelease version exists, the install errors with exit
 ```
 1. Resolve identity → version (call /api/packs/.../ if @version missing).
 2. GET /api/packs/<pub>/<pack>/versions/<ver> → RegistryVersion {files[], manifestSha256}.
-3. Cache lookup: ~/.workgraph/cache/blobs/<sha[0..2]>/<sha> per file. Hit → reuse. Miss → fetch.
+3. Cache lookup: ~/.agentpack/cache/blobs/<sha[0..2]>/<sha> per file. Hit → reuse. Miss → fetch.
 4. For each cache miss: GET /api/packs/.../atoms/<atomId>/<path> → verify sha256(body) === expected → write to cache atomically.
 5. Materialize the cached blobs into a temp pack directory.
 6. Feed the temp dir to existing planInstall({ packRoot, target, profile, projectRoot }).
@@ -75,7 +75,7 @@ The same Phase 2 invariants hold:
 ## Cache
 
 ```
-~/.workgraph/cache/
+~/.agentpack/cache/
 ├── blobs/
 │   └── <sha[0..2]>/<sha>      # content-addressed; key is sha256 of bytes
 ├── manifests/
@@ -85,27 +85,27 @@ The same Phase 2 invariants hold:
 ```
 
 The cache key is the file's **sha256**. Same atom shared across 10 packs costs
-disk once. `~/.workgraph/cache/blobs/<sha[0..2]>/<sha>` is the source of truth;
+disk once. `~/.agentpack/cache/blobs/<sha[0..2]>/<sha>` is the source of truth;
 the `packs/` view is human-readable and rebuilt from the blob store on demand.
 
 ### Cache commands
 
 ```bash
 # How much disk?
-workgraph cache size
+agentpack cache size
 # → 142.3 MB across 1,847 blobs
 
 # Prune blobs older than 30 days (default)
-workgraph cache prune
-workgraph cache prune --max-age 7d
+agentpack cache prune
+agentpack cache prune --max-age 7d
 
 # Clear everything (asks for confirm)
-workgraph cache clear
+agentpack cache clear
 ```
 
 ### Cache safety
 
-- `workgraph cache prune` never deletes outside `~/.workgraph/cache/blobs/`. Every candidate path is realpath-resolved and must be inside the blob dir (ISC-246, ISC-264).
+- `agentpack cache prune` never deletes outside `~/.agentpack/cache/blobs/`. Every candidate path is realpath-resolved and must be inside the blob dir (ISC-246, ISC-264).
 - Writes are atomic: bytes go to a `<sha>.tmp` file, sha256 is verified against the expected hash, only then `rename` into the final path. Mismatched bytes raise `IntegrityError` (exit 7) and the temp is deleted.
 - Re-fetching is idempotent: same `sha` → same path → no-op.
 
@@ -118,11 +118,11 @@ workgraph cache clear
 | Public | No |
 | Private | Yes — `read:private` scope or `read:private@<publisher>` |
 
-Tokens are read from `~/.workgraph/credentials.json` (managed by `workgraph login`).
+Tokens are read from `~/.agentpack/credentials.json` (managed by `agentpack login`).
 The CLI sends `Authorization: Bearer <token>` if present; the registry decides
 whether the scope is sufficient.
 
-Override token from env: `WORKGRAPH_TOKEN=wgp_live_...` — useful in CI.
+Override token from env: `AGENTPACK_TOKEN=agp_live_...` — useful in CI.
 
 ---
 
@@ -133,7 +133,7 @@ Override token from env: `WORKGRAPH_TOKEN=wgp_live_...` — useful in CI.
 | 0 | Installed successfully |
 | 1 | Generic error (network, missing version, IO) |
 | 2 | Drift detected post-install during verify (existing Phase 2 behavior) |
-| 6 | Policy violation (`workgraph.policy.json` enforcement — see `docs/policy.md`) |
+| 6 | Policy violation (`agentpack.policy.json` enforcement — see `docs/policy.md`) |
 | 7 | **IntegrityError** — fetched bytes' sha256 didn't match what the registry declared |
 
 Exit 7 is the supply-chain integrity signal. If you see it repeatedly against
@@ -144,7 +144,7 @@ broken — file a security report.
 
 ## Policy
 
-If `workgraph.policy.json` is present at the project root, the install path
+If `agentpack.policy.json` is present at the project root, the install path
 loads it (`loadPolicy`) and enforces it (`enforcePolicy`) before any bytes are
 written. Common rules:
 
@@ -152,8 +152,8 @@ written. Common rules:
 {
   "policyVersion": 1,
   "registries": {
-    "allowed": ["https://registry.workgraph.dev"],
-    "default": "https://registry.workgraph.dev"
+    "allowed": ["https://registry.agentpack.dev"],
+    "default": "https://registry.agentpack.dev"
   },
   "install": {
     "requireSignature": true,
@@ -170,20 +170,20 @@ full schema + enforcement order.
 
 ## Verifying what landed
 
-After `workgraph install workgraph/pr-quality@0.1.0 ...`, the project has:
+After `agentpack install agentpack/pr-quality@0.1.0 ...`, the project has:
 
 - The files the pack's chosen adapter+profile rendered (Phase 2 behavior).
-- `.workgraph/installed/workgraph.pr-quality.json` — the install manifest.
+- `.agentpack/installed/agentpack.pr-quality.json` — the install manifest.
 - `AGENTPACK.lock` at project root — the lockfile with per-atom + per-file sha256s. **This should be committed.**
-- `.workgraph/history.jsonl` entries for the install (`install_begin` + `install_commit`).
+- `.agentpack/history.jsonl` entries for the install (`install_begin` + `install_commit`).
 
 ```bash
 # Check drift
-workgraph verify workgraph.pr-quality
+agentpack verify agentpack.pr-quality
 # exit 0 = clean, exit 2 = drift, exit 3 = chain integrity broken
 ```
 
-When Phase 4 lands, `workgraph verify --sig` will additionally verify the
+When Phase 4 lands, `agentpack verify --sig` will additionally verify the
 Sigstore signature over the lockfile's per-file digest list.
 
 ---
@@ -191,7 +191,7 @@ Sigstore signature over the lockfile's per-file digest list.
 ## What remote install does NOT do
 
 - **No transitive dep resolution.** The lockfile reserves a `dependencies` slot but Phase 5 doesn't populate it. Cross-pack dependencies (Phase 7+) require a SAT-style resolver.
-- **No offline-first auth refresh.** If your token expired, the first fetch returns 401 and you re-run `workgraph login`.
+- **No offline-first auth refresh.** If your token expired, the first fetch returns 401 and you re-run `agentpack login`.
 - **No streaming install.** Files are fetched + verified + cached before any write to the project. This is a deliberate ordering — better to fail fast on a hash mismatch than to half-write the project tree.
 - **No `--continue` after failure.** A partial install rolls back via Phase 2's WAL recovery on the next CLI run.
 

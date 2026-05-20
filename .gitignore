@@ -3,6 +3,12 @@ dist/
 build/
 .next/
 out/
+
+# Next.js auto-regenerates next-env.d.ts on every build (including a
+# build-output `<reference path>` line that points into .next/). Committing it
+# means the reference is dangling on a clean clone before any build has run.
+# Per Next.js convention, this file is safe to gitignore.
+**/next-env.d.ts
 .turbo/
 *.log
 .DS_Store

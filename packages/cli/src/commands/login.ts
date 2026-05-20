@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Command } from "commander";
 
-import { DEFAULT_REGISTRY_URL } from "@workgraph/core";
+import { DEFAULT_REGISTRY_URL } from "@agentpack/core";
 import pc from "picocolors";
 
 import { writeCredentials, maskToken } from "../lib/credentials.js";
@@ -26,7 +26,7 @@ type PollResponse =
 export function registerLogin(program: Command): void {
   program
     .command("login")
-    .description("Authenticate the CLI against the Workgraph Registry.")
+    .description("Authenticate the CLI against the AgentPack Registry.")
     .option("--registry <url>", "registry URL", DEFAULT_REGISTRY_URL)
     .action(async (options: { registry: string }) => {
       try {
@@ -34,7 +34,7 @@ export function registerLogin(program: Command): void {
         const initRes = await fetch(`${registry}/api/cli/auth/init`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientName: "workgraph-cli" }),
+          body: JSON.stringify({ clientName: "agentpack-cli" }),
         });
         if (!initRes.ok) {
           console.error(
@@ -45,7 +45,7 @@ export function registerLogin(program: Command): void {
           process.exit(1);
         }
         const init = (await initRes.json()) as InitResponse;
-        console.log(pc.bold(`\nWorkgraph CLI login`));
+        console.log(pc.bold(`\nAgentPack CLI login`));
         console.log(`Visit: ${pc.cyan(init.verificationUrl)}`);
         console.log(`Enter code: ${pc.yellow(pc.bold(init.userCode))}`);
         console.log(pc.dim(`(expires ${init.expiresAt})`));
@@ -67,7 +67,7 @@ export function registerLogin(program: Command): void {
             continue;
           }
           if (poll.status === "expired") {
-            console.error(pc.red("\nLogin expired. Re-run `workgraph login`."));
+            console.error(pc.red("\nLogin expired. Re-run `agentpack login`."));
             process.exit(1);
           }
           if (poll.status === "complete") {
@@ -91,7 +91,7 @@ export function registerLogin(program: Command): void {
             return;
           }
         }
-        console.error(pc.red("\nLogin timed out. Re-run `workgraph login`."));
+        console.error(pc.red("\nLogin timed out. Re-run `agentpack login`."));
         process.exit(1);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

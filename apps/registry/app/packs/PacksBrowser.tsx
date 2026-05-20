@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { RiskLevel, SeedPack, TargetPlatform } from "@workgraph/core";
+import type { RiskLevel, SeedPack, TargetPlatform } from "@agentpack/core";
 import { PackCard } from "@/components/PackCard";
 
 const RISK_FILTERS: Array<{ label: string; value: RiskLevel | "all" }> = [

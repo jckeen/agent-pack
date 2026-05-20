@@ -1,5 +1,5 @@
 /**
- * In-memory device-code store for `workgraph login`. Phase 3 uses a Map keyed
+ * In-memory device-code store for `agentpack login`. Phase 3 uses a Map keyed
  * by device code with a 15-minute TTL. Phase 6 will swap this for a Redis-
  * backed store so multi-instance deployments share state.
  */

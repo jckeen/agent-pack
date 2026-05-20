@@ -1,5 +1,5 @@
 /**
- * `workgraph.policy.json` v1 schema. Source of truth: `Plans/PROTOCOL.md` § 7.
+ * `agentpack.policy.json` v1 schema. Source of truth: `Plans/PROTOCOL.md` § 7.
  */
 
 import { z } from "zod";

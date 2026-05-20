@@ -18,12 +18,12 @@ const SECTIONS = [
   },
   {
     title: "CLI",
-    body: "The workgraph CLI: init, validate, inspect, plan, pack export, doctor, install, uninstall, diff, history, rollback, verify. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.workgraph/history.jsonl` (hash-chained, WAL-protected).",
+    body: "The agentpack CLI: init, validate, inspect, plan, pack export, doctor, install, uninstall, diff, history, rollback, verify. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.agentpack/history.jsonl` (hash-chained, WAL-protected).",
     link: "/docs#cli",
   },
   {
     title: "Install / uninstall / verify (Phase 2)",
-    body: "`workgraph install` is the local install flow: diff against project root → permission summary → confirm → backup → write → install manifest at `.workgraph/installed/<pack>.json` → AGENTPACK.lock → history append. `workgraph uninstall` reverses it (delete created, restore backups). `workgraph verify` computes on-disk SHA-256 against the lockfile and reports drift. `workgraph rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
+    body: "`agentpack install` is the local install flow: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift. `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
     link: "/docs#install",
   },
 ];
@@ -33,10 +33,10 @@ export default function DocsPage() {
     <div className="container-page space-y-10">
       <header className="space-y-2">
         <span className="pill-accent">Documentation</span>
-        <h1 className="h1">Workgraph Registry Documentation</h1>
+        <h1 className="h1">AgentPack Registry Documentation</h1>
         <p className="max-w-2xl text-ink-600">
           The AgentPack standard, security model, adapter behavior, and the
-          workgraph CLI — at a glance.
+          agentpack CLI — at a glance.
         </p>
       </header>
 
@@ -116,15 +116,15 @@ atoms:
 
       <section id="cli" className="card space-y-3">
         <h2 className="h2">CLI commands</h2>
-        <pre className="codeblock overflow-x-auto whitespace-pre text-xs">{`workgraph init                  # scaffold a starter AGENTPACK.yaml
-workgraph validate [path]       # validate a manifest
-workgraph inspect [path]        # print metadata, atoms, profiles, risk
-workgraph plan [path] \\
+        <pre className="codeblock overflow-x-auto whitespace-pre text-xs">{`agentpack init                  # scaffold a starter AGENTPACK.yaml
+agentpack validate [path]       # validate a manifest
+agentpack inspect [path]        # print metadata, atoms, profiles, risk
+agentpack plan [path] \\
     --target <t> --profile <p>  # plan + risk + permission summary
-workgraph pack export [path] \\
+agentpack pack export [path] \\
     --target <t> --profile <p> \\
     --out <dir>                 # write platform-native files
-workgraph doctor                # environment checks
+agentpack doctor                # environment checks
 `}</pre>
         <p className="text-sm text-ink-400">
           <Link className="text-accent-700 hover:underline" href="/packs">

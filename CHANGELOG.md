@@ -1,21 +1,60 @@
 # Changelog
 
+## 0.5.0-dev — 2026-05-19 (iteration-5 launch-readiness pass)
+
+Pre-launch verification session. No new product surface — this iteration audits, patches, and tightens the existing v0.5 codebase so the public launch starts from a known-clean state.
+
+**Security**
+
+- `next 15.1.3 → 15.5.18` — patches 2 CRITICAL CVEs (Middleware Auth Bypass GHSA-f82v-jwr5-mffw, RCE in React flight protocol GHSA-3h52-269p-cp9r) + 8 HIGH (DoS, SSRF, request smuggling).
+- `vitest 2.1.8 → 2.1.9` and `@vitest/coverage-v8 2.1.8 → 2.1.9` — patches 1 CRITICAL (CVE-2025-24964, dev-server RCE via malicious site).
+- `pnpm audit --prod` now reports 0 critical / 0 high / 7 moderate (Next.js Image-Optimizer variants — registry stays in JSON-fallback for OSS launch) / 2 low.
+
+**Install engine — bug fixes**
+
+- **`agentpack install --force` over an existing install no longer orphans unchanged files on uninstall.** Reproducer: `install` → tamper one file → `install --force` → `uninstall` previously left bit-identical files on disk because the new manifest's `created[]` only tracked the file that actually differed. Fix records `plan.unchanged[]` paths in `created[]` so uninstall takes full ownership. (`packages/core/src/install/apply.ts`)
+- **Atom-id missing the `:` separator now produces a friendly zod error instead of a `"Cannot read properties of undefined (reading 'split')"` runtime panic.** Reproducer: `id: "no-colon-here"` in `AGENTPACK.yaml`. (`packages/core/src/schema/agentpack.schema.ts`)
+
+**Documentation**
+
+- `CONTRIBUTING.md` — rewritten to reflect actual v0.5 state (was stuck at v0.1 / 67 tests / "no npm artifact yet"). Documents `pnpm verify`, the 5-package layout, and the per-add-a-target / per-add-a-command checklist.
+- `docs/cli.md` — rewritten to cover all 19 commands (was Phase-1 era — missing `install`, `verify`, `rollback`, `diff`, `history`, `uninstall`, `login`, `publish`, `tokens`, `cache`, plus `--sig`/`--strict`/`--require-sig` flags). Exit codes now match the ROADMAP taxonomy.
+- `docs/security.md` — removed stale "MVP does not yet install into a project root" claim (Phase 2 shipped install in v0.2.0).
+- `docs/signatures.md` and `apps/registry/.env.example` — registry URL standardized to `registry.agentpack.dev` (was inconsistent — `agentpack.dev` in some examples).
+- `docs/registry.md` — fixed inline-link text mismatch.
+- `README.md` — quickstart now leads with the clone+build path (since `agentpack` isn't on npm yet); status banner clarifies that the hosted registry is not yet live; CTA added.
+- `STATUS.md` — surfaces the still-private repo state honestly; removed internal-only operator details (Vercel team slug, Algorithm doctrine pointer).
+
+**Live verification**
+
+- Probed `install → verify → drift-detect → restore → uninstall` round-trip on a fresh tmpdir, claude-code/safe profile. All 4 files written, drift detected on tamper, force-restore clean, uninstall removed all 4 + restored backups. (Iteration-5 ISCs in `ISA.md`.)
+- All 5 adapter targets (`claude-code`, `codex`, `cursor`, `chatgpt`, `generic`) export cleanly; determinism confirmed (two runs → byte-identical files).
+- `pnpm verify` (typecheck + lint + test + build) exit 0 with the dep bumps + bug fixes applied.
+
+**Surfaced for operator decision (not auto-applied)**
+
+- **Repo visibility flip from PRIVATE → PUBLIC** — earlier doc copy claimed this had landed on 2026-05-19; it hasn't. One-way action, operator must run `gh repo edit jckeen/agent-pack --visibility public` when ready. Until then, the git-source quickstart `agentpack install github:jckeen/agent-pack@…` returns 404.
+- **Outstanding security findings** (audited by `security-reviewer` 2026-05-19): Sigstore identity-mismatch enforcement currently optional (caller must pass `expectedSAN`); audit-events race on concurrent writes; missing CSRF/Origin check on `/api/admin/.../status`; `parseGitId` accepts refs with control characters; `fetchGitPack` doesn't pin SHAs for branch refs. None are runtime-critical for OSS launch (registry isn't live); all queued for v0.5.1 hardening.
+- **Outstanding bugs from QA pass** (audited by `qa-lead` 2026-05-19): concurrent `agentpack install` race against the same project root; non-typed exit codes for `uninstall not-found` etc.; Windows-reserved-name validation in atom paths. Queued for v0.5.1.
+
+---
+
 ## 0.5.0-dev — 2026-05-19 (git-source install — registry becomes optional)
 
-AgentPack's primary install path is now **git**. `workgraph install github:owner/repo@ref[#subpath]` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine, and the enterprise self-host path (Phase 6 — still gated). For everyday OSS publishing, the leaner path is now the default.
+AgentPack's primary install path is now **git**. `agentpack install github:owner/repo@ref[#subpath]` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine, and the enterprise self-host path (Phase 6 — still gated). For everyday OSS publishing, the leaner path is now the default.
 
 **New surfaces**
 
-- `@workgraph/core/git-source` — `parseGitId(input)` returns a structured `GitSource` for `github:owner/repo[@ref][#subpath]` and `github.com/owner/repo[@ref][#subpath]`; `fetchGitPack({ source })` materializes a tmpRoot via `raw.githubusercontent.com` per-file fetch and returns the path. Same contract as `fetchRemotePack` — feeds into the existing `planInstall` pipeline. Trailing `.git` tolerated; branch refs with slashes supported; default-branch resolution via GitHub API when `@ref` omitted.
+- `@agentpack/core/git-source` — `parseGitId(input)` returns a structured `GitSource` for `github:owner/repo[@ref][#subpath]` and `github.com/owner/repo[@ref][#subpath]`; `fetchGitPack({ source })` materializes a tmpRoot via `raw.githubusercontent.com` per-file fetch and returns the path. Same contract as `fetchRemotePack` — feeds into the existing `planInstall` pipeline. Trailing `.git` tolerated; branch refs with slashes supported; default-branch resolution via GitHub API when `@ref` omitted.
 - CLI `install` command — new source-detection order: local path → git source → registry id. Local always wins; git prefix (`github:` or `github.com/`) wins over registry-id format because git has an unambiguous prefix. No registry-id behavior changes.
 - 11 new vitest cases in `packages/core/tests/git-source.test.ts` — 8 `parseGitId` table cases (happy + ref-with-slash + `.git` strip + null returns) + 3 `fetchGitPack` mocked-fetch cases (happy roundtrip + path-traversal rejection + 404 surfacing).
 - New `docs/git-source.md` — full syntax + examples + signature notes + comparison-vs-registry table.
 - `docs/registry.md` opens with a "you might not need this" preamble pointing readers at the git path; the rest of the engineering reference is unchanged.
-- README quickstart rewritten — leads with `workgraph install github:jckeen/agent-pack@master#examples/pr-quality`; "Hosted registry (optional)" is a smaller subsection at the bottom.
+- README quickstart rewritten — leads with `agentpack install github:jckeen/agent-pack@master#examples/pr-quality`; "Hosted registry (optional)" is a smaller subsection at the bottom.
 
 **Deferred to v0.5.1**
 
-- Git-source signature verification (`workgraph install github:... --require-sig`). Today the CLI exits 2 with a clear "cosign-on-tag arrives in v0.5.1" message. Phase 4 cosign signs registry-published manifests; extending it to git tags is on the roadmap.
+- Git-source signature verification (`agentpack install github:... --require-sig`). Today the CLI exits 2 with a clear "cosign-on-tag arrives in v0.5.1" message. Phase 4 cosign signs registry-published manifests; extending it to git tags is on the roadmap.
 - Non-GitHub git hosts (`gitlab:`, `bitbucket:`, generic `git+https://...`). Parser is host-aware and extends cleanly when there's demand.
 - Tarball-based fetch (one HTTP request, one extraction). Current per-file fetch is fine for typical packs (10-20 files) and avoids a `tar` dependency.
 
@@ -67,15 +106,15 @@ AgentPack's primary install path is now **git**. `workgraph install github:owner
 
 ---
 
-## 0.4.0-dev / 0.3.0 — 2026-05-19 (Phase 4 cosign + production wiring + security hardening)
+## 0.4.0-dev / 0.3.0 (pre-public) — 2026-05-19 (Phase 4 cosign + production wiring + security hardening)
 
 **AgentPack is open source.** Adding Phase 4 supply-chain trust (cosign keyless signing), wiring the registry for live Vercel + Neon + R2 deploy, and gating Phase 6 (orgs + WorkOS SSO) behind explicit demand signal in `Plans/PHASE-6-GATE.md`.
 
 **Phase 4 — Sigstore keyless signing & verification**
 
-- `@workgraph/core/signing` — new module wrapping `@sigstore/sign` (Fulcio CA + Rekor witness) and `@sigstore/verify`. Exposes `signManifestChecksum(opts)` and `verifyManifestSignature(opts)`. Bundle JSON is base64-encoded into the existing `lockfile.signatures.manifest` string slot (reserved in v0.2.0); no `lockfileVersion: 2` bump.
-- `workgraph publish --sign` (default on when OIDC token available; `--no-sign` to opt out). Signs the manifest sha256, sends the envelope in the finalize body. Aborts before finalize if `--sign` was requested but no token is available (`SIGSTORE_ID_TOKEN` env or GitHub Actions ambient).
-- `workgraph verify --sig` validates signature in addition to drift; `--strict` exits non-zero on unsigned packs. Per-roadmap exit codes: 0 ok, 2 drift, 3 chain broken, 4 signature invalid, 5 unsigned-when-required.
+- `@agentpack/core/signing` — new module wrapping `@sigstore/sign` (Fulcio CA + Rekor witness) and `@sigstore/verify`. Exposes `signManifestChecksum(opts)` and `verifyManifestSignature(opts)`. Bundle JSON is base64-encoded into the existing `lockfile.signatures.manifest` string slot (reserved in v0.2.0); no `lockfileVersion: 2` bump.
+- `agentpack publish --sign` (default on when OIDC token available; `--no-sign` to opt out). Signs the manifest sha256, sends the envelope in the finalize body. Aborts before finalize if `--sign` was requested but no token is available (`SIGSTORE_ID_TOKEN` env or GitHub Actions ambient).
+- `agentpack verify --sig` validates signature in addition to drift; `--strict` exits non-zero on unsigned packs. Per-roadmap exit codes: 0 ok, 2 drift, 3 chain broken, 4 signature invalid, 5 unsigned-when-required.
 - Registry — new `pack_signatures` table (migration `0002_signatures.sql`), `POST /api/publish/<id>/finalize` accepts and server-verifies the signature before persisting, `GET /api/v1/packs/<pub>/<pack>/versions/<v>/signatures` exposes the proof.
 - Registry UI — `SignatureBadge` component renders "Signed by @<github>" with link to the Rekor entry, or muted "Unsigned" otherwise.
 - 12 new envelope-schema + identity-gate tests; live Fulcio/Rekor smoke deferred to the publish→install smoke harness.
@@ -96,7 +135,7 @@ Medium-severity items (in-memory device-code store, low userCode entropy, CSRF o
 - `apps/registry/vercel.json` — framework + region (`iad1`) + monorepo-aware install + build commands + security headers.
 - `apps/registry/.env.example` — comprehensive template for `DATABASE_URL`, `AUTH_SECRET`, `AUTH_GITHUB_ID/SECRET`, `R2_*`, `NEXT_PUBLIC_REGISTRY_URL`, optional `SIGSTORE_ID_TOKEN`.
 - `scripts/bring-up-prod.sh` — guided runbook: create Vercel project under the `keen-media` team, create Neon project + DB, create Cloudflare R2 bucket + token, register a GitHub OAuth app, set every secret in Vercel, run `db:push` against live Neon, seed publishers, deploy.
-- `scripts/smoke-e2e.sh` — end-to-end publish → install → verify smoke. Exercises live `/api/v1/health`, publishes a smoke version, installs into a tempdir, asserts lockfile manifestChecksum matches the registry, runs `workgraph verify` on the install. Records results to `smoke-results.json` with exit-code taxonomy (0 green, 2 registry down, 3 publish failed, 4 install failed, 5 checksum mismatch, 6 drift).
+- `scripts/smoke-e2e.sh` — end-to-end publish → install → verify smoke. Exercises live `/api/v1/health`, publishes a smoke version, installs into a tempdir, asserts lockfile manifestChecksum matches the registry, runs `agentpack verify` on the install. Records results to `smoke-results.json` with exit-code taxonomy (0 green, 2 registry down, 3 publish failed, 4 install failed, 5 checksum mismatch, 6 drift).
 - `apps/registry/app/api/v1/health/route.ts` — probes Postgres + R2 reachability, returns `{ status, db, r2, version, duration_ms, timestamp }`; 200 ok / 503 degraded.
 
 **Phase 6 — explicit deferral gate**
@@ -119,7 +158,7 @@ All workspace test suites green. 250 tests passing (238 from v0.3.0-rc.1 + 12 ne
 
 End-of-session sweep against every ROADMAP gate criterion. Two regressions surfaced and fixed inline before the session closed:
 
-- `workgraph install examples/pr-quality` (local path with a slash) matched the Phase 5 `REMOTE_ID_RE` and fell through to the remote fetcher, returning "fetch failed" against the default registry. Fix: stat the path first; if it's a directory, prefer local. Remote-id still wins when there's no matching directory.
+- `agentpack install examples/pr-quality` (local path with a slash) matched the Phase 5 `REMOTE_ID_RE` and fell through to the remote fetcher, returning "fetch failed" against the default registry. Fix: stat the path first; if it's a directory, prefer local. Remote-id still wins when there's no matching directory.
 - `apps/registry/tests/protocol-schemas.test.ts` was missing `manifestBytes` in the well-formed body fixture after the H2 schema tightening, leaving 1 registry test red. Updated.
 
 Verification matrix shipped offline-green for Phases 1-6: doctor/validate/inspect/plan/init/pack-export×5; install/verify-clean/drift→exit-2/diff/history/uninstall-conflict/uninstall--force; registry JSON-fallback boot (`/`, `/packs`, `/packs/<pub>/<slug>` all 200; `/api/v1/health` 503-degraded shape correct; `/api/v1/.../signatures` 503 db_unconfigured); Phase 4 envelope tests + CLI flag surfaces + `verify --sig --strict` → exit 5 + `install --require-sig` local → exit 2 + "Unsigned" badge rendered in HTML; cache + login/whoami/tokens subcommands; Phase 6 gate doc verified. Live deploy + live Sigstore round-trip remain the only deferred gates — both blocked on user-supplied credentials.
@@ -128,7 +167,7 @@ Verification matrix shipped offline-green for Phases 1-6: doctor/validate/inspec
 
 End-to-end supply chain skeleton: publish → fetch → install → verify all wired in code. Real Neon DB, GitHub OAuth, and R2 bucket plug in via env vars; the build, tests, and typecheck run cleanly without them. 117 new ISCs (ISC-151..267).
 
-**`@workgraph/db` — new workspace package**
+**`@agentpack/db` — new workspace package**
 
 - Drizzle schema for 13 registry tables + 3 Auth.js adapter tables matching `Plans/PROTOCOL.md` § 4 verbatim: `users`, `publishers`, `publisher_members`, `packs` (with `tsvector` generated FTS column + GIN index), `pack_versions`, `atoms`, `pack_files`, `compatibilities`, `api_tokens`, `publishes`, `reviews`, `audit_events` (Phase 6 reserved), `accounts`, `sessions`, `verification_tokens`.
 - Query helpers for packs, publishers, tokens, publishes. Drizzle ORM + `postgres` driver + `@neondatabase/serverless`.
@@ -137,7 +176,7 @@ End-to-end supply chain skeleton: publish → fetch → install → verify all w
 
 **Protocol commit (`packages/core/src/protocol/`)**
 
-- Zod schemas pinning every wire shape: `PublishInitRequest/Response`, `PublishFinalizeRequest/Response`, `RegistryPack`, `RegistryVersion`, error envelopes, `cliAuthInit/Poll`, primitives (`slug`, `semver`, `sha256Hex`, relative path), token format (`wgp_live_` + 32-hex), token scopes, `DEFAULT_REGISTRY_URL`.
+- Zod schemas pinning every wire shape: `PublishInitRequest/Response`, `PublishFinalizeRequest/Response`, `RegistryPack`, `RegistryVersion`, error envelopes, `cliAuthInit/Poll`, primitives (`slug`, `semver`, `sha256Hex`, relative path), token format (`agp_live_` + 32-hex), token scopes, `DEFAULT_REGISTRY_URL`.
 - `ExitCode` enum (0/1/2/3/4/5/6/7/9) + `errorNameToExitCode` mapper.
 
 **`packages/core/src/registry-client/`**
@@ -150,25 +189,25 @@ End-to-end supply chain skeleton: publish → fetch → install → verify all w
 
 **`packages/core/src/cache/`**
 
-- Content-addressed blob store at `~/.workgraph/cache/blobs/<sha[0..2]>/<sha>`.
+- Content-addressed blob store at `~/.agentpack/cache/blobs/<sha[0..2]>/<sha>`.
 - `writeBlob` verifies `sha256(bytes) === sha` before atomic rename; mismatch → `IntegrityError`. `fetchAndCache` integrates the integrity check with HTTP fetch.
 - `cacheSize`, `cachePrune({ maxAgeMs })`, `cacheClear` — every candidate path's realpath must be inside `<blobs>` (anti-criterion ISC-246).
 - 13 tests.
 
 **`packages/core/src/policy/`**
 
-- Zod schema for `workgraph.policy.json` v1 per protocol § 7.
+- Zod schema for `agentpack.policy.json` v1 per protocol § 7.
 - `loadPolicy(projectRoot)` returns config or null. Invalid JSON / schema → `PolicyParseError`.
 - `enforcePolicy(policy, plan, registryUrl)` reports all violations at once (registry → publisher → blockedPack → unsigned → profile → atomType). Empty plan → `{ ok: true }`. Violations → exit 6 via the CLI.
 - 12 tests.
 
 **`apps/registry` (Next.js 15 App Router)**
 
-- `lib/{db,auth,tokens,r2}.ts` — DB client (re-exports `@workgraph/db` schema), NextAuth v5 + Drizzle adapter with GitHub OAuth, token mint/verify (sha256 storage + scope check, fire-and-forget `last_used_at`), R2 client + presigner + HEAD + stream.
+- `lib/{db,auth,tokens,r2}.ts` — DB client (re-exports `@agentpack/db` schema), NextAuth v5 + Drizzle adapter with GitHub OAuth, token mint/verify (sha256 storage + scope check, fire-and-forget `last_used_at`), R2 client + presigner + HEAD + stream.
 - API routes:
   - `/api/auth/[...nextauth]` — NextAuth handler.
   - `/api/tokens` GET/POST, `/api/tokens/[id]` DELETE — list, mint, revoke.
-  - `/api/cli/auth/init|approve|poll` — device-code flow for `workgraph login`.
+  - `/api/cli/auth/init|approve|poll` — device-code flow for `agentpack login`.
   - `/api/me` — bearer-authed user info.
   - `/api/publish/init`, `/api/publish/[publishId]/finalize` — two-phase publish with presigned R2 PUT URLs and HEAD-only size verification at finalize.
   - `/api/packs`, `/api/packs/[publisher]/[pack]`, `.../versions/[version]`, `.../manifest.yaml`, `.../atoms/[atomId]/[...path]` — read API with R2-streamed bytes, immutable cache headers, 451-on-quarantined.
@@ -181,31 +220,31 @@ End-to-end supply chain skeleton: publish → fetch → install → verify all w
 
 **`packages/cli` — 5 new commands + remote install branch**
 
-- `workgraph login` — device-code OAuth against the registry. Writes `~/.workgraph/credentials.json` with mode `0o600`. Token display always masked (`wgp_live_xxxx…<last-4>`).
-- `workgraph whoami` — bearer-authed `/api/me` read.
-- `workgraph tokens list|create|revoke` — manage API tokens.
-- `workgraph publish` — load manifest, compute per-file sha256, two-phase publish (`init` → PUT each presigned URL → `finalize`). Handles 401/403/409/422/410 with the right exit code.
-- `workgraph cache size|prune|clear` — manage the local blob cache.
-- `workgraph install <publisher>/<pack>[@version] --registry <url>` — remote-resolver branch in `install.ts`: identity regex match → `HttpRegistryClient` → `resolveLatestVersion` (if no `@version`) → fetch + verify + cache → materialize temp dir → hand off to existing Phase 2 `planInstall`/`applyInstall`. `loadPolicy` + `enforcePolicy` run pre-install; violation → exit 6.
-- `packages/cli/src/lib/credentials.ts` — `~/.workgraph/credentials.json` read/write/clear with `0o600` perms, atomic write, `WORKGRAPH_TOKEN` env override.
+- `agentpack login` — device-code OAuth against the registry. Writes `~/.agentpack/credentials.json` with mode `0o600`. Token display always masked (`agp_live_xxxx…<last-4>`).
+- `agentpack whoami` — bearer-authed `/api/me` read.
+- `agentpack tokens list|create|revoke` — manage API tokens.
+- `agentpack publish` — load manifest, compute per-file sha256, two-phase publish (`init` → PUT each presigned URL → `finalize`). Handles 401/403/409/422/410 with the right exit code.
+- `agentpack cache size|prune|clear` — manage the local blob cache.
+- `agentpack install <publisher>/<pack>[@version] --registry <url>` — remote-resolver branch in `install.ts`: identity regex match → `HttpRegistryClient` → `resolveLatestVersion` (if no `@version`) → fetch + verify + cache → materialize temp dir → hand off to existing Phase 2 `planInstall`/`applyInstall`. `loadPolicy` + `enforcePolicy` run pre-install; violation → exit 6.
+- `packages/cli/src/lib/credentials.ts` — `~/.agentpack/credentials.json` read/write/clear with `0o600` perms, atomic write, `AGENTPACK_TOKEN` env override.
 - 8 new credentials tests.
 
 **Docs**
 
 - `docs/registry.md` — architecture, schema, auth, publish flow, search, reviews-deferred, storage, local-dev.
-- `docs/publish.md` — `workgraph publish` reference, token model, CI publishing recipe.
+- `docs/publish.md` — `agentpack publish` reference, token model, CI publishing recipe.
 - `docs/remote-install.md` — identity grammar, fetch pipeline, cache, policy hooks, exit codes.
-- `docs/policy.md` — `workgraph.policy.json` schema, enforcement order, examples.
+- `docs/policy.md` — `agentpack.policy.json` schema, enforcement order, examples.
 
 **Protocol**
 
-- `Plans/PROTOCOL.md` — pinned token format (`wgp_live_` + 32-hex + sha256 storage + scopes), publish trust model (HEAD-only at finalize; full re-hash deferred to Phase 4), wire shapes, DB column names, exit codes, cache layout, policy schema, NextAuth config, pinned deps.
+- `Plans/PROTOCOL.md` — pinned token format (`agp_live_` + 32-hex + sha256 storage + scopes), publish trust model (HEAD-only at finalize; full re-hash deferred to Phase 4), wire shapes, DB column names, exit codes, cache layout, policy schema, NextAuth config, pinned deps.
 
 **Deps added**
 
 - Root: `drizzle-kit@0.31.10`, `tsx@4.19.2` (devDeps); `seed:import`, `db:push`, `db:generate` scripts.
 - `packages/db`: `drizzle-orm@0.45.2`, `postgres@3.4.9`, `@neondatabase/serverless@1.1.0`.
-- `apps/registry`: `next-auth@5.0.0-beta.31`, `@auth/drizzle-adapter@1.11.2`, `@aws-sdk/client-s3@3.1049.0`, `@aws-sdk/s3-request-presigner@3.1049.0`, `drizzle-orm@0.45.2`, `postgres@3.4.9`, `@neondatabase/serverless@1.1.0`, `@workgraph/db@workspace:*`. Test stack: `vitest@2.1.8` + `@vitest/coverage-v8@2.1.8`.
+- `apps/registry`: `next-auth@5.0.0-beta.31`, `@auth/drizzle-adapter@1.11.2`, `@aws-sdk/client-s3@3.1049.0`, `@aws-sdk/s3-request-presigner@3.1049.0`, `drizzle-orm@0.45.2`, `postgres@3.4.9`, `@neondatabase/serverless@1.1.0`, `@agentpack/db@workspace:*`. Test stack: `vitest@2.1.8` + `@vitest/coverage-v8@2.1.8`.
 
 **Test totals**
 
@@ -214,18 +253,18 @@ End-to-end supply chain skeleton: publish → fetch → install → verify all w
 
 **What's deferred to dedicated sessions**
 
-- **Phase 4** — Sigstore cosign keyless signing, `workgraph verify --sig`, quarantine UI. Lockfile slots already reserved.
+- **Phase 4** — Sigstore cosign keyless signing, `agentpack verify --sig`, quarantine UI. Lockfile slots already reserved.
 - **Phase 6** — Orgs, WorkOS SSO, audit-events chain wiring, policy-as-code overlay. Schema rows reserved.
-- **Phase 7** — Workgraph workflow import, trust signal aggregation, Agent Commons bridge.
+- **Phase 7** — AgentPack workflow import, trust signal aggregation, Agent Commons bridge.
 
 ## 0.2.0 — 2026-05-18 (Phase 2 — local install / uninstall / verify)
 
 Phase 2 of the implementation plan: extend the standard from "compile to native files" to "install into a project root with full provenance, drift detection, and reversibility." 74 new ISCs land (ISC-69..ISC-142, plus ISC-143..ISC-150 from the advisor-driven WAL pass).
 
-**Core engine (`@workgraph/core/install/`)**
+**Core engine (`@agentpack/core/install/`)**
 
 - `planInstall()` — classifies every target path against the user's project: `created` / `modified` / `unchanged` / `conflict` (no-marker-existing-content or other-pack-marker). Computes the lockfile inline.
-- `applyInstall()` — write-ahead log to `.workgraph/history.jsonl`: append `install_begin` (with `plannedFiles[]` + SHA-256), backup overwritten files to `.workgraph/backups/<pack>/<ts>.<nonce>/`, atomic write of every adapter file (tmp + rename), write `AGENTPACK.lock` at project root, write install manifest at `.workgraph/installed/<pack>.json`, append `install_commit`.
+- `applyInstall()` — write-ahead log to `.agentpack/history.jsonl`: append `install_begin` (with `plannedFiles[]` + SHA-256), backup overwritten files to `.agentpack/backups/<pack>/<ts>.<nonce>/`, atomic write of every adapter file (tmp + rename), write `AGENTPACK.lock` at project root, write install manifest at `.agentpack/installed/<pack>.json`, append `install_commit`.
 - `uninstall()` — read install manifest, restore backups, delete created files, prune empty parent dirs, delete manifest, append `uninstall` history entry. Refuses without `--force` when user has edited a tracked file since install.
 - `verifyInstall()` — recompute SHA-256 of every tracked file vs. the install manifest's recorded hash. Reports `drift[]` / `missing[]`. `--chain` also verifies the history hash chain.
 - `rollback()` — undo the most recent install, or with `--to <historyId>`, undo everything after that entry. Refuses superseded installs without `--cascade`.
@@ -239,7 +278,7 @@ Phase 2 of the implementation plan: extend the standard from "compile to native 
 - `signatures` / `dependencies` reserved (empty in Phase 2) to avoid a v2 bump when Phase 3/4 land.
 - **No `installedAt` field** — timestamps would break determinism. Two clean installs at the same version produce byte-identical lockfiles.
 
-**History (`.workgraph/history.jsonl`, append-only, hash-chained)**
+**History (`.agentpack/history.jsonl`, append-only, hash-chained)**
 
 - ULID-style monotonic `id`, `previousEntryId` + `entryChecksum` form a hash chain.
 - `entryChecksum = sha256(canonicalJson(entry minus entryChecksum))` — canonical JSON with recursively-sorted keys.
@@ -249,12 +288,12 @@ Phase 2 of the implementation plan: extend the standard from "compile to native 
 
 **CLI (six new subcommands)**
 
-- `workgraph install <pack> --target X --profile Y --project <dir>` — diff + prompt + write. `--dry-run`, `--yes`, `--force`.
-- `workgraph uninstall <packId>` — `--yes`, `--force`, `--force-restore`.
-- `workgraph diff <pack>` — unified diff between current project and install plan.
-- `workgraph history` — list, `--pack`, `--limit`, `--json`.
-- `workgraph rollback [historyId]` — `--to`, `--pack`, `--cascade`, `--yes`.
-- `workgraph verify <packId>` — drift report. `--chain` validates hash chain. Exit codes: 0 clean, 2 drift, 3 chain broken.
+- `agentpack install <pack> --target X --profile Y --project <dir>` — diff + prompt + write. `--dry-run`, `--yes`, `--force`.
+- `agentpack uninstall <packId>` — `--yes`, `--force`, `--force-restore`.
+- `agentpack diff <pack>` — unified diff between current project and install plan.
+- `agentpack history` — list, `--pack`, `--limit`, `--json`.
+- `agentpack rollback [historyId]` — `--to`, `--pack`, `--cascade`, `--yes`.
+- `agentpack verify <packId>` — drift report. `--chain` validates hash chain. Exit codes: 0 clean, 2 drift, 3 chain broken.
 
 **Registry web app**
 
@@ -305,12 +344,12 @@ Multi-agent security review (security-reviewer, Silas, code-reviewer, silent-fai
 
 ## 0.1.0 — 2026-05-18
 
-Initial MVP build of the AgentPack standard + Workgraph Registry monorepo.
+Initial MVP build of the AgentPack standard + AgentPack Registry monorepo.
 
-- `@workgraph/core`: zod-backed schema, parser, validator, permission summary engine, risk engine, planner, install-plan builder, exportPack convenience entry, and seed-pack module.
+- `@agentpack/core`: zod-backed schema, parser, validator, permission summary engine, risk engine, planner, install-plan builder, exportPack convenience entry, and seed-pack module.
 - Five adapters: `claude-code`, `codex`, `cursor`, `chatgpt` (export-only), `generic`. Deterministic output, BEGIN/END markers in instruction files.
-- `@workgraph/cli`: `init`, `validate`, `inspect`, `plan`, `pack export`, `doctor` (commander + picocolors + ora + diff).
-- `@workgraph/registry`: Next.js App Router app with `/`, `/packs`, `/packs/[publisher]/[slug]`, `/validate`, `/docs`. Eight local components, Tailwind, seed data, server actions for validation.
+- `@agentpack/cli`: `init`, `validate`, `inspect`, `plan`, `pack export`, `doctor` (commander + picocolors + ora + diff).
+- `@agentpack/registry`: Next.js App Router app with `/`, `/packs`, `/packs/[publisher]/[slug]`, `/validate`, `/docs`. Eight local components, Tailwind, seed data, server actions for validation.
 - Example pack `examples/pr-quality` exercises every atom type and compiles to all five targets.
 - 27 vitest tests across manifest, risk, and adapter coverage.
 - README, `docs/agentpack-standard.md`, `docs/security.md`, `docs/adapters.md`, `docs/cli.md`.

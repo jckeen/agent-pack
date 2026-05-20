@@ -1,4 +1,4 @@
-import type { PermissionSummary as PermissionSummaryType, RiskLevel } from "@workgraph/core";
+import type { PermissionSummary as PermissionSummaryType, RiskLevel } from "@agentpack/core";
 
 const RISK_ORDER: RiskLevel[] = ["critical", "high", "medium", "low"];
 

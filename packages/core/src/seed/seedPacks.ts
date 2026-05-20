@@ -1,4 +1,4 @@
-// Static seed pack registry — used by the Workgraph Registry web app in MVP.
+// Static seed pack registry — used by the AgentPack Registry web app in MVP.
 // Source of truth for seed-pack metadata. The structural shape mirrors
 // `seed/seed-packs.json` at the repo root, but with TypeScript types and one
 // fully populated example (PR-Quality) so the registry can render a real
@@ -29,8 +29,8 @@ export interface SeedPack {
 
 export const SEED_PACKS: SeedPack[] = [
   {
-    id: "workgraph.pr-quality",
-    publisher: "workgraph",
+    id: "agentpack.pr-quality",
+    publisher: "agentpack",
     slug: "pr-quality",
     name: "Pull Request Quality Pack",
     version: "0.1.0",
@@ -58,8 +58,8 @@ export const SEED_PACKS: SeedPack[] = [
     hasExample: true,
   },
   {
-    id: "workgraph.claude-code-starter",
-    publisher: "workgraph",
+    id: "agentpack.claude-code-starter",
+    publisher: "agentpack",
     slug: "claude-code-starter",
     name: "Claude Code Starter Pack",
     version: "0.1.0",
@@ -77,8 +77,8 @@ export const SEED_PACKS: SeedPack[] = [
     atomTypes: ["instruction", "skill", "hook", "rule", "template"],
   },
   {
-    id: "workgraph.codex-agents-starter",
-    publisher: "workgraph",
+    id: "agentpack.codex-agents-starter",
+    publisher: "agentpack",
     slug: "codex-agents-starter",
     name: "Codex AGENTS.md Starter Pack",
     version: "0.1.0",
@@ -95,8 +95,8 @@ export const SEED_PACKS: SeedPack[] = [
     atomTypes: ["instruction", "skill", "rule", "template", "hook"],
   },
   {
-    id: "workgraph.cursor-rules-starter",
-    publisher: "workgraph",
+    id: "agentpack.cursor-rules-starter",
+    publisher: "agentpack",
     slug: "cursor-rules-starter",
     name: "Cursor Rules Starter Pack",
     version: "0.1.0",
@@ -114,8 +114,8 @@ export const SEED_PACKS: SeedPack[] = [
     atomTypes: ["rule", "mcp_server", "template"],
   },
   {
-    id: "workgraph.newsroom-editorial",
-    publisher: "workgraph",
+    id: "agentpack.newsroom-editorial",
+    publisher: "agentpack",
     slug: "newsroom-editorial",
     name: "Newsroom Editorial Workflow Pack",
     version: "0.1.0",
@@ -140,8 +140,8 @@ export const SEED_PACKS: SeedPack[] = [
     ],
   },
   {
-    id: "workgraph.grant-research",
-    publisher: "workgraph",
+    id: "agentpack.grant-research",
+    publisher: "agentpack",
     slug: "grant-research",
     name: "Grant Research Workflow Pack",
     version: "0.1.0",
@@ -159,8 +159,8 @@ export const SEED_PACKS: SeedPack[] = [
     atomTypes: ["workflow", "skill", "command", "template", "eval"],
   },
   {
-    id: "workgraph.hr-sensitive-comms",
-    publisher: "workgraph",
+    id: "agentpack.hr-sensitive-comms",
+    publisher: "agentpack",
     slug: "hr-sensitive-comms",
     name: "HR-Sensitive Communications Pack",
     version: "0.1.0",
@@ -178,8 +178,8 @@ export const SEED_PACKS: SeedPack[] = [
     atomTypes: ["instruction", "rule", "workflow", "command", "eval"],
   },
   {
-    id: "workgraph.frontend-qa",
-    publisher: "workgraph",
+    id: "agentpack.frontend-qa",
+    publisher: "agentpack",
     slug: "frontend-qa",
     name: "Frontend QA Pack",
     version: "0.1.0",
@@ -197,8 +197,8 @@ export const SEED_PACKS: SeedPack[] = [
     atomTypes: ["skill", "workflow", "command", "hook"],
   },
   {
-    id: "workgraph.conference-followup",
-    publisher: "workgraph",
+    id: "agentpack.conference-followup",
+    publisher: "agentpack",
     slug: "conference-followup",
     name: "Conference Follow-Up Pack",
     version: "0.1.0",
@@ -222,8 +222,8 @@ export const SEED_PACKS: SeedPack[] = [
     ],
   },
   {
-    id: "workgraph.github-mcp-connector",
-    publisher: "workgraph",
+    id: "agentpack.github-mcp-connector",
+    publisher: "agentpack",
     slug: "github-mcp-connector",
     name: "MCP GitHub Connector Pack",
     version: "0.1.0",

@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 import {
   publishInitRequestSchema,
   type PublishInitResponse,
-} from "@workgraph/core";
+} from "@agentpack/core";
 
 import {
   getDb,

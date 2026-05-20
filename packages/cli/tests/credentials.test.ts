@@ -17,7 +17,7 @@ let tmpDir: string;
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "wgcli-creds-"));
   process.env.WORKGRAPH_HOME = tmpDir;
-  delete process.env.WORKGRAPH_TOKEN;
+  delete process.env.AGENTPACK_TOKEN;
 });
 afterEach(async () => {
   delete process.env.WORKGRAPH_HOME;
@@ -36,7 +36,7 @@ describe("credentials", () => {
 
   it("roundtrips writeCredentials → readCredentials", async () => {
     await writeCredentials("https://r.example.com", {
-      token: "wgp_live_" + "a".repeat(32),
+      token: "agp_live_" + "a".repeat(32),
       scopes: ["read:packs"],
       username: "alice",
     });
@@ -47,7 +47,7 @@ describe("credentials", () => {
   it("sets 0o600 mode on POSIX", async () => {
     if (process.platform === "win32") return;
     await writeCredentials("https://r.example.com", {
-      token: "wgp_live_" + "a".repeat(32),
+      token: "agp_live_" + "a".repeat(32),
       scopes: ["read:packs"],
       username: "alice",
     });
@@ -58,7 +58,7 @@ describe("credentials", () => {
 
   it("clearCredentials removes the registry entry", async () => {
     await writeCredentials("https://r.example.com", {
-      token: "wgp_live_" + "b".repeat(32),
+      token: "agp_live_" + "b".repeat(32),
       scopes: [],
       username: "bob",
     });
@@ -67,10 +67,10 @@ describe("credentials", () => {
     expect(c.registries["https://r.example.com"]).toBeUndefined();
   });
 
-  it("getToken honors WORKGRAPH_TOKEN env override", async () => {
-    process.env.WORKGRAPH_TOKEN = "wgp_live_envoverride000000000000000000";
+  it("getToken honors AGENTPACK_TOKEN env override", async () => {
+    process.env.AGENTPACK_TOKEN = "agp_live_envoverride000000000000000000";
     const t = await getToken("https://r.example.com");
-    expect(t).toBe("wgp_live_envoverride000000000000000000");
+    expect(t).toBe("agp_live_envoverride000000000000000000");
   });
 
   it("getToken returns null when not logged in and no env", async () => {
@@ -79,8 +79,8 @@ describe("credentials", () => {
   });
 
   it("maskToken hides the body", () => {
-    const t = "wgp_live_" + "a".repeat(28) + "1234";
+    const t = "agp_live_" + "a".repeat(28) + "1234";
     const m = maskToken(t);
-    expect(m).toMatch(/^wgp_live_aaa…1234$/);
+    expect(m).toMatch(/^agp_live_aaa…1234$/);
   });
 });

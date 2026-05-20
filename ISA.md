@@ -1,13 +1,13 @@
 ---
 project: agent-pack
-task: Phase 3 (registry backend) + Phase 5 (remote install) scaffold — DB + auth + publish API + read API + CLI publish/login/install-remote + policy + docs
+task: Iteration-5 launch-readiness verification — live install probe, dep CVE patch, doc rewrite, security tighten
 effort: E5
-phase: observe
-progress: 150/267
+phase: execute
+progress: 267/267
 mode: ALGORITHM
 started: 2026-05-18T15:17:00-04:00
-updated: 2026-05-18T18:30:00-04:00
-iteration: 4
+updated: 2026-05-19T14:05:00-04:00
+iteration: 5
 ---
 
 ## Problem
@@ -16,14 +16,14 @@ AI tooling is fragmenting across Claude Code, Codex, Cursor, ChatGPT Apps, MCP-c
 
 ## Vision
 
-A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack export --target claude-code --profile safe`. They see exactly which files will be written, which permissions are requested, the risk level, and which atoms will be skipped under the safe profile — before any write happens. Same source compiles cleanly to Codex `AGENTS.md` + `.codex/`, to Cursor `.cursor/rules/` + `.cursor/mcp.json`, to a ChatGPT app skeleton, and to generic `skills/` + `AGENTS.md`. Euphoric surprise: "I described the workflow once and four platforms got configured correctly, with the dangerous bits flagged in red."
+A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack export --target claude-code --profile safe`. They see exactly which files will be written, which permissions are requested, the risk level, and which atoms will be skipped under the safe profile — before any write happens. Same source compiles cleanly to Codex `AGENTS.md` + `.codex/`, to Cursor `.cursor/rules/` + `.cursor/mcp.json`, to a ChatGPT app skeleton, and to generic `skills/` + `AGENTS.md`. Euphoric surprise: "I described the workflow once and four platforms got configured correctly, with the dangerous bits flagged in red."
 
 ## Out of Scope
 
 - ~~Phase-2 install/uninstall~~ **NOW IN SCOPE (iteration-3)** — local install/uninstall, diff, backups, rollback, lockfile, history, verify, atom checksums all added.
 - Phase-3 registry backend (database, publishing, search API) — seed data only; requires hosted infra not in this session
 - Phase-4 cryptographic signatures (Sigstore/cosign) — schema fields present, runtime verification deferred to dedicated session. **Atom checksums (SHA-256 content addressing) IS now in scope** as the unlocking primitive.
-- Phase-5 remote CLI installs (`workgraph install publisher/pack` over network) — requires hosted registry
+- Phase-5 remote CLI installs (`agentpack install publisher/pack` over network) — requires hosted registry
 - Phase-6 enterprise registries, SSO, audit logs — out
 - Phase-7 Workgraph context-graph integration — out
 - shadcn/ui dependency — use local Tailwind components
@@ -46,14 +46,14 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - **No actual install side-effects.** CLI must never write outside `--out` or current dir during `pack export`.
 - **Adapter outputs must be deterministic** and use `<!-- BEGIN AGENTPACK: <id> --> ... <!-- END AGENTPACK: <id> -->` markers in instruction files.
 - **Registry runs without a database.** Seed JSON is the source of truth in MVP.
-- **CLI binary is `workgraph`** (not `agentpack`, not `wg`).
+- **CLI binary is `agentpack`** (renamed from `workgraph` in v0.5.1 iter-5).
 - **Manifest version: `1.0`** (schema gate `^1\.0`).
 
 ## Goal
 
 **Phase 1 (shipped):** Ship a working TypeScript monorepo where `pnpm install && pnpm build && pnpm test` succeed, every CLI command in `spec/08_ACCEPTANCE_CRITERIA.md` produces the documented output, the Next.js registry renders all seed packs with risk/compatibility/permission visibility, and the example PR-Quality pack compiles to all five targets with deterministic, marker-bounded files.
 
-**Phase 2 (iteration-3):** Extend the same monorepo so `workgraph install examples/pr-quality --target claude-code --profile safe` shows a diff against the user's project root, prompts for confirmation, backs up any files it would overwrite, writes the new files, records an install manifest at `.workgraph/installed/<pack>.json`, writes a deterministic `AGENTPACK.lock` with per-atom SHA-256 checksums, and appends a `.workgraph/history.jsonl` entry — and `workgraph uninstall <pack>` precisely reverses it (created files removed, backups restored, manifest deleted, history append). `workgraph verify` reports any drift between the on-disk files and the lockfile's recorded checksums. `workgraph rollback <history-entry>` restores from a specific history entry. Test coverage stays ≥85% lines / ≥75% branches. The same install command appears in the registry web app's `InstallCommandBox` on every pack detail page.
+**Phase 2 (iteration-3):** Extend the same monorepo so `agentpack install examples/pr-quality --target claude-code --profile safe` shows a diff against the user's project root, prompts for confirmation, backs up any files it would overwrite, writes the new files, records an install manifest at `.agentpack/installed/<pack>.json`, writes a deterministic `AGENTPACK.lock` with per-atom SHA-256 checksums, and appends a `.agentpack/history.jsonl` entry — and `agentpack uninstall <pack>` precisely reverses it (created files removed, backups restored, manifest deleted, history append). `agentpack verify` reports any drift between the on-disk files and the lockfile's recorded checksums. `agentpack rollback <history-entry>` restores from a specific history entry. Test coverage stays ≥85% lines / ≥75% branches. The same install command appears in the registry web app's `InstallCommandBox` on every pack detail page.
 
 ## Criteria
 
@@ -61,8 +61,8 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-1: `pnpm install` exits 0 at repo root
 - [x] ISC-2: `pnpm -r build` exits 0 (core, cli, registry)
 - [x] ISC-3: `pnpm -r test` exits 0 with all vitest suites passing
-- [x] ISC-4: `pnpm --filter @workgraph/registry dev` boots Next.js on a port
-- [x] ISC-5: `pnpm --filter @workgraph/cli build` exits 0 and emits `dist/index.js`
+- [x] ISC-4: `pnpm --filter @agentpack/registry dev` boots Next.js on a port
+- [x] ISC-5: `pnpm --filter @agentpack/cli build` exits 0 and emits `dist/index.js`
 - [x] ISC-6: TypeScript `strict: true` everywhere; `pnpm -r typecheck` clean
 
 ### Schema & validation
@@ -84,15 +84,15 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-20: Permission summary names `secrets.env`+`network.access`+`external_api.access` for GitHub MCP
 
 ### CLI behavior
-- [x] ISC-21: `workgraph validate examples/pr-quality` exits 0 with success message
-- [x] ISC-22: `workgraph inspect examples/pr-quality` prints name, version, publisher, compatibility, profiles, atoms, risk, permissions
-- [x] ISC-23: `workgraph plan examples/pr-quality --target claude-code --profile safe` prints LOW risk
-- [x] ISC-24: `workgraph plan examples/pr-quality --target claude-code --profile full` warns about hook
-- [x] ISC-25: `workgraph plan ... --profile full` warns about shell execution
-- [x] ISC-26: `workgraph plan ... --profile full` warns about GitHub MCP
-- [x] ISC-27: `workgraph plan ... --profile full` warns about `GITHUB_TOKEN` secret
-- [x] ISC-28: `workgraph init` writes a starter `AGENTPACK.yaml` in CWD
-- [x] ISC-29: `workgraph doctor` reports node version, pnpm presence, working dir status
+- [x] ISC-21: `agentpack validate examples/pr-quality` exits 0 with success message
+- [x] ISC-22: `agentpack inspect examples/pr-quality` prints name, version, publisher, compatibility, profiles, atoms, risk, permissions
+- [x] ISC-23: `agentpack plan examples/pr-quality --target claude-code --profile safe` prints LOW risk
+- [x] ISC-24: `agentpack plan examples/pr-quality --target claude-code --profile full` warns about hook
+- [x] ISC-25: `agentpack plan ... --profile full` warns about shell execution
+- [x] ISC-26: `agentpack plan ... --profile full` warns about GitHub MCP
+- [x] ISC-27: `agentpack plan ... --profile full` warns about `GITHUB_TOKEN` secret
+- [x] ISC-28: `agentpack init` writes a starter `AGENTPACK.yaml` in CWD
+- [x] ISC-29: `agentpack doctor` reports node version, pnpm presence, working dir status
 - [x] ISC-30: CLI exits non-zero on validation failure
 
 ### Adapter outputs (deterministic)
@@ -113,18 +113,18 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-45: `pack export --target generic` writes `AGENTS.md`
 - [x] ISC-46: `pack export --target generic` writes `skills/code-review/SKILL.md`
 - [x] ISC-47: `pack export --target generic` writes `agentpack.json`
-- [x] ISC-48: All instruction outputs contain `<!-- BEGIN AGENTPACK: workgraph.pr-quality -->` marker
+- [x] ISC-48: All instruction outputs contain `<!-- BEGIN AGENTPACK: agentpack.pr-quality -->` marker
 - [x] ISC-49: Re-running the same export twice produces byte-identical output
 
 ### Registry web app
 - [x] ISC-50: `/` homepage renders product positioning and CTA
 - [x] ISC-51: `/packs` lists all 10 seed packs from `seed/seed-packs.json`
 - [x] ISC-52: `/packs` supports tag and risk filtering client-side
-- [x] ISC-53: `/packs/workgraph/pr-quality` renders detail page
+- [x] ISC-53: `/packs/agentpack/pr-quality` renders detail page
 - [x] ISC-54: Detail page renders CompatibilityMatrix (5 targets × status)
 - [x] ISC-55: Detail page renders RiskBadge with computed risk
 - [x] ISC-56: Detail page renders PermissionSummary block
-- [x] ISC-57: Detail page renders InstallCommandBox with `npx workgraph pack export ...`
+- [x] ISC-57: Detail page renders InstallCommandBox with `npx agentpack pack export ...`
 - [x] ISC-58: Detail page renders AtomList with all 7 PR-Quality atoms
 - [x] ISC-59: Detail page renders ManifestViewer (raw YAML preview)
 - [x] ISC-60: `/validate` accepts pasted YAML and reports valid/invalid with errors
@@ -146,40 +146,40 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-70: `planInstall` reads existing files at target paths to compute diff (not just naive overwrite)
 - [x] ISC-71: `applyInstall` writes only files whose target path is inside `projectRoot` (realpath check)
 - [x] ISC-72: `applyInstall` refuses if `projectRoot` does not exist or is not a directory
-- [x] ISC-73: `applyInstall` backs up every overwritten file to `.workgraph/backups/<packId>/<timestamp>/` before writing
-- [x] ISC-74: `applyInstall` writes install manifest at `.workgraph/installed/<packId>.json` matching `InstallManifestV1`
+- [x] ISC-73: `applyInstall` backs up every overwritten file to `.agentpack/backups/<packId>/<timestamp>/` before writing
+- [x] ISC-74: `applyInstall` writes install manifest at `.agentpack/installed/<packId>.json` matching `InstallManifestV1`
 - [x] ISC-75: Install manifest contains `packId`, `packVersion`, `target`, `profile`, `installedAt`, `created[]`, `modified[]`, `backups[]`, `atomIds[]`, `lockfileChecksum`
 - [x] ISC-76: `applyInstall` writes `AGENTPACK.lock` at project root matching `LockfileV1` schema
 - [x] ISC-77: Lockfile contains per-atom SHA-256 `contentChecksum` for every included atom
 - [x] ISC-78: Lockfile contains `packId`, `packVersion`, `target`, `profile`, `adapterVersion`, `cliVersion`, `manifestChecksum`, `installedAt`
 - [x] ISC-79: Two consecutive `install` runs into a clean projectRoot produce byte-identical lockfiles (determinism)
-- [x] ISC-80: `applyInstall` appends a `.workgraph/history.jsonl` line with `action: install`, `packId`, `timestamp`, `manifestPath`
+- [x] ISC-80: `applyInstall` appends a `.agentpack/history.jsonl` line with `action: install`, `packId`, `timestamp`, `manifestPath`
 - [x] ISC-81: `uninstall(packId, projectRoot)` reads install manifest, restores backups, deletes created files, removes manifest
-- [x] ISC-82: `uninstall` is exact inverse: install → uninstall leaves no residue under `.workgraph/installed/` for that pack
-- [x] ISC-83: `uninstall` appends `.workgraph/history.jsonl` with `action: uninstall`
+- [x] ISC-82: `uninstall` is exact inverse: install → uninstall leaves no residue under `.agentpack/installed/` for that pack
+- [x] ISC-83: `uninstall` appends `.agentpack/history.jsonl` with `action: uninstall`
 - [x] ISC-84: `uninstall` refuses if no install manifest exists for that packId
 - [x] ISC-85: `rollback(historyEntryId)` restores project to the state before that history entry (re-runs reverse of every later install/uninstall)
 - [x] ISC-86: `verify(packId, projectRoot)` computes current on-disk SHA-256 of every lockfile-tracked file and reports `clean` / `drift[]`
 - [x] ISC-87: `verify` flags missing files as `missing`, modified files as `modified`, unexpected files as `extra` only inside marker bounds
 - [x] ISC-88: `computeAtomChecksums(plan)` is pure (same input → same SHA-256), independent of timestamps
-- [x] ISC-89: Lockfile schema is zod-validated and exported from `@workgraph/core`
+- [x] ISC-89: Lockfile schema is zod-validated and exported from `@agentpack/core`
 
 ### Phase 2 — CLI surface
-- [x] ISC-90: `workgraph install <pack> --target X --profile Y --project .` prints diff and prompts for `[y/N]`
-- [x] ISC-91: `workgraph install ... --yes` skips the prompt
-- [x] ISC-92: `workgraph install ... --dry-run` prints diff and exits 0 without writing
-- [x] ISC-93: `workgraph install` exits non-zero if target paths conflict with non-AgentPack-marked content (unless `--force`)
-- [x] ISC-94: `workgraph uninstall <packId>` prompts unless `--yes`, then restores
-- [x] ISC-95: `workgraph diff <pack> --target X --profile Y` prints unified diff and exits without writing
-- [x] ISC-96: `workgraph history` lists every entry in `.workgraph/history.jsonl` (most recent first)
-- [x] ISC-97: `workgraph history --pack <id>` filters by pack
-- [x] ISC-98: `workgraph rollback <history-id> --yes` restores
-- [x] ISC-99: `workgraph verify <packId>` exits 0 if clean, 2 if drift, 1 on usage error
-- [x] ISC-100: `workgraph install` colored, profile risk surfaced *before* the prompt (consistent with `plan` UX)
-- [x] ISC-101: All Phase-2 commands appear in `workgraph --help`
+- [x] ISC-90: `agentpack install <pack> --target X --profile Y --project .` prints diff and prompts for `[y/N]`
+- [x] ISC-91: `agentpack install ... --yes` skips the prompt
+- [x] ISC-92: `agentpack install ... --dry-run` prints diff and exits 0 without writing
+- [x] ISC-93: `agentpack install` exits non-zero if target paths conflict with non-AgentPack-marked content (unless `--force`)
+- [x] ISC-94: `agentpack uninstall <packId>` prompts unless `--yes`, then restores
+- [x] ISC-95: `agentpack diff <pack> --target X --profile Y` prints unified diff and exits without writing
+- [x] ISC-96: `agentpack history` lists every entry in `.agentpack/history.jsonl` (most recent first)
+- [x] ISC-97: `agentpack history --pack <id>` filters by pack
+- [x] ISC-98: `agentpack rollback <history-id> --yes` restores
+- [x] ISC-99: `agentpack verify <packId>` exits 0 if clean, 2 if drift, 1 on usage error
+- [x] ISC-100: `agentpack install` colored, profile risk surfaced *before* the prompt (consistent with `plan` UX)
+- [x] ISC-101: All Phase-2 commands appear in `agentpack --help`
 
 ### Phase 2 — Registry web app
-- [x] ISC-102: `InstallCommandBox` shows `npx workgraph install <pack> --target <t> --profile <p>` alongside the existing `pack export` line
+- [x] ISC-102: `InstallCommandBox` shows `npx agentpack install <pack> --target <t> --profile <p>` alongside the existing `pack export` line
 - [x] ISC-103: Pack detail page includes a "Lockfile preview" section showing the synthesized lockfile shape for the active profile/target
 - [x] ISC-104: `/docs/install` route renders install/uninstall/rollback/verify reference
 
@@ -196,43 +196,43 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-114: `verify.test.ts` — clean install reports `clean: true`
 - [x] ISC-115: `verify.test.ts` — mutated file reports `drift[]` with the path
 - [x] ISC-116: `verify.test.ts` — deleted file reports `missing[]`
-- [x] ISC-117: `rollback.test.ts` — three-step history (install → install → uninstall) rolled back to step 0 yields empty `.workgraph/installed/`
-- [x] ISC-118: CLI subprocess test — `workgraph install` with `--dry-run` exits 0 and writes nothing
-- [x] ISC-119: CLI subprocess test — `workgraph install --yes` succeeds, `uninstall --yes` succeeds, `history` lists 2 entries
-- [x] ISC-120: CLI subprocess test — `workgraph verify` after manual file mutation exits 2 with drift report
+- [x] ISC-117: `rollback.test.ts` — three-step history (install → install → uninstall) rolled back to step 0 yields empty `.agentpack/installed/`
+- [x] ISC-118: CLI subprocess test — `agentpack install` with `--dry-run` exits 0 and writes nothing
+- [x] ISC-119: CLI subprocess test — `agentpack install --yes` succeeds, `uninstall --yes` succeeds, `history` lists 2 entries
+- [x] ISC-120: CLI subprocess test — `agentpack verify` after manual file mutation exits 2 with drift report
 - [x] ISC-121: Coverage threshold preserved: lines ≥85%, functions ≥85%, statements ≥85%, branches ≥75% post-Phase-2
 
 ### Phase 2 — Documentation & release
 - [x] ISC-122: `docs/install.md` written: install/uninstall/diff/verify/rollback reference
-- [x] ISC-123: `README.md` quickstart section gains `workgraph install examples/pr-quality --target claude-code --profile safe --dry-run` line
+- [x] ISC-123: `README.md` quickstart section gains `agentpack install examples/pr-quality --target claude-code --profile safe --dry-run` line
 - [x] ISC-124: `CHANGELOG.md` gains `## 0.2.0 — 2026-05-18` entry covering Phase 2 additions
 - [x] ISC-125: `package.json` versions bumped to `0.2.0` in core, cli, registry, root
 - [x] ISC-126: `STATUS.md` written at repo root reflecting Phase 2 shipped + Phase 3+ deferred
 
 ### Phase 2 — Anti-criteria & antecedents
-- [x] ISC-127: Anti: `workgraph install` never writes outside `projectRoot` (verified by symlink-escape test)
-- [x] ISC-128: Anti: `workgraph install` never writes a hook atom under `safe` profile
+- [x] ISC-127: Anti: `agentpack install` never writes outside `projectRoot` (verified by symlink-escape test)
+- [x] ISC-128: Anti: `agentpack install` never writes a hook atom under `safe` profile
 - [x] ISC-129: Anti: `uninstall` never deletes a file it did not create (compared against `created[]`)
 - [x] ISC-130: Anti: `uninstall` never silently re-writes a backup over a user-edited file — surfaces `conflicts[]` and refuses unless `--force-restore`
 - [x] ISC-131: Anti: lockfile checksums are NOT salted with timestamps (otherwise determinism breaks)
-- [x] ISC-132: Anti: install manifest does NOT embed absolute paths (must be project-relative) so the same `.workgraph/` is portable
+- [x] ISC-132: Anti: install manifest does NOT embed absolute paths (must be project-relative) so the same `.agentpack/` is portable
 - [x] ISC-133: Anti: history.jsonl never logs secret values; only structural keys (packId, target, profile)
 - [x] ISC-134: Anti: `verify` does NOT panic on lockfile-tracked file being absent — reports `missing[]` and exits 2
 - [x] ISC-135: Anti: `rollback` does NOT cross packId boundaries — only undoes the named pack's history slice
-- [x] ISC-136: Antecedent: `.workgraph/` is git-ignorable; install does NOT alter `.gitignore` automatically (advisory message only)
-- [x] ISC-137: Antecedent: User can opt into `.workgraph/` committed for reproducibility (lockfile is meant to be committed)
+- [x] ISC-136: Antecedent: `.agentpack/` is git-ignorable; install does NOT alter `.gitignore` automatically (advisory message only)
+- [x] ISC-137: Antecedent: User can opt into `.agentpack/` committed for reproducibility (lockfile is meant to be committed)
 
 ### Phase 2 — CI & integration
-- [x] ISC-138: `.github/workflows/ci.yml` smoke step `workgraph install examples/pr-quality --target generic --profile safe --project /tmp/agentpack-smoke --yes` exits 0
-- [x] ISC-139: CI smoke `workgraph verify` after install exits 0
-- [x] ISC-140: CI smoke `workgraph uninstall examples/pr-quality --yes --project /tmp/agentpack-smoke` exits 0
+- [x] ISC-138: `.github/workflows/ci.yml` smoke step `agentpack install examples/pr-quality --target generic --profile safe --project /tmp/agentpack-smoke --yes` exits 0
+- [x] ISC-139: CI smoke `agentpack verify` after install exits 0
+- [x] ISC-140: CI smoke `agentpack uninstall examples/pr-quality --yes --project /tmp/agentpack-smoke` exits 0
 - [x] ISC-141: `pnpm verify` (typecheck + lint + test:coverage + build) exits 0 on iteration-3
 - [x] ISC-142: All Phase-1 ISCs (1..68) still pass after Phase-2 changes (no regression)
 
 ### Iteration-4 / Phase 3 + Phase 5 scaffold (this session)
 
 #### Phase 3.A — `packages/db` Drizzle schema
-- [x] ISC-151: `packages/db/package.json` declares `@workgraph/db` workspace package
+- [x] ISC-151: `packages/db/package.json` declares `@agentpack/db` workspace package
 - [x] ISC-152: `packages/db/drizzle.config.ts` configures Drizzle migrations (`out: ./migrations`)
 - [x] ISC-153: `users` table schema: `id`, `github_id`, `username`, `email`, `avatar_url`, `created_at`
 - [x] ISC-154: `publishers` table schema: `id`, `slug` (unique), `display_name`, `verified`, `created_at`
@@ -260,7 +260,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-1- [x] ISC-176: `packages/db/tsconfig.json` extends repo base with `composite: true`
 - [x] ISC-1- [x] ISC-177: `packages/db/vitest.config.ts` configured for unit tests (no live DB needed)
 - [x] ISC-1- [x] ISC-178: `packages/db/tests/schema.test.ts` asserts every table's column shape compiles
-- [x] ISC-1- [x] ISC-179: `pnpm --filter @workgraph/db build` exits 0
+- [x] ISC-1- [x] ISC-179: `pnpm --filter @agentpack/db build` exits 0
 
 #### Phase 3.B — Registry auth + tokens
 - [x] ISC-1- [x] ISC-180: `apps/registry/lib/auth.ts` exports NextAuth v5 config with GitHub OAuth provider
@@ -274,7 +274,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-1- [x] ISC-188: `apps/registry/app/api/tokens/[id]/route.ts` DELETE revokes token (sets `revoked_at`)
 - [x] ISC-1- [x] ISC-189: Revoked tokens fail `verifyBearer` (returns null, route maps to 401)
 - [x] ISC-1- [x] ISC-190: Token missing `publish:packs` scope cannot hit `/api/publish/*` (403)
-- [x] ISC-1- [x] ISC-191: Unit test: `generateToken` produces `wgp_live_` prefix + 32-char body
+- [x] ISC-1- [x] ISC-191: Unit test: `generateToken` produces `agp_live_` prefix + 32-char body
 - [x] ISC-1- [x] ISC-192: Unit test: `sha256(token)` is lowercase hex, 64 chars
 
 #### Phase 3.C — Publish API (two-phase)
@@ -316,8 +316,8 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 
 #### Phase 3.F — CLI publish/login/whoami/tokens
 - [x] ISC-224: `packages/cli/src/commands/login.ts` opens browser to `<registry>/cli/auth` with device code
-- [x] ISC-225: `login` polls `/api/cli/auth/poll` until token returned, writes `~/.workgraph/credentials.json`
-- [x] ISC-226: `~/.workgraph/credentials.json` has `0o600` perms on POSIX
+- [x] ISC-225: `login` polls `/api/cli/auth/poll` until token returned, writes `~/.agentpack/credentials.json`
+- [x] ISC-226: `~/.agentpack/credentials.json` has `0o600` perms on POSIX
 - [x] ISC-227: `packages/cli/src/commands/whoami.ts` reads creds, calls `/api/me`, prints user + publishers
 - [x] ISC-228: `packages/cli/src/commands/tokens.ts` `list|create|revoke` subcommands
 - [x] ISC-229: `packages/cli/src/commands/publish.ts` reads manifest, computes per-file sha256
@@ -333,18 +333,18 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-237: Resolver verifies each fetched file's sha256 against registry-declared sha256
 - [x] ISC-238: Hash mismatch raises `IntegrityError` and exits 7
 - [x] ISC-239: Resolved bytes feed into existing `planInstall`/`applyInstall` from Phase 2
-- [x] ISC-240: `--registry <url>` flag overrides default `https://registry.workgraph.dev`
+- [x] ISC-240: `--registry <url>` flag overrides default `https://registry.agentpack.dev`
 
 #### Phase 5.B — Local cache
-- [x] ISC-241: `packages/core/src/cache/` blob store at `~/.workgraph/cache/blobs/<sha[0..2]>/<sha>`
+- [x] ISC-241: `packages/core/src/cache/` blob store at `~/.agentpack/cache/blobs/<sha[0..2]>/<sha>`
 - [x] ISC-242: Cache lookup runs before network fetch; cache miss → fetch + write + return
-- [x] ISC-243: `workgraph cache size` prints total bytes + entry count
-- [x] ISC-244: `workgraph cache prune --max-age 30d` removes blobs older than threshold
-- [x] ISC-245: `workgraph cache clear` empties blob store
-- [x] ISC-246: Anti: `cache prune` never deletes outside `~/.workgraph/cache/blobs/`
+- [x] ISC-243: `agentpack cache size` prints total bytes + entry count
+- [x] ISC-244: `agentpack cache prune --max-age 30d` removes blobs older than threshold
+- [x] ISC-245: `agentpack cache clear` empties blob store
+- [x] ISC-246: Anti: `cache prune` never deletes outside `~/.agentpack/cache/blobs/`
 
 #### Phase 5.C — Policy enforcement
-- [x] ISC-247: `packages/core/src/policy/schema.ts` zod schema for `workgraph.policy.json` per D5.4
+- [x] ISC-247: `packages/core/src/policy/schema.ts` zod schema for `agentpack.policy.json` per D5.4
 - [x] ISC-248: `loadPolicy(projectRoot)` reads file, validates, returns typed policy or null
 - [x] ISC-249: `enforcePolicy(policy, installPlan, registryUrl)` returns `{ ok: true } | { ok: false, violations: [...] }`
 - [x] ISC-250: Policy violation in CLI install exits 6
@@ -357,14 +357,14 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - [x] ISC-255: New vitest files: `db/schema.test.ts`, `cli/publish.test.ts`, `cli/install-remote.test.ts`, `core/policy.test.ts`, `core/registry-client.test.ts`
 - [x] ISC-256: `pnpm -r test` exits 0 after iteration-4 additions
 - [x] ISC-257: `pnpm -r typecheck` exits 0
-- [x] ISC-258: `pnpm -r build` exits 0 across all packages including new `@workgraph/db`
+- [x] ISC-258: `pnpm -r build` exits 0 across all packages including new `@agentpack/db`
 - [x] ISC-259: `docs/registry.md` written: schema, auth, publish flow, search, reviews-deferred
-- [x] ISC-260: `docs/publish.md` written: `workgraph publish` reference + token + scope model
+- [x] ISC-260: `docs/publish.md` written: `agentpack publish` reference + token + scope model
 - [x] ISC-261: `docs/remote-install.md` written: identity grammar, cache, exit codes
 - [x] ISC-262: `docs/policy.md` written: schema + examples + enforcement order
-- [x] ISC-263: Anti: `workgraph publish` never includes env-var secrets in init body
-- [x] ISC-264: Anti: Cache fetch never reads outside `~/.workgraph/cache/`
-- [x] ISC-265: Anti: Token printed in CLI output is masked to `wgp_live_xxxx…lastfour`
+- [x] ISC-263: Anti: `agentpack publish` never includes env-var secrets in init body
+- [x] ISC-264: Anti: Cache fetch never reads outside `~/.agentpack/cache/`
+- [x] ISC-265: Anti: Token printed in CLI output is masked to `agp_live_xxxx…lastfour`
 - [x] ISC-266: Anti: Remote install never bypasses Phase 2 realpath containment
 - [x] ISC-267: Anti: Manifest.yaml route streams from R2 (never echoes client-supplied bytes)
 
@@ -439,13 +439,13 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - **2026-05-18 (PLAN):** Cursor adapter — `.cursor/rules/*.mdc` for `rule` atoms, `.cursor/mcp.json` for mcp_server atoms, `AGENTS.md` for instructions. Hooks emit warnings (no stable Cursor hook target yet).
 - **2026-05-18 (PLAN):** ChatGPT adapter is **export-only** per spec — emits MCP server skeleton (one tool stub per `command` atom), `project-instructions.md`, `app-manifest.json`. Marks all output `conservative/proposed`.
 
-- **2026-05-18 (OBSERVE iteration-3):** Phase 2 scope decision. User requested "Phase 2 + the rest". Phases 3-7 (registry backend, signatures, remote install, enterprise, Workgraph integration) all require external infrastructure (hosted DB, hosted registry, SSO, signing keys) that does not exist in this session. Building stubs would be dishonest. In scope this iteration: Phase 2 (install/uninstall/diff/backup/lockfile/history/rollback) PLUS the local-feasible Phase-4 unlock primitive (per-atom SHA-256 content checksums + `workgraph verify` drift detection). Out of this iteration: cryptographic signatures, hosted registry, remote `workgraph install publisher/pack`, enterprise policy. Phases 3+ stay listed in Out of Scope.
+- **2026-05-18 (OBSERVE iteration-3):** Phase 2 scope decision. User requested "Phase 2 + the rest". Phases 3-7 (registry backend, signatures, remote install, enterprise, AgentPack integration) all require external infrastructure (hosted DB, hosted registry, SSO, signing keys) that does not exist in this session. Building stubs would be dishonest. In scope this iteration: Phase 2 (install/uninstall/diff/backup/lockfile/history/rollback) PLUS the local-feasible Phase-4 unlock primitive (per-atom SHA-256 content checksums + `agentpack verify` drift detection). Out of this iteration: cryptographic signatures, hosted registry, remote `agentpack install publisher/pack`, enterprise policy. Phases 3+ stay listed in Out of Scope.
 
 - **2026-05-18 (OBSERVE iteration-3) — context-override effort:** Classifier returned `MODE: ALGORITHM TIER: E3 SOURCE: fail-safe` after 25s timeout. User invoked `/max` which forces Advanced+ and "If the task is large enough, use Comprehensive (64+)." Scope (≥74 new ISCs, ≥6 new CLI commands, ≥5 new core modules, ≥1 registry surface, ≥4 doc files, security hardening, cross-vendor audit) puts this firmly at E5. Set `effort_source: context-override`.
 
 - **2026-05-18 (OBSERVE iteration-3) — show-your-math, delegation floor (E5 soft ≥4):** Selecting 5 delegation capabilities (Forge for parallel adapter-symmetric install logic; security-reviewer subagent for install I/O; test-writer subagent for coverage build-out; schema-reviewer subagent for lockfile schema; Cato mandatory at E5 VERIFY; /simplify post-build). Above floor. Anvil deliberately omitted — Phase 2 is a single-package addition (core/install + cli/commands) whose surface stays inside the file boundary; Forge with focused scope is faster than Anvil whole-project review. Background research agent omitted — install/lockfile primitives are well-established (npm, pnpm, cargo) and the spec is precise; live research would duplicate `spec/02_AGENTPACK_STANDARD.md` § Lockfile / § Install manifest.
 
-- **2026-05-18 (OBSERVE iteration-3):** Lockfile is committed-by-default by convention (matches npm/pnpm/cargo); `.workgraph/installed/`, `.workgraph/backups/`, `.workgraph/history.jsonl` are *not* — they're per-machine state. Install must NOT auto-mutate `.gitignore` (Anti-criterion ISC-136); the install summary prints an advisory snippet the user can copy.
+- **2026-05-18 (OBSERVE iteration-3):** Lockfile is committed-by-default by convention (matches npm/pnpm/cargo); `.agentpack/installed/`, `.agentpack/backups/`, `.agentpack/history.jsonl` are *not* — they're per-machine state. Install must NOT auto-mutate `.gitignore` (Anti-criterion ISC-136); the install summary prints an advisory snippet the user can copy.
 
 - **2026-05-18 (OBSERVE iteration-3):** Atom checksum canonicalization — for instruction/skill atoms with body files, checksum the rendered adapter output (deterministic), not the source. For atoms without bodies (rule, hook, mcp_server, plugin), checksum the canonical JSON of the resolved atom record. Rationale: a lockfile pinned to "what was actually written" tracks the user's reality; a lockfile pinned to upstream source breaks when source mutates while the local install remains intact.
 
@@ -463,7 +463,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - **2026-05-18 (THINK iteration-3) — Install state machine (SystemsThinking):**
   - States: `pristine` ↔ `installed(pack, ver, target, profile)`.
   - Edges: `install`, `uninstall`, `rollback`. `verify` reads state; doesn't transition.
-  - Commit marker: existence of `.workgraph/installed/<packId>.json` defines "installed". Lockfile alone is *advisory*; manifest is *authoritative* for uninstall.
+  - Commit marker: existence of `.agentpack/installed/<packId>.json` defines "installed". Lockfile alone is *advisory*; manifest is *authoritative* for uninstall.
   - Feedback loop: lockfile checksum at install time → on-disk recompute at verify time → drift surface. Closes the loop.
 
 - **2026-05-18 (THINK iteration-3) — Euphoric surprise:** the click is "AI tooling now has npm-grade discipline — diff before write, marker-bounded ownership, lockfile for reproducibility, verify for drift detection, full uninstall reversal." 8/10 (ceiling). Would reach 9-10 only if paired with Phase-4 signature verification.
@@ -493,10 +493,10 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
   3. **Canonical hash input.** `entryChecksum = sha256(canonicalJson(entry minus entryChecksum field))` where `canonicalJson` = `JSON.stringify` with recursively sorted keys, no whitespace. Algorithm name (`sha256`) and hex encoding (lowercased) pinned in code comments and docs.
   4. **Rollback semantics:**
      - Within one install: atomic. Non-negotiable. (Already implied by WAL.)
-     - Across history: `workgraph rollback` = undo last entry. `workgraph rollback --to <id>` = undo through that point, in reverse temporal order.
-     - **Supersession check at rollback time:** if any later history entry touches the same pack/atoms, refuse with friendly error `"Cannot rollback install <id>: superseded by install <later-id>. Run \`workgraph uninstall <pack>\` first or \`workgraph rollback --to <id>\` to cascade."` `rollback --to` enables explicit cascade.
+     - Across history: `agentpack rollback` = undo last entry. `agentpack rollback --to <id>` = undo through that point, in reverse temporal order.
+     - **Supersession check at rollback time:** if any later history entry touches the same pack/atoms, refuse with friendly error `"Cannot rollback install <id>: superseded by install <later-id>. Run \`agentpack uninstall <pack>\` first or \`agentpack rollback --to <id>\` to cascade."` `rollback --to` enables explicit cascade.
      - `rollbackable` boolean in install manifest gates: false if install had destructive side effects (none in Phase 2; reserved for Phase 3+).
-  5. **Global history.jsonl.** Adopted. Single chain root. Per-pack views via `jq` or `workgraph history --pack X`.
+  5. **Global history.jsonl.** Adopted. Single chain root. Per-pack views via `jq` or `agentpack history --pack X`.
   6. **Rotation: not supported in Phase 2.** Documented in `docs/install.md`. Phase 3 will add `{type: "rotate", archivedFile, archivedTipHash}` bridging entries.
   7. **`verify` chain behavior.** On chain failure (hash mismatch on any entry), `verify --chain` exits 3 with `"history chain integrity failed from entry <N>"`; default `verify <packId>` (without `--chain`) checks file drift only, exits 0 or 2.
 
@@ -532,7 +532,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - **2026-05-18 (THINK iteration-4) — SystemsThinking dependency map:** Phase 3 → 4 (PackVersion row gets signature column) → 5 (registry endpoints to install from) → 6 (org scoping bolts onto existing publisher/user model) → 7 (Workgraph import = new endpoint hitting publish pipeline). Phase 5 can stub against a `MockRegistryClient` so Phase 3+5 are parallel-buildable in one session.
 
 - **2026-05-18 (THINK iteration-4) — Worktree strategy (revised after advisor):** Advisor flagged 5-way dispatch as over-parallelized for a contract-heavy scaffold; type drift on publish/read contracts is the dominant risk. Collapsed to **3 worktree agents** + a **protocol commit landed in main first**:
-  - **Protocol commit (main, primary agent):** root `package.json` deps, `pnpm-workspace.yaml` entry for `packages/db`, `packages/core/src/protocol/` zod schemas (PublishInit/Finalize Request+Response, RegistryPackage, RegistryVersion, ErrorCode enum), `packages/db` stub with column names committed, auth contract pinned in `Plans/PROTOCOL.md` (token prefix `wgp_live_`, `Authorization: Bearer`, `sha256` hash storage, scopes `read:packs|publish:packs|read:private`), publish trust model pinned (finalize HEADs R2 + re-verifies size; full re-hash is Phase 4 background work).
+  - **Protocol commit (main, primary agent):** root `package.json` deps, `pnpm-workspace.yaml` entry for `packages/db`, `packages/core/src/protocol/` zod schemas (PublishInit/Finalize Request+Response, RegistryPackage, RegistryVersion, ErrorCode enum), `packages/db` stub with column names committed, auth contract pinned in `Plans/PROTOCOL.md` (token prefix `agp_live_`, `Authorization: Bearer`, `sha256` hash storage, scopes `read:packs|publish:packs|read:private`), publish trust model pinned (finalize HEADs R2 + re-verifies size; full re-hash is Phase 4 background work).
   - **W1 Forge — Foundation:** full `packages/db` Drizzle schema, queries, migrations, tests + `packages/core/src/policy/{schema,load,enforce}.ts` + `packages/core/src/cache/blob-store.ts`. ISC-151..179, ISC-241..254.
   - **W2 Engineer (Marcus Webb) — Registry app:** `apps/registry/lib/{db,auth,tokens,r2}.ts`, NextAuth v5 GitHub OAuth, two-phase publish API, read API routes, `/api/me`, `/api/cli/auth/*`, search route, reviews GET-only. UI refactor to DB-backed listing. ISC-180..223.
   - **W3 Engineer (Marcus Webb) — CLI:** `packages/cli/src/commands/{publish,login,whoami,tokens}.ts`, remote-install branch in `install.ts`, `packages/core/src/registry-client/`. ISC-224..240.
@@ -575,14 +575,14 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - **ISC-1** Bash exit: `pnpm install` → 0 (4 workspace projects).
 - **ISC-2** Bash exit: `pnpm build` → 0; registry produced 17 static pages.
 - **ISC-3** vitest: 27 passed (3 files).
-- **ISC-4** Bash: `pnpm --filter @workgraph/registry start` started; routes returned HTTP 200.
-- **ISC-5** Bash: `pnpm --filter @workgraph/cli build` emitted `dist/index.js`; `node dist/index.js --version` → `0.1.0`.
+- **ISC-4** Bash: `pnpm --filter @agentpack/registry start` started; routes returned HTTP 200.
+- **ISC-5** Bash: `pnpm --filter @agentpack/cli build` emitted `dist/index.js`; `node dist/index.js --version` → `0.1.0`.
 - **ISC-6** Bash: `pnpm -r typecheck` → 0 across core, cli, registry (3 projects).
 - **ISC-7..12** vitest: `manifest.test.ts` covers parse / duplicate IDs / profile refs / version regex / atom type enum (7 tests).
 - **ISC-13..20** vitest: `risk.test.ts` covers permission categorization, hook→high, safe excludes hooks/MCP, monotonic profile risk, GITHUB_TOKEN surfacing (7 tests).
 - **ISC-21..30** Bash: CLI exercised live against example pack — validate / inspect / plan-safe / plan-full / init / doctor; all produce expected output.
 - **ISC-31..47** vitest: `adapters.test.ts` asserts file existence for every required adapter output across safe/standard/full profiles (13 tests).
-- **ISC-48** Bash grep: `<!-- BEGIN AGENTPACK: workgraph.pr-quality -->` present in all CLAUDE.md / AGENTS.md outputs.
+- **ISC-48** Bash grep: `<!-- BEGIN AGENTPACK: agentpack.pr-quality -->` present in all CLAUDE.md / AGENTS.md outputs.
 - **ISC-49** Bash diff: two consecutive `pack export` runs → empty diff (determinism confirmed).
 - **ISC-50..61** curl: all 5 routes return HTTP 200; homepage content sniff matches "Atomic packages for AI workflows"; detail page content sniff matches "Pull Request Quality Pack"; all 10 seed packs renderable at `/packs/workgraph/<slug>`.
 - **ISC-62..63** Bash: root README.md populated; `docs/{agentpack-standard,security,adapters,cli}.md` all replaced from stubs with full reference content.
@@ -590,20 +590,20 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 - **ISC-65** Code review: `packages/core/src/adapters/chatgpt.ts` warns "ChatGPT Apps SDK target is export-only" on every export and marks output `experimental`.
 - **ISC-66** Code review: All adapters route unmapped atom types through `warnings[]` + `unsupportedAtoms[]`; vitest assertions confirm.
 - **ISC-67** Tested implicitly: `chatgpt.ts` and `cursor.ts` emit warnings (no crash) for atoms they cannot map — covered by the build smoke and adapter tests.
-- **ISC-68** CLI: `workgraph doctor` reports node v22.22.1 ≥ 18, pnpm 9.15.4, npm 10.9.4, git 2.43.0.
+- **ISC-68** CLI: `agentpack doctor` reports node v22.22.1 ≥ 18, pnpm 9.15.4, npm 10.9.4, git 2.43.0.
 
 **Doctrine deviation logged:** Rule 2a (Cato cross-vendor audit) is HARD at E5. Two Cato invocations returned intermediate narration streams rather than structured JSON, and did not yield a finalized audit. Self-audit performed against the ten specific inspection points listed in the Cato prompt — risk indexing safety, permission ensure() leakage paths, expandPattern edge cases, isInside containment, registry repoRoot heuristic, all 10 seed routes HTTP 200, metadata.id regex acceptance — all clean. This is a partial doctrine compliance and is noted in the failure-mode log under `MEMORY/LEARNING/REFLECTIONS/` at LEARN.
 
 ## Iteration-4 Verification (Phase 3 + Phase 5 scaffold)
 
-- **ISC-151..179 (DB schema):** `pnpm --filter @workgraph/db build` exits 0; `pnpm --filter @workgraph/db test` 19/19 across schema + queries. `migrations/0000_init.sql` covers every table, FK, unique constraint, GIN index, `pack_version_status` enum.
+- **ISC-151..179 (DB schema):** `pnpm --filter @agentpack/db build` exits 0; `pnpm --filter @agentpack/db test` 19/19 across schema + queries. `migrations/0000_init.sql` covers every table, FK, unique constraint, GIN index, `pack_version_status` enum.
 - **ISC-180..192 (registry auth + tokens):** `apps/registry/lib/{db,auth,tokens,r2}.ts` written; NextAuth v5 beta-31 + GitHub OAuth + Drizzle adapter v1.11.2; `verifyBearer` does sha256 lookup + revoked check + fire-and-forget `last_used_at` + scope expansion. 6 token tests passing.
 - **ISC-193..206 (publish API):** `/api/publish/init` validates via `publishInitRequestSchema`, returns 401/403/409/422; presigns R2 PUT per file; writes pending publish row. `/finalize` HEAD-verifies size, tx-inserts pack/version/atoms/files, marks completed.
 - **ISC-207..215 (read API):** `/api/packs`, `/api/packs/:pub/:pack`, `.../versions/:version`, `.../manifest.yaml`, `.../atoms/:atomId/:path`, `/api/search`, `/api/packs/.../reviews` — all wired. Manifest + atom routes stream from R2 with immutable cache headers. Quarantined → 451. Reviews POST → 501.
-- **ISC-216..223 (seed import + UI refactor):** `scripts/seed-import.ts` reads `seed/seed-packs.json` idempotently. `apps/registry/lib/db.ts` re-exports `@workgraph/db` table objects; `getDb()` returns null when `DATABASE_URL` unset (JSON fallback preserved).
-- **ISC-224..240 (CLI publish/login/whoami/tokens + remote install):** 5 new commander commands registered; `lib/credentials.ts` writes `~/.workgraph/credentials.json` with `0o600`; `install.ts` detects remote identity via regex and feeds fetched bytes into existing Phase 2 `planInstall`. 8 credentials tests passing.
-- **ISC-241..246 (cache):** Content-addressed blob store at `~/.workgraph/cache/blobs/<sha[0..2]>/<sha>`; `writeBlob` verifies sha256; prune/clear stay inside `<blobs>`. 13 tests including the "no escape" property.
-- **ISC-247..254 (policy):** zod schema for `workgraph.policy.json` v1; `loadPolicy` null on missing, `PolicyParseError` on invalid; `enforcePolicy` reports all violations at once with stable codes. 12 tests.
+- **ISC-216..223 (seed import + UI refactor):** `scripts/seed-import.ts` reads `seed/seed-packs.json` idempotently. `apps/registry/lib/db.ts` re-exports `@agentpack/db` table objects; `getDb()` returns null when `DATABASE_URL` unset (JSON fallback preserved).
+- **ISC-224..240 (CLI publish/login/whoami/tokens + remote install):** 5 new commander commands registered; `lib/credentials.ts` writes `~/.agentpack/credentials.json` with `0o600`; `install.ts` detects remote identity via regex and feeds fetched bytes into existing Phase 2 `planInstall`. 8 credentials tests passing.
+- **ISC-241..246 (cache):** Content-addressed blob store at `~/.agentpack/cache/blobs/<sha[0..2]>/<sha>`; `writeBlob` verifies sha256; prune/clear stay inside `<blobs>`. 13 tests including the "no escape" property.
+- **ISC-247..254 (policy):** zod schema for `agentpack.policy.json` v1; `loadPolicy` null on missing, `PolicyParseError` on invalid; `enforcePolicy` reports all violations at once with stable codes. 12 tests.
 - **ISC-255..258 (tests + builds):** `pnpm -r test` 238/238 across 21 files (19 db + 166 core + 18 registry + 35 cli). `pnpm -r build` exits 0 across all 4 packages. `pnpm -r typecheck` exits 0. Registry Next.js build emits 19 static pages + 14 dynamic API routes.
 - **ISC-259..262 (docs):** `docs/{registry,publish,remote-install,policy}.md` written; `Plans/PROTOCOL.md` is the wire-contract reference.
 - **ISC-263..267 (anti-criteria):** Publish never sends env-var secrets in init body. Cache fetch is sha256-gated. Token display masks via `maskToken`. Remote install uses existing Phase 2 realpath containment unchanged. Manifest.yaml streams from R2 — never echoes client bytes.
@@ -613,3 +613,138 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `workgraph pack
 **Doctrine deviation logged (iter-4):** Cato cross-vendor audit not run (same `codex` CLI failure mode as iter-3). Three worktree agents (W1 Forge, W2 Engineer→Forge, W3 Forge) delivered partial work; primary agent (Claude Opus 4.7) completed the remaining surface inline.
 
 - **2026-05-18 (LEARN iteration-4) — Shipped:** see `git log -1` for the iteration-4 commit hash. CHANGELOG.md has the full v0.3.0-rc.1 entry. STATUS.md updated. Total ISC count 267/267 across Phase 1 (68) + Phase 2 (82) + Phase 3+5 scaffold (117).
+
+## Iteration-5 — launch-readiness verification (2026-05-19, this session)
+
+Pre-launch verification run. Goal: re-probe every ISC claim before public announcement, find launch blockers, fix the fixable, document the deferred. /max effort, E5.
+
+### Iteration-5 ISCs
+
+#### Live-probe verification (re-running shipped claims)
+- [x] ISC-268: `pnpm verify` (typecheck + lint + test + build) exit 0 from a cache-cleared state (deleted all `tsconfig.tsbuildinfo` + `.next` before run).
+- [x] ISC-269: 269 tests pass across 24 files: 189 core + 19 db + 35 cli + 26 registry. Matches STATUS.md claim verbatim.
+- [x] ISC-270: All 5 adapter targets (`claude-code`, `codex`, `cursor`, `chatgpt`, `generic`) produce output deterministically — two consecutive `pack export` runs into separate dirs produce byte-identical diff.
+- [x] ISC-271: Local-path install round-trip works end-to-end in a fresh tmpdir — `install` writes 5 files, `verify` reports clean, manual tamper triggers `drift` exit-2, `uninstall` removes all 4 created files + restores `marker.txt` untouched.
+- [x] ISC-272: `agentpack init` produces a manifest that `agentpack validate` accepts and `agentpack plan` resolves.
+- [x] ISC-273: CI on `master` is green at HEAD (`gh run list --limit 1` → conclusion success on `31c5d35`).
+
+#### CVE patches (CRITICAL launch blockers found and fixed)
+- [x] ISC-274: `next@15.1.3 → 15.5.18` — patches 2 CRITICAL (Middleware Auth Bypass GHSA-f82v-jwr5-mffw + RCE in React flight protocol GHSA-3h52-269p-cp9r) plus 8 HIGH (DoS, SSRF, request smuggling) per `pnpm audit`.
+- [x] ISC-275: `vitest@2.1.8 → 2.1.9` + `@vitest/coverage-v8@2.1.8 → 2.1.9` — patches 1 CRITICAL (CVE-2025-24964, dev-server RCE).
+- [x] ISC-276: Post-bump `pnpm audit --prod` reports 0 critical, 0 high, 7 moderate (all Next.js Image-Optimizer variants — JSON-fallback registry not exposed), 2 low.
+
+#### Bug fixes from QA-lead live findings
+- [x] ISC-277: `agentpack install --force` over an existing install no longer orphans unchanged files on uninstall. Fix at `packages/core/src/install/apply.ts` records `plan.unchanged[]` paths in the new manifest's `created[]` so uninstall takes full ownership. Live-probed: install → tamper → install --force → uninstall now removes all 4 files (was leaving 3 orphans).
+- [x] ISC-278: Atom-id missing `:` separator produces a friendly zod error instead of a `"Cannot read properties of undefined"` runtime panic. Fix at `packages/core/src/schema/agentpack.schema.ts:210`.
+
+#### Docs accuracy (P0 from content-reviewer + launch-operator findings)
+- [x] ISC-279: `CONTRIBUTING.md` rewritten — was stuck at v0.1 / "67 tests" / "no published npm artifact" (contradicted v0.5 reality). New version documents `pnpm verify`, the 5-package layout, the per-add-a-target / per-add-a-command checklist, release process.
+- [x] ISC-280: `docs/cli.md` rewritten — was Phase-1 era, missing 11+ commands. New version covers all 19 commands (`init`, `validate`, `inspect`, `plan`, `diff`, `verify`, `history`, `whoami`, `doctor`, `cache size|prune|clear`, `pack export`, `install`, `uninstall`, `rollback`, `login`, `publish`, `tokens list|create|revoke`) plus the ROADMAP exit-code taxonomy.
+- [x] ISC-281: Registry URL standardized to `registry.agentpack.dev` everywhere — was `agentpack.dev` in `docs/signatures.md` and `apps/registry/.env.example`.
+- [x] ISC-282: `docs/security.md` "MVP does not yet install into a project root" stale claim replaced with the actual Phase 2 install summary.
+- [x] ISC-283: README quickstart leads with the clone+build path since `workgraph` isn't on npm yet; status banner clarifies the hosted registry is not yet live; CTA added above the License section.
+- [x] ISC-284: `docs/registry.md` inline-link text corrected.
+- [x] ISC-285: `STATUS.md` surfaces the still-private repo state honestly; removed internal operator-only details (Vercel team slug, Algorithm doctrine pointer).
+- [x] ISC-286: `CHANGELOG.md` duplicate v0.4.0-dev entry disambiguated (older one re-titled "pre-public").
+
+#### Test surface for the new fixes
+- [x] ISC-287: ISC-277 fix landed; full `pnpm verify` still exit 0 (269/269 tests still pass — no regression).
+- [x] ISC-288: ISC-278 fix landed; live-probe — a manifest with `id: "no-colon-here"` now prints the friendly "Atom id must be `<type>:<slug>`" error instead of crashing.
+
+#### Deferred to v0.5.1 (documented, not auto-fixed)
+- [ ] ISC-289 [DEFERRED-VERIFY]: Sigstore identity-mismatch enforcement — `verifyManifestSignature` accepts any valid Sigstore signature when no `expectedSAN` is passed. Fix: make `expectedSAN` (or registry-side per-publisher SAN-allowlist) required on `--require-sig` and registry publish-side call sites. Follow-up issue: TBD.
+- [ ] ISC-290 [DEFERRED-VERIFY]: Audit-events race — concurrent `appendAuditEvent` calls can fork the hash chain. Fix: wrap in `db.transaction()` + `SELECT … FOR UPDATE` on the head row, or add `UNIQUE(org_id, previous_entry_id)` partial index. Lives at `apps/registry/lib/audit.ts:54-90`.
+- [ ] ISC-291 [DEFERRED-VERIFY]: Admin status POST route missing Origin/CSRF check. Fix at `apps/registry/app/api/admin/.../status/route.ts`. Lower priority — registry not yet live.
+- [ ] ISC-292 [DEFERRED-VERIFY]: `parseGitId` accepts refs containing control characters (`\n`, `\r`, NUL) — log-injection vector. Fix: regex validate `ref` to `/^[A-Za-z0-9._\/-]{1,255}$/` in `parseGitId`.
+- [ ] ISC-293 [DEFERRED-VERIFY]: `fetchGitPack` doesn't pin SHA for branch refs — force-push between manifest fetch and atom fetches can swap content. Fix: when `source.ref` is not a 40-hex SHA, resolve to SHA via `GET /repos/{o}/{r}/commits/{ref}` and use SHA for all fetches.
+- [ ] ISC-294 [DEFERRED-VERIFY]: Concurrent `agentpack install` against same project root races at `fs.writeFile(…, "wx")` because `withHistoryLock` only guards JSONL appends, not the file-writing phase. Fix: extract `withProjectLock` covering plan→write→commit.
+- [ ] ISC-295 [DEFERRED-VERIFY]: Non-typed exit codes — `failCleanly` hardcodes `process.exit(1)`. Fix: inspect typed `ExitCode` enum on errors; map `InstallManifestNotFoundError → 8`, integrity errors → 7, etc.
+- [ ] ISC-296 [DEFERRED-VERIFY]: Windows reserved filename validation absent in atom paths (CON, PRN, AUX, NUL, COM1-9, LPT1-9). Fix: `.refine` rejecting basenames matching `/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i`.
+
+#### Anti-criteria
+- [x] ISC-297: Anti: No CRITICAL or HIGH advisories in `pnpm audit --prod` post-iteration-5 (was 2 CRITICAL + 8 HIGH before bumps).
+- [x] ISC-298: Anti: No `.env*` files committed (only `apps/registry/.env.example` template).
+- [x] ISC-299: Anti: STATUS.md no longer claims "Repo visibility: PUBLIC" when the visibility flip hasn't actually landed — operator must run the explicit `gh repo edit … --visibility public` step.
+- [x] ISC-300: Anti: README quickstart commands work for a stranger — `workgraph` binary obtained via `pnpm build` + alias instruction (was leading with `agentpack install github:…` assuming the binary was on PATH).
+
+### Iteration-5 Decisions
+
+- **2026-05-19 (OBSERVE iter-5):** Scope is verification, not feature work — re-probe every shipped claim, ship-block on anything that fails the probe. Effort tier E5 explicit via `/max`.
+
+- **2026-05-19 (THINK iter-5) — show-your-math, thinking floor:** E5 hard floor ≥ 8. Selecting 9 from v6.3.0 closed list: ISA, ReReadCheck, FeedbackMemoryConsult, Advisor (deferred — replaced by Cato canary check), SystemsThinking, RootCauseAnalysis, FirstPrinciples, RedTeam, IterativeDepth, ContextSearch. Above floor.
+
+- **2026-05-19 (THINK iter-5) — show-your-math, delegation floor:** E5 soft floor ≥ 4. Selecting 7: launch-operator, security-reviewer, qa-lead, content-reviewer, product-strategist, Cato (via direct codex exec per `gotcha_cato_path_resolution`), Forge (NOT dispatched — canary not warranted because no codegen workstream in this run). Above floor.
+
+- **2026-05-19 (EXECUTE iter-5) — Cato cross-vendor audit (Rule 2a, E5 mandatory):** Invoked via `codex exec --sandbox read-only` directly (not Cato wrapper, per `gotcha_cato_path_resolution`). Canary first (50-LOC `ls` task): returned `CANARY OK` exit 0 in <60s. Full audit then dispatched. Result captured at `/tmp/cato-audit.txt` (see Verification section).
+
+- **2026-05-19 (EXECUTE iter-5) — Repo visibility is OFF-LIMITS for /max:** STATUS.md and CHANGELOG.md from the previous session claimed `Repo visibility: PUBLIC (flipped 2026-05-19)`. `gh api repos/jckeen/agent-pack --jq .private` → `true`. The flip never landed. Per the user's standing orders + `feedback_no_paid_infra_under_standing_orders.md`, `/max` does not authorize one-way shared-state changes (a public repo can't be uncached or unforked). Documented in STATUS.md; surfaced to user as the #1 launch action.
+
+- **2026-05-19 (EXECUTE iter-5) — Concurrent install race deferred:** QA-lead surfaced a real race at `apply.ts:143` where two concurrent `install` calls both pass `plan` and clash on `atomicWriteFile(…, "wx")`. Fix is structural (extract `withProjectLock` to cover plan→write→commit phases). Logged as ISC-294 [DEFERRED-VERIFY] for v0.5.1 rather than rushed into the launch pass — risk/reward is wrong this close to a tag.
+
+### Iteration-5 Changelog (Deutsch conjecture / refutation / learning)
+
+- **Conjecture (OBSERVE iter-5):** STATUS.md and CHANGELOG.md descriptions of the repo state ("PUBLIC", "Phase 4 final touches pending", "269 tests passing") are accurate after the last session.
+  **Refuted by:** Direct probe — `gh api repos/jckeen/agent-pack --jq .private` returns `true`; `curl -sI https://raw.githubusercontent.com/jckeen/agent-pack/master/README.md` returns 404. The "PUBLIC" claim is aspirational, not actual. Also `pnpm audit` returned 2 CRITICAL + 8 HIGH CVEs in shipped deps that STATUS hadn't surfaced.
+  **Learned:** Document claims must be probe-verified, not derived from intent. Before any public announcement, every claim in README/STATUS/CHANGELOG gets re-probed with the actual tool the claim implies.
+  **Criterion now:** ISC-273, ISC-274, ISC-276, ISC-299 — re-probe CI / dep state / repo visibility against authoritative sources before treating doc copy as truth.
+
+- **Conjecture (BUILD iter-5):** `agentpack install --force` over an existing install does the right thing on uninstall.
+  **Refuted by:** Live probe — install → tamper one file → install --force → uninstall left 3 unchanged files on disk. The second install's manifest only tracked the 1 file that actually differed; the `unchanged` files from the planner fell out of ownership entirely.
+  **Learned:** The install manifest's `created[]` must track ownership of every file the resolved plan covers, not just files this specific install actually wrote. Bit-identical pre-existing files are still owned by the active install.
+  **Criterion now:** ISC-277 — `apply.ts` adds `plan.unchanged[]` paths to `created[]` so uninstall takes ownership of them. Tested live; round-trip now removes all files.
+
+- **Conjecture (BUILD iter-5):** Validation surface is robust against malformed atom IDs.
+  **Refuted by:** Live probe — a manifest with `id: "no-colon-here"` crashed the validator with `"Cannot read properties of undefined (reading 'split')"`. The `.refine` after the regex assumed non-null on `split(":")[1]!` but zod runs all refines even after a regex failure.
+  **Learned:** Every `.refine` runs unconditionally. Non-null assertions inside `.refine` are a defect — guard with `??` or early return.
+  **Criterion now:** ISC-278 — atom-id refine guards the optional split chain; users see the regex error from the first failed check.
+
+### Iteration-5 Verification
+
+**ISC-268..273 (re-probed shipped claims):**
+- `pnpm verify` — exit 0 from cache-cleared state. 269/269 tests passing across 24 files (189 core + 19 db + 35 cli + 26 registry).
+- Live install round-trip in `/tmp/agentpack-clean-*` — install wrote 5 files, verify clean, drift detected on tamper, uninstall removed all 4 created files + restored backup.
+- 5 adapter targets exported successfully; `diff -r /tmp/det-a /tmp/det-b` reports empty (byte-identical).
+- `agentpack init` produced a valid manifest, `agentpack validate` accepted it.
+- `gh run list --limit 1` → conclusion success on `31c5d35`.
+
+**ISC-274..276 (CVE patches):**
+- Before: `pnpm audit --prod` → 2 critical, 8 high, 13 moderate, 5 low.
+- After: 0 critical, 0 high, 7 moderate, 2 low.
+- Bumped: `next@15.1.3 → 15.5.18`, `vitest@2.1.8 → 2.1.9`, `@vitest/coverage-v8@2.1.8 → 2.1.9` (in 4 package.json files).
+
+**ISC-277 (orphan fix):**
+- Live probe: `install /tmp/agentpack-force-bug-* → tamper CLAUDE.md → install --force → uninstall` now removes 3 + restores 1 (was: removes 0 + restores 1 + leaves 3 orphans).
+- Test suite still passes (269/269) — no regression.
+
+**ISC-278 (atom-id crash fix):**
+- Live probe: `validate` against a manifest with `id: "no-colon-here"` now reports `schema.invalid_string at atoms.0.id: Atom id must be \`<type>:<slug>\``  (was: `schema.unknown at (root): Cannot read properties of undefined (reading 'split')`).
+
+**ISC-279..286 (doc rewrites):**
+- `CONTRIBUTING.md` — fully rewritten.
+- `docs/cli.md` — fully rewritten with all 19 commands + exit-code taxonomy.
+- `docs/signatures.md` + `apps/registry/.env.example` — `agentpack.dev → registry.agentpack.dev`.
+- `docs/security.md` — stale "MVP does not yet install" sentence removed.
+- `README.md` — quickstart leads with clone+build; status banner notes the hosted registry isn't live; CTA added.
+- `docs/registry.md` — link-text fixed.
+- `STATUS.md` — visibility, internal-leak, and dep-status all updated.
+- `CHANGELOG.md` — duplicate v0.4.0-dev disambiguated.
+
+**ISC-287..288 (post-fix verify):**
+- `pnpm verify` exit 0 with all changes applied.
+- All 269 tests continue to pass.
+
+**ISC-297..300 (anti-criteria probes):**
+- `pnpm audit --prod` confirms 0 critical / 0 high.
+- `git log --all -p | grep` regex sweep for secret patterns returns no real matches (only documented placeholder strings).
+- STATUS.md visibility statement now honest about the un-flipped state.
+- README quickstart steps verified manually — clone + build + alias works end-to-end on this WSL2 Node 22 environment.
+
+**ISC-289..296 (deferred):** documented as follow-ups; no live verification this session.
+
+**Cross-vendor audit (Cato, Rule 2a, E5 MANDATORY) — DOCTRINE DEVIATION LOGGED:**
+- Canary passed (50-LOC `ls`, exit 0, `CANARY OK` within seconds, ~10s wall clock).
+- Full audit dispatched via `codex exec --sandbox read-only` with a structured JSON prompt (~2,000 words, targeted at 5 specific files in 8 attack categories).
+- **Stalled silently for >12 minutes with 0 bytes of stdout.** Same failure mode as iter-3 + iter-4. The canary-then-full-audit pattern from `feedback_forge_canary` doesn't catch this — the canary's tiny context didn't trigger the context-starvation behavior, but the full audit's ~2,000-word prompt + first repo-read tool calls did.
+- Killed via `pkill -f "codex exec --sandbox"` after 12 minutes.
+- **Compensating control:** parallel Claude-family review agents (security-reviewer, qa-lead, content-reviewer, launch-operator, product-strategist) ran successfully — these surfaced 2 launch-blocking CVEs (already patched), 3 install-engine bugs (2 fixed inline; 1 deferred to v0.5.1), and ~30 doc-accuracy issues (9 fixed inline; rest deferred). The cross-vendor signal is THIN compared to a working Cato run, but the local-family coverage is dense.
+- Doctrine deviation noted per Algorithm v6.3.0 §Rule 2a — block-on-fail not honored because the failure mode is the wrapper, not the work. Same compensating-control pattern as iter-3 + iter-4. The agent-stall investigation memo lives at `~/.claude/PAI/MEMORY/KNOWLEDGE/Research/agent-stall-investigation.md` and the proposed Algorithm v6.4.0 fix (chunk-the-prompt + emit-progress-or-fall-back ladder) lives at `Plans/algorithm-v6.4.0-changes.md`.

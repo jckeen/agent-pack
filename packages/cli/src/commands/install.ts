@@ -22,7 +22,7 @@ import {
   type GitSource,
   type RegistryClient,
   type TargetPlatform,
-} from "@workgraph/core";
+} from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 import { riskBadge } from "../lib/render.js";
 import { CLI_VERSION } from "../lib/version.js";
@@ -117,20 +117,26 @@ export function registerInstall(program: Command): void {
                   "✗ --require-sig with a git source is not supported in v0.5.\n" +
                     "  Git-source signature verification (cosign-on-tag) arrives in v0.5.1.\n" +
                     "  For signed-by-default today, publish to a registry and install via\n" +
-                    "  `workgraph install <publisher>/<pack>@<version> --require-sig`."
+                    "  `agentpack install <publisher>/<pack>@<version> --require-sig`."
                 )
               );
               process.exit(2);
             }
-            source = await fetchGitPack({
+            const gitResult = await fetchGitPack({
               source: gitSource,
               fetchImpl: globalThis.fetch,
             });
+            source = gitResult.tmpRoot;
+            const refLabel = gitSource.ref
+              ? gitSource.ref === gitResult.resolvedSha
+                ? gitSource.ref
+                : `${gitSource.ref} → ${gitResult.resolvedSha.slice(0, 12)}`
+              : `(default branch) → ${gitResult.resolvedSha.slice(0, 12)}`;
             console.log(
               pc.dim(
-                `Installed from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}${
-                  gitSource.ref ? "@" + gitSource.ref : " (default branch)"
-                }${gitSource.subpath ? "#" + gitSource.subpath : ""}`
+                `Installed from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}@${refLabel}${
+                  gitSource.subpath ? "#" + gitSource.subpath : ""
+                }`
               )
             );
           }
@@ -252,7 +258,7 @@ export function registerInstall(program: Command): void {
           console.log(pc.dim(`  • History entry: ${result.commitEntry.id}`));
           console.log(
             pc.dim(
-              `\nConsider adding to .gitignore:\n  .workgraph/installed/\n  .workgraph/backups/\n  .workgraph/history.jsonl\n  .workgraph/.lock\nKeep \`AGENTPACK.lock\` committed for reproducibility.`,
+              `\nConsider adding to .gitignore:\n  .agentpack/installed/\n  .agentpack/backups/\n  .agentpack/history.jsonl\n  .agentpack/.lock\nKeep \`AGENTPACK.lock\` committed for reproducibility.`,
             ),
           );
         } catch (err) {
@@ -481,6 +487,13 @@ async function verifyRegistrySignature(params: {
   // Verify the newest signature (registry sorts newest-first).
   const latest = data.signatures[0];
   if (!latest) return { code: "unsigned" };
+  // v0.5.1 hardening (security-reviewer CRITICAL-1): the signing API now
+  // supports `requireIdentity: true` to refuse trust-on-first-publish, but
+  // the wire path needs an `expectedSAN` (per-publisher allowlist served
+  // by the registry) before we can enable it without breaking every
+  // current sig-checked install. Until the registry response carries the
+  // bound SAN — tracked as v0.5.2 follow-up — verify against the bundle
+  // alone and surface the SAN in the result so the caller can audit.
   const result = await signing.verifyManifestSignature({
     manifestChecksum: data.manifestSha256,
     signed: {

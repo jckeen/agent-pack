@@ -50,12 +50,37 @@ export interface GitSource {
 const GIT_ID_RE =
   /^(github(?:\.com)?)[:/]([A-Za-z0-9_.-]{1,39})\/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?(?:@([^#]+))?(?:#(.+))?$/;
 
+/**
+ * Allowed characters in a git ref. Mirrors the safe subset of `git
+ * check-ref-format` rules:
+ *   - letters, digits, `.`, `_`, `-`, `/`, `+` (semver build metadata
+ *     like `v1.0.0+build.1` is a real-world case)
+ *   - rejects every C0/C1 control char (newline, CR, NUL etc.) and the
+ *     shell metacharacters that would smuggle into log lines or the
+ *     raw.gh.com URL path
+ *   - rejects spaces and `~`, `^`, `:`, `?`, `*`, `[`, backslash,
+ *     apostrophe (all forbidden by git itself)
+ * Cap at 255 chars — GitHub's effective ref-name limit is below this.
+ * From security-reviewer HIGH-4 (iter-5); widened in codex P2 review to
+ * allow `+`.
+ */
+const REF_RE = /^[A-Za-z0-9._/+-]{1,255}$/;
+
 export function parseGitId(input: string): GitSource | null {
   if (!input || typeof input !== "string") return null;
   const m = input.match(GIT_ID_RE);
   if (!m) return null;
   const [, hostRaw, owner, repo, ref, subpath] = m;
   if (!owner || !repo) return null;
+  // Validate ref shape if present. A ref containing newlines, NUL, or other
+  // control characters can be injected into log output (CLI prints `ref`
+  // directly) and can construct a malformed raw.githubusercontent.com URL
+  // even after percent-encoding. Reject loudly rather than coerce.
+  if (ref !== undefined && !REF_RE.test(ref)) return null;
+  // Subpath sanitization: full traversal check happens at fetch time
+  // (fetchGitPack). Here we reject the obvious shape errors that the regex
+  // above lets through (NUL byte, control chars, leading slash).
+  if (subpath !== undefined && /[\x00-\x1f\x7f]/.test(subpath)) return null;
   // Normalize host. `github:` and `github.com` are both treated as
   // GitHub; the host field records which surface the user spelled, in
   // case a future revision wants to surface that in lockfile provenance.
@@ -94,6 +119,42 @@ async function resolveDefaultBranch(
   return body.default_branch;
 }
 
+/** Match a 40-character lowercase hex commit SHA. */
+const SHA40_RE = /^[a-f0-9]{40}$/i;
+
+/**
+ * Resolve any git ref to its tip-of-fetch-time commit SHA. A 40-hex SHA
+ * round-trips unchanged. Branches and tags are resolved via GitHub's
+ * `/repos/{o}/{r}/commits/{ref}` endpoint, which returns the current
+ * commit hash for that ref. Used to pin the fetch so that a force-push
+ * between manifest fetch and per-atom fetches cannot swap content under
+ * us. From security-reviewer HIGH-6 (iter-5).
+ */
+async function resolveRefToSha(
+  owner: string,
+  repo: string,
+  ref: string,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<string> {
+  if (SHA40_RE.test(ref)) return ref.toLowerCase();
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
+  const res = await fetchImpl(url, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `GitHub API ${url} returned ${res.status} — unable to pin ref "${ref}" to a SHA.`,
+    );
+  }
+  const body = (await res.json()) as { sha?: string };
+  if (!body.sha || !SHA40_RE.test(body.sha)) {
+    throw new Error(
+      `GitHub API returned no SHA for ${owner}/${repo}@${ref}.`,
+    );
+  }
+  return body.sha.toLowerCase();
+}
+
 /**
  * Build the raw.githubusercontent.com URL for a file at a given ref +
  * optional subpath. Refs that look like commit SHAs are passed through;
@@ -121,24 +182,44 @@ export interface FetchGitPackOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface FetchGitPackResult {
+  /** Path to the materialized tmpRoot, ready for planInstall. */
+  tmpRoot: string;
+  /**
+   * The 40-character commit SHA all files were actually fetched from. Pinned
+   * once up front so a force-push between manifest + atom fetches cannot
+   * swap content under us. Record this in the lockfile for reproducibility.
+   */
+  resolvedSha: string;
+  /** The ref the user typed (`null` if `@ref` was omitted). */
+  requestedRef: string | null;
+}
+
 /**
  * Materialize a git-sourced pack into a tmpRoot suitable for `planInstall`.
  *
  * Steps:
  *   1. If source.ref is null, resolve the repo's default branch.
- *   2. Fetch AGENTPACK.yaml from raw.githubusercontent.com at ref/subpath.
- *   3. Parse the manifest to enumerate atom file paths.
- *   4. Fetch each file in sequence (parallelism left for v0.5.1).
- *   5. Return the tmpRoot.
+ *   2. Resolve the ref to a 40-char commit SHA — pin EVERY subsequent fetch
+ *      to that SHA so a concurrent force-push cannot rewrite content under
+ *      us between the manifest fetch and the per-atom fetches.
+ *   3. Fetch AGENTPACK.yaml from raw.githubusercontent.com at SHA/subpath.
+ *   4. Parse the manifest to enumerate atom file paths.
+ *   5. Fetch each file in sequence at the same pinned SHA.
+ *   6. Return { tmpRoot, resolvedSha, requestedRef }.
  */
 export async function fetchGitPack(
-  options: FetchGitPackOptions
-): Promise<string> {
+  options: FetchGitPackOptions,
+): Promise<FetchGitPackResult> {
   const { source } = options;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
 
-  const ref =
+  const requestedRef = source.ref;
+  const userRefOrDefault =
     source.ref ?? (await resolveDefaultBranch(source.owner, source.repo, fetchImpl));
+  // Pin every subsequent fetch to a SHA. Branches and tags resolve through
+  // GitHub's commits endpoint; 40-hex SHAs pass through unchanged.
+  const ref = await resolveRefToSha(source.owner, source.repo, userRefOrDefault, fetchImpl);
 
   const subpathPrefix = source.subpath
     ? `${source.subpath.replace(/^\/+|\/+$/g, "")}/`
@@ -214,5 +295,5 @@ export async function fetchGitPack(
     }
   }
 
-  return tmpRoot;
+  return { tmpRoot, resolvedSha: ref, requestedRef };
 }

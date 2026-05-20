@@ -2,7 +2,7 @@
  * `compatibilities` — per-target compatibility status for each pack version.
  *
  * Composite PK `(pack_version_id, target)`. Status is a free-form text matching
- * `compatibilityStatusSchema` in `@workgraph/core/protocol`
+ * `compatibilityStatusSchema` in `@agentpack/core/protocol`
  * (`supported|partial|experimental|unsupported`).
  */
 

@@ -13,7 +13,7 @@ import {
  * GET /api/v1/packs/<publisher>/<pack>/versions/<version>/signatures
  *
  * Returns every signature attached to this version, newest first. Empty
- * `signatures: []` means unsigned. Used by `workgraph verify --sig` and
+ * `signatures: []` means unsigned. Used by `agentpack verify --sig` and
  * by the pack detail UI's "Signed by" badge resolution.
  */
 export async function GET(

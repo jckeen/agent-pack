@@ -495,8 +495,8 @@ describe("seed · helpers", () => {
     const { getSeedPack, getSeedPackById, allTags } = await import(
       "../src/seed/seedPacks.js"
     );
-    const a = getSeedPack("workgraph", "pr-quality");
-    const b = getSeedPackById("workgraph.pr-quality");
+    const a = getSeedPack("agentpack", "pr-quality");
+    const b = getSeedPackById("agentpack.pr-quality");
     expect(a).toBe(b);
     expect(allTags().length).toBeGreaterThan(0);
   });

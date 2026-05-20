@@ -4,7 +4,7 @@ import type {
   TargetPlatform,
 } from "../schema/types.js";
 import type { InstallManifestV1 } from "./types.js";
-import type { WorkgraphPaths } from "./paths.js";
+import type { AgentpackPaths } from "./paths.js";
 import { installManifestPath } from "./paths.js";
 
 const TARGET_PLATFORMS_ARR: readonly TargetPlatform[] = [
@@ -92,7 +92,7 @@ export class InstallManifestNotFoundError extends Error {
 }
 
 export async function readInstallManifest(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   packId: string,
 ): Promise<InstallManifestV1> {
   const target = installManifestPath(p, packId);
@@ -109,7 +109,7 @@ export async function readInstallManifest(
 }
 
 export async function writeInstallManifest(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   manifest: InstallManifestV1,
 ): Promise<string> {
   const target = installManifestPath(p, manifest.packId);
@@ -118,7 +118,7 @@ export async function writeInstallManifest(
 }
 
 export async function deleteInstallManifest(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
   packId: string,
 ): Promise<void> {
   const target = installManifestPath(p, packId);
@@ -130,12 +130,12 @@ export async function deleteInstallManifest(
 }
 
 /**
- * List every install manifest under `.workgraph/installed/`. Returns
+ * List every install manifest under `.agentpack/installed/`. Returns
  * already-parsed manifests; surface invalid manifests as errors with the
  * filename so users can investigate.
  */
 export async function listInstallManifests(
-  p: WorkgraphPaths,
+  p: AgentpackPaths,
 ): Promise<InstallManifestV1[]> {
   let entries: string[];
   try {

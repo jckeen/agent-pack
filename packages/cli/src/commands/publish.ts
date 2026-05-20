@@ -12,7 +12,7 @@ import {
   resolveAtoms,
   signing,
   type AgentPackManifest,
-} from "@workgraph/core";
+} from "@agentpack/core";
 
 import { getToken } from "../lib/credentials.js";
 import { confirm } from "../lib/prompt.js";
@@ -46,7 +46,7 @@ interface PublishFile {
 export function registerPublish(program: Command): void {
   program
     .command("publish [path]")
-    .description("Publish a pack to the Workgraph Registry.")
+    .description("Publish a pack to the AgentPack Registry.")
     .option("--registry <url>", "registry URL", DEFAULT_REGISTRY_URL)
     .option("-y, --yes", "skip confirmation", false)
     .option(
@@ -65,7 +65,7 @@ export function registerPublish(program: Command): void {
           const token = await getToken(registry);
           if (!token) {
             console.error(
-              pc.red("Not logged in. Run `workgraph login` first.")
+              pc.red("Not logged in. Run `agentpack login` first.")
             );
             process.exit(ExitCode.Generic);
           }
@@ -130,7 +130,7 @@ export function registerPublish(program: Command): void {
           });
 
           if (initRes.status === 401) {
-            console.error(pc.red("Token rejected. Re-run `workgraph login`."));
+            console.error(pc.red("Token rejected. Re-run `agentpack login`."));
             process.exit(ExitCode.Generic);
           }
           if (initRes.status === 403) {
@@ -213,7 +213,7 @@ export function registerPublish(program: Command): void {
             }
           );
           if (finalizeRes.status === 410) {
-            console.error(pc.red("Publish expired. Re-run `workgraph publish`."));
+            console.error(pc.red("Publish expired. Re-run `agentpack publish`."));
             process.exit(ExitCode.Generic);
           }
           if (finalizeRes.status === 422) {

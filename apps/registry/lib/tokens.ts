@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 
-import { TOKEN_PREFIX } from "@workgraph/core";
+import { TOKEN_PREFIX } from "@agentpack/core";
 
 import { apiTokens, getDb, publisherMembers, publishers } from "./db";
 
@@ -9,7 +9,7 @@ import { apiTokens, getDb, publisherMembers, publishers } from "./db";
  * Generates a fresh API token.
  *
  * Body: 16 random bytes hex-encoded → 32 lowercase hex chars.
- * Full token: `wgp_live_` + body (41 chars total).
+ * Full token: `agp_live_` + body (41 chars total).
  * Prefix kept for UI display: first 12 chars of the full token (9 prefix + 3 body).
  * sha256: lowercase hex sha256 of the UTF-8 token bytes — what we store.
  */
@@ -108,7 +108,7 @@ export async function verifyBearer(req: Request): Promise<VerifiedToken | null> 
  *
  * Accepts:
  *  - exact scope match (e.g. `publish:packs`)
- *  - scoped match when `publisherSlug` supplied (e.g. `publish:packs@workgraph`)
+ *  - scoped match when `publisherSlug` supplied (e.g. `publish:packs@agentpack`)
  *  - `admin:registry` as a super-scope
  */
 export function requireScope(

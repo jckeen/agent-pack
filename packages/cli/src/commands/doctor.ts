@@ -36,7 +36,7 @@ async function pathExists(p: string): Promise<boolean> {
 export function registerDoctor(program: Command): void {
   program
     .command("doctor")
-    .description("Run environment checks for the workgraph CLI.")
+    .description("Run environment checks for the agentpack CLI.")
     .action(async () => {
       const cwd = process.cwd();
       const checks: Check[] = [];
@@ -74,7 +74,7 @@ export function registerDoctor(program: Command): void {
         ok: manifestPresent,
         detail: manifestPresent
           ? manifest
-          : "(none — run `workgraph init` to scaffold one)",
+          : "(none — run `agentpack init` to scaffold one)",
       });
 
       // Git

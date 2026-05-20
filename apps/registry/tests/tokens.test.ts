@@ -8,9 +8,9 @@ import { describe, expect, it } from "vitest";
 import { generateToken, hashToken } from "@/lib/tokens";
 
 describe("generateToken", () => {
-  it("produces a wgp_live_ prefixed 41-char token", () => {
+  it("produces a agp_live_ prefixed 41-char token", () => {
     const { token } = generateToken();
-    expect(token.startsWith("wgp_live_")).toBe(true);
+    expect(token.startsWith("agp_live_")).toBe(true);
     expect(token.length).toBe(41);
   });
 
@@ -35,12 +35,12 @@ describe("generateToken", () => {
 
 describe("hashToken", () => {
   it("is stable for the same input", () => {
-    const t = "wgp_live_" + "a".repeat(32);
+    const t = "agp_live_" + "a".repeat(32);
     expect(hashToken(t)).toBe(hashToken(t));
   });
 
   it("returns 64 lowercase hex chars", () => {
-    const t = "wgp_live_" + "b".repeat(32);
+    const t = "agp_live_" + "b".repeat(32);
     expect(hashToken(t)).toMatch(/^[0-9a-f]{64}$/);
   });
 });
