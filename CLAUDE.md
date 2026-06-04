@@ -1,6 +1,6 @@
 # agent-pack
 
-AgentPack is an open-source (MIT) standard, registry, and CLI for packaging and installing agent configurations across platforms. TypeScript monorepo: `packages/{core,cli,db}` + `apps/registry` + `examples/pr-quality`. Public at github.com/jckeen/agent-pack.
+AgentPack is an open-source (MIT) standard, registry, and CLI for packaging and installing agent configurations across platforms. TypeScript monorepo: `packages/{core,cli,db}` + `apps/registry` + `examples/pr-quality`. The repo is currently PRIVATE (planned to go public — see `STATUS.md` for the operator-only visibility flip).
 
 ## Project context (migrated from memory)
 
