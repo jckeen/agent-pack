@@ -214,12 +214,13 @@ For status and recovery around an upgrade:
   new `install_begin` / `install_commit` pair.
 - `agentpack rollback` — undoes the upgrade install, but it does **not**
   restore the previous version as an installed pack. Rollback runs a full
-  `uninstall` of the latest install: every file the new manifest owns —
-  including files carried over byte-identical from the previous version — is
-  deleted, files the upgrade overwrote are restored from backup to their
-  pre-upgrade content, and the install manifest is removed. You end up with
-  the pack untracked: some old-version file content may remain on disk (the
-  restored backups), but the pack is no longer installed.
+  `uninstall` of the latest install: files the manifest **created** —
+  including files carried over byte-identical from the previous version — are
+  deleted; files the manifest **modified** (it overwrote pre-existing content
+  and kept a backup) are restored in place from backup, not deleted; and the
+  install manifest is removed. You end up with the pack untracked: restored
+  pre-upgrade content may remain on disk, but the pack is no longer
+  installed.
 - To actually return to the previous version, re-install it:
   `agentpack install publisher/pack@1.x.x`. After a rollback this recreates
   the deleted files, adopts what is already on disk, and `verify` reports
