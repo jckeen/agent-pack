@@ -200,14 +200,30 @@ overwritten. The new install manifest takes full ownership (including files
 that happen to be byte-identical across versions), so a later `uninstall`
 removes the pack cleanly.
 
+One caveat: marker-aware classification only works for files that carry the
+AgentPack `BEGIN`/`END` markers (markdown instruction files). Marker-less
+outputs whose content changes between versions (e.g. a generated
+`agentpack.json` or `.claude/settings.json`) classify as conflicts, so an
+upgrade that touches them needs `--force`.
+
 For status and recovery around an upgrade:
 
 - `agentpack verify <packId>` — confirm what's on disk matches the installed
   version (before upgrading) or the new version (after).
 - `agentpack history` — every install is logged, so the upgrade shows up as a
   new `install_begin` / `install_commit` pair.
-- `agentpack rollback` — undo the upgrade and restore the backed-up files from
-  the previous version.
+- `agentpack rollback` — undoes the upgrade install, but it does **not**
+  restore the previous version as an installed pack. Rollback runs a full
+  `uninstall` of the latest install: every file the new manifest owns —
+  including files carried over byte-identical from the previous version — is
+  deleted, files the upgrade overwrote are restored from backup to their
+  pre-upgrade content, and the install manifest is removed. You end up with
+  the pack untracked: some old-version file content may remain on disk (the
+  restored backups), but the pack is no longer installed.
+- To actually return to the previous version, re-install it:
+  `agentpack install publisher/pack@1.x.x`. After a rollback this recreates
+  the deleted files, adopts what is already on disk, and `verify` reports
+  clean again.
 
 ## Anti-criteria (what install will NOT do)
 

@@ -173,7 +173,7 @@ describe("adapters write expected files", () => {
     expect(github["transport"]).toBe("stdio");
     expect(github["command"]).toBe("npx");
     expect(github["args"]).toEqual(["-y", "@modelcontextprotocol/server-github"]);
-    expect(github["env_required"]).toEqual(["GITHUB_TOKEN"]);
+    expect(github["env_vars"]).toEqual(["GITHUB_TOKEN"]);
   });
 
   it("export refuses to write outside the outDir", async () => {

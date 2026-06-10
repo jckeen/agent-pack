@@ -1,9 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type {
-  AdapterExportOptions,
-  AdapterOutputFile,
-  Atom,
-} from "../schema/types.js";
+import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/types.js";
 import {
   atomsByType,
   defineAdapter,
@@ -20,8 +16,9 @@ function tomlEscape(value: string): string {
     .replace(/\r/g, "\\r")
     .replace(/\n/g, "\\n")
     .replace(/\t/g, "\\t")
-    .replace(/[\u0000-\u001f\u007f]/g, (c) =>
-      `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    .replace(
+      /[\u0000-\u001f\u007f]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
     );
 }
 
@@ -81,9 +78,7 @@ export const codexAdapter = defineAdapter({
     if (ruleAtoms.length > 0) {
       sections.push(`## Rules\n`);
       for (const atom of ruleAtoms) {
-        sections.push(
-          `### ${atom.name}\n\n_(${atom.id})_\n\n${atom.description}\n`,
-        );
+        sections.push(`### ${atom.name}\n\n_(${atom.id})_\n\n${atom.description}\n`);
       }
     }
     const workflowAtoms = byType.get("workflow") ?? [];
@@ -128,7 +123,7 @@ export const codexAdapter = defineAdapter({
           transport: a.transport ?? "stdio",
           command: a.command ?? "",
           args: a.args ?? [],
-          env_required: envKeys,
+          env_vars: envKeys,
           risk_level: atom.risk_level,
           description: atom.description,
         }),
@@ -151,11 +146,12 @@ export const codexAdapter = defineAdapter({
       const hooks: Record<string, unknown[]> = {};
       for (const atom of hookAtoms) {
         const parsed = await parseAtomYaml(packRoot, atom);
-        const events = ((parsed?.["events"] as
-          | { codex?: string[]; generic?: string[] }
-          | undefined)?.codex ??
-          (parsed?.["events"] as { generic?: string[] } | undefined)?.generic ??
-          ["after_edit"]) as string[];
+        const events = ((
+          parsed?.["events"] as { codex?: string[]; generic?: string[] } | undefined
+        )?.codex ??
+          (parsed?.["events"] as { generic?: string[] } | undefined)?.generic ?? [
+            "after_edit",
+          ]) as string[];
         const handler =
           (parsed?.["handler"] as { command?: string } | undefined) ??
           (atom as { handler?: { command?: string } }).handler;
@@ -293,10 +289,7 @@ async function parseAtomYaml(
   }
 }
 
-async function readSafeRelative(
-  packRoot: string,
-  relPath: string,
-): Promise<string | null> {
+async function readSafeRelative(packRoot: string, relPath: string): Promise<string | null> {
   const path = await import("node:path");
   const fs = await import("node:fs/promises");
   if (
