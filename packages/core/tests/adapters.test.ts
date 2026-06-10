@@ -6,13 +6,7 @@ import { exportPack, type TargetPlatform } from "../src/index.js";
 
 const EXAMPLE = path.resolve(__dirname, "../../../examples/pr-quality");
 
-const TARGETS: TargetPlatform[] = [
-  "claude-code",
-  "codex",
-  "cursor",
-  "chatgpt",
-  "generic",
-];
+const TARGETS: TargetPlatform[] = ["claude-code", "codex", "cursor", "chatgpt", "generic"];
 
 const tmpRoot = path.join(os.tmpdir(), `agentpack-adapter-test-${Date.now()}`);
 
@@ -49,18 +43,14 @@ describe("adapters write expected files", () => {
     const r = await runExport("claude-code", "safe");
     expect(await pathExists(path.join(r.outDir, "CLAUDE.md"))).toBe(true);
     expect(
-      await pathExists(
-        path.join(r.outDir, ".claude/skills/code-review/SKILL.md"),
-      ),
+      await pathExists(path.join(r.outDir, ".claude/skills/code-review/SKILL.md")),
     ).toBe(true);
   });
 
   it("claude-code (standard) adds the security-reviewer subagent", async () => {
     const r = await runExport("claude-code", "standard");
     expect(
-      await pathExists(
-        path.join(r.outDir, ".claude/agents/security-reviewer.md"),
-      ),
+      await pathExists(path.join(r.outDir, ".claude/agents/security-reviewer.md")),
     ).toBe(true);
   });
 
@@ -76,25 +66,19 @@ describe("adapters write expected files", () => {
   it("codex writes AGENTS.md and .codex/config.toml", async () => {
     const r = await runExport("codex", "safe");
     expect(await pathExists(path.join(r.outDir, "AGENTS.md"))).toBe(true);
-    expect(
-      await pathExists(path.join(r.outDir, ".codex/config.toml")),
-    ).toBe(true);
+    expect(await pathExists(path.join(r.outDir, ".codex/config.toml"))).toBe(true);
   });
 
   it("codex (full) writes .codex/hooks.json", async () => {
     const r = await runExport("codex", "full");
-    expect(
-      await pathExists(path.join(r.outDir, ".codex/hooks.json")),
-    ).toBe(true);
+    expect(await pathExists(path.join(r.outDir, ".codex/hooks.json"))).toBe(true);
   });
 
   it("cursor writes AGENTS.md and the security-review-required rule", async () => {
     const r = await runExport("cursor", "safe");
     expect(await pathExists(path.join(r.outDir, "AGENTS.md"))).toBe(true);
     expect(
-      await pathExists(
-        path.join(r.outDir, ".cursor/rules/security-review-required.mdc"),
-      ),
+      await pathExists(path.join(r.outDir, ".cursor/rules/security-review-required.mdc")),
     ).toBe(true);
   });
 
@@ -108,32 +92,22 @@ describe("adapters write expected files", () => {
 
   it("chatgpt writes project-instructions.md and an app manifest", async () => {
     const r = await runExport("chatgpt", "safe");
-    expect(
-      await pathExists(path.join(r.outDir, "project-instructions.md")),
-    ).toBe(true);
-    expect(
-      await pathExists(path.join(r.outDir, "app-manifest.json")),
-    ).toBe(true);
+    expect(await pathExists(path.join(r.outDir, "project-instructions.md"))).toBe(true);
+    expect(await pathExists(path.join(r.outDir, "app-manifest.json"))).toBe(true);
   });
 
   it("chatgpt (with commands) writes an MCP tool stub for the command atom", async () => {
     const r = await runExport("chatgpt", "safe");
     expect(
-      await pathExists(
-        path.join(r.outDir, "mcp-server/src/tools/pr-summary.ts"),
-      ),
+      await pathExists(path.join(r.outDir, "mcp-server/src/tools/pr-summary.ts")),
     ).toBe(true);
   });
 
   it("generic writes AGENTS.md, code-review skill, and agentpack.json", async () => {
     const r = await runExport("generic", "safe");
     expect(await pathExists(path.join(r.outDir, "AGENTS.md"))).toBe(true);
-    expect(
-      await pathExists(path.join(r.outDir, "skills/code-review/SKILL.md")),
-    ).toBe(true);
-    expect(
-      await pathExists(path.join(r.outDir, "agentpack.json")),
-    ).toBe(true);
+    expect(await pathExists(path.join(r.outDir, "skills/code-review/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(r.outDir, "agentpack.json"))).toBe(true);
   });
 
   it("instruction outputs contain the AgentPack BEGIN/END markers", async () => {
@@ -175,6 +149,33 @@ describe("adapters write expected files", () => {
     }
   });
 
+  it("claude-code settings.json parses back with the github MCP server intact", async () => {
+    const r = await runExport("claude-code", "full");
+    const settings = JSON.parse(
+      await fs.readFile(path.join(r.outDir, ".claude/settings.json"), "utf8"),
+    ) as {
+      mcpServers: Record<
+        string,
+        { command: string; args: string[]; env: Record<string, string> }
+      >;
+    };
+    const github = settings.mcpServers["github"];
+    expect(github).toBeDefined();
+    expect(github!.command).toBe("npx");
+    expect(github!.args).toEqual(["-y", "@modelcontextprotocol/server-github"]);
+    expect(github!.env).toEqual({ GITHUB_TOKEN: "${GITHUB_TOKEN}" });
+  });
+
+  it("codex config.toml parses back with the github MCP server intact", async () => {
+    const r = await runExport("codex", "full");
+    const toml = await fs.readFile(path.join(r.outDir, ".codex/config.toml"), "utf8");
+    const github = parseTomlTable(toml, "mcp_servers.github");
+    expect(github["transport"]).toBe("stdio");
+    expect(github["command"]).toBe("npx");
+    expect(github["args"]).toEqual(["-y", "@modelcontextprotocol/server-github"]);
+    expect(github["env_vars"]).toEqual(["GITHUB_TOKEN"]);
+  });
+
   it("export refuses to write outside the outDir", async () => {
     const badOut = path.join(tmpRoot, "boundary-check");
     // We rely on the contract; constructing a malicious adapter is overkill
@@ -188,6 +189,22 @@ describe("adapters write expected files", () => {
     void badOut;
   });
 });
+
+function parseTomlTable(toml: string, name: string): Record<string, unknown> {
+  const lines = toml.split("\n");
+  const start = lines.indexOf(`[${name}]`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const table: Record<string, unknown> = {};
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith("[")) break;
+    const m = line.match(/^([A-Za-z0-9_.-]+) = (.*)$/);
+    if (!m) continue;
+    // The adapter emits only basic strings, arrays of basic strings, numbers,
+    // and booleans — all of which are JSON-compatible.
+    table[m[1]!] = JSON.parse(m[2]!) as unknown;
+  }
+  return table;
+}
 
 async function listFilesRecursive(root: string): Promise<string[]> {
   const out: string[] = [];

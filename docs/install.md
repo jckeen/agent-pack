@@ -30,13 +30,13 @@ npx agentpack history --limit 20
 
 When you `install` a pack into a project root, four things happen on disk:
 
-| Path | Purpose | Committed? |
-|---|---|---|
-| `<project>/<adapter-files>` | The platform-native files (`CLAUDE.md`, `.claude/skills/...`, `AGENTS.md`, `.cursor/rules/*.mdc`, etc.) | Up to you |
-| `<project>/AGENTPACK.lock` | Deterministic lockfile: per-atom + per-file SHA-256 checksums, no timestamps, no machine-specific values | **Yes** |
-| `<project>/.agentpack/installed/<packId>.json` | Install manifest — authoritative source for uninstall | **No** (gitignore it) |
-| `<project>/.agentpack/history.jsonl` | Hash-chained append-only audit log | **No** (gitignore it) |
-| `<project>/.agentpack/backups/<packId>/<ts>.<nonce>/...` | Backups of files we overwrote | **No** (gitignore it) |
+| Path                                                     | Purpose                                                                                                  | Committed?            |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------- |
+| `<project>/<adapter-files>`                              | The platform-native files (`CLAUDE.md`, `.claude/skills/...`, `AGENTS.md`, `.cursor/rules/*.mdc`, etc.)  | Up to you             |
+| `<project>/AGENTPACK.lock`                               | Deterministic lockfile: per-atom + per-file SHA-256 checksums, no timestamps, no machine-specific values | **Yes**               |
+| `<project>/.agentpack/installed/<packId>.json`           | Install manifest — authoritative source for uninstall                                                    | **No** (gitignore it) |
+| `<project>/.agentpack/history.jsonl`                     | Hash-chained append-only audit log                                                                       | **No** (gitignore it) |
+| `<project>/.agentpack/backups/<packId>/<ts>.<nonce>/...` | Backups of files we overwrote                                                                            | **No** (gitignore it) |
 
 Recommended `.gitignore` snippet (printed after every install):
 
@@ -80,12 +80,12 @@ a recovery sweep. For every dangling `install_begin`:
 `agentpack install` (and `diff`) classifies each target path into one of four
 bins:
 
-| Status | Meaning | Action |
-|---|---|---|
-| `create` | No file exists at this path | Write |
-| `unchanged` | File exists, byte-identical | Skip |
-| `modify` | File exists, has our `<!-- BEGIN AGENTPACK: <pack> -->` marker | Backup + overwrite |
-| `conflict` | File exists, no marker (or marker belongs to another pack) | Refuse without `--force` |
+| Status      | Meaning                                                        | Action                   |
+| ----------- | -------------------------------------------------------------- | ------------------------ |
+| `create`    | No file exists at this path                                    | Write                    |
+| `unchanged` | File exists, byte-identical                                    | Skip                     |
+| `modify`    | File exists, has our `<!-- BEGIN AGENTPACK: <pack> -->` marker | Backup + overwrite       |
+| `conflict`  | File exists, no marker (or marker belongs to another pack)     | Refuse without `--force` |
 
 Two-pack marker overlap is detected but not merged in Phase 2 — install
 refuses with a clear error pointing at the other pack ID. Marker-aware merge
@@ -117,7 +117,12 @@ diffability:
       "sourceChecksum": "<sha256 of source atom files>",
       "contentChecksum": "<sha256 of rendered output bundle>",
       "outputs": [
-        { "path": "skills/code-review/SKILL.md", "sha256": "...", "bytes": 1234, "action": "create" }
+        {
+          "path": "skills/code-review/SKILL.md",
+          "sha256": "...",
+          "bytes": 1234,
+          "action": "create"
+        }
       ]
     }
   ],
@@ -139,7 +144,7 @@ Every install/uninstall/rollback emits a JSON line in `.agentpack/history.jsonl`
 
 ```jsonc
 {
-  "id": "019e3d4555ef7d8014f2c0c59c",   // ulid-style monotonic
+  "id": "019e3d4555ef7d8014f2c0c59c", // ulid-style monotonic
   "action": "install_commit",
   "timestamp": "2026-05-18T22:45:21.034Z",
   "packId": "agentpack.pr-quality",
@@ -150,7 +155,7 @@ Every install/uninstall/rollback emits a JSON line in `.agentpack/history.jsonl`
   "actor": { "type": "cli" },
   "result": "success",
   "previousEntryId": "019e3d4555e8e0f579300b5bb5",
-  "entryChecksum": "<sha256(canonicalJson(entry minus entryChecksum))>"
+  "entryChecksum": "<sha256(canonicalJson(entry minus entryChecksum))>",
 }
 ```
 
@@ -179,6 +184,48 @@ Within a single install, rollback is **atomic** — all-or-nothing — because
 the WAL guarantees you can always roll forward or back. Across the history,
 rollback is **step-wise** to match the git/migration mental model.
 
+## Upgrading: re-install IS the upgrade path
+
+There is no separate `upgrade` command, by design. Installing a newer version
+of a pack over an existing install is the supported upgrade path:
+
+```bash
+npx agentpack install publisher/pack@2.0.0 --target claude-code --profile safe
+```
+
+The apply step carries ownership and backups across the re-install — files the
+previous version created are recognized via the install manifest and AgentPack
+markers, replaced in place, and backed up to `.agentpack/backups/` before being
+overwritten. The new install manifest takes full ownership (including files
+that happen to be byte-identical across versions), so a later `uninstall`
+removes the pack cleanly.
+
+One caveat: marker-aware classification only works for files that carry the
+AgentPack `BEGIN`/`END` markers (markdown instruction files). Marker-less
+outputs whose content changes between versions (e.g. a generated
+`agentpack.json` or `.claude/settings.json`) classify as conflicts, so an
+upgrade that touches them needs `--force`.
+
+For status and recovery around an upgrade:
+
+- `agentpack verify <packId>` — confirm what's on disk matches the installed
+  version (before upgrading) or the new version (after).
+- `agentpack history` — every install is logged, so the upgrade shows up as a
+  new `install_begin` / `install_commit` pair.
+- `agentpack rollback` — undoes the upgrade install, but it does **not**
+  restore the previous version as an installed pack. Rollback runs a full
+  `uninstall` of the latest install: files the manifest **created** —
+  including files carried over byte-identical from the previous version — are
+  deleted; files the manifest **modified** (it overwrote pre-existing content
+  and kept a backup) are restored in place from backup, not deleted; and the
+  install manifest is removed. You end up with the pack untracked: restored
+  pre-upgrade content may remain on disk, but the pack is no longer
+  installed.
+- To actually return to the previous version, re-install it:
+  `agentpack install publisher/pack@1.x.x`. After a rollback this recreates
+  the deleted files, adopts what is already on disk, and `verify` reports
+  clean again.
+
 ## Anti-criteria (what install will NOT do)
 
 - Install never writes outside `--project` (`realpath` check on every target).
@@ -197,6 +244,7 @@ rollback is **step-wise** to match the git/migration mental model.
 ## Phase 2 → Phase 3 boundary
 
 What's in Phase 2:
+
 - Local install / uninstall / diff / verify / rollback
 - Lockfile with per-atom + per-file SHA-256
 - Install manifest (per-machine)
@@ -206,6 +254,7 @@ What's in Phase 2:
 - `--chain` verification
 
 What's deferred to Phase 3+ (requires external infrastructure):
+
 - Remote `agentpack install publisher/pack` over a hosted registry
 - Cryptographic signatures (Sigstore / cosign)
 - Transitive dependency resolution
