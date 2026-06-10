@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.1-dev — 2026-06-10 (consent permission summary + adapter readback + cleanup)
+
+Audit-driven fix batch. No new commands — closes the gap between what `plan` shows and what `install` asks consent for, plus two assurance/cleanup items.
+
+**Install consent — permission summary now shown before the y/N prompt**
+
+- **`agentpack install` previously asked for consent without ever showing the permission surface.** The plan summary printed only the pack-level risk badge and the file Create/Modify/Unchanged/Conflict lists — a user who ran `install` without first running `plan` consented to shell commands, secrets, and network domains they never saw. The full risk-grouped permission summary (per-atom attribution, required secrets, network domains, declared shell commands) is now rendered under a `Permissions:` header before the confirm prompt, and in `--dry-run` output. (`packages/cli/src/commands/install.ts`, reusing `renderPermissionSummary` from `packages/cli/src/lib/render.ts`)
+- 2 new CLI assertions + 1 new CLI test (`plan summary shows the full permission surface before consent`) in `packages/cli/tests/install.cli.test.ts` — full-profile dry-run must surface `HIGH RISK`, `GITHUB_TOKEN`, `api.github.com`, and `npm run format`.
+
+**Adapter hygiene**
+
+- **Removed a stray NUL byte from `packages/core/src/adapters/codex.ts`** (line 23, the `tomlEscape` control-character regex used raw `\x00`–`\x1f`/`\x7f` literals, making every grep treat the file as binary). Rewritten as `\u0000-\u001f\u007f` escapes — identical behavior, file is plain text again.
+- **2 new semantic readback tests in `packages/core/tests/adapters.test.ts`** — exports the pr-quality pack (full profile) and parses the emitted config back: `.claude/settings.json` via `JSON.parse` and `.codex/config.toml` via a minimal table parser, asserting the github MCP server's `command`/`args`/`env` survive the round-trip intact (previous tests only checked file existence and byte determinism).
+
+**Documentation**
+
+- `docs/install.md` — new "Upgrading: re-install IS the upgrade path" section. There is intentionally no `upgrade` command: installing a newer version over an existing install carries ownership and backups across (apply step + install manifest), with `verify`/`history`/`rollback` covering status and recovery.
+
+---
+
 ## 0.5.0-dev — 2026-05-19 (iteration-5 launch-readiness pass)
 
 Pre-launch verification session. No new product surface — this iteration audits, patches, and tightens the existing v0.5 codebase so the public launch starts from a known-clean state.

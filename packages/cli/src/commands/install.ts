@@ -24,12 +24,13 @@ import {
   type TargetPlatform,
 } from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
-import { riskBadge } from "../lib/render.js";
+import { renderPermissionSummary, riskBadge } from "../lib/render.js";
 import { CLI_VERSION } from "../lib/version.js";
 import { confirm } from "../lib/prompt.js";
 import { getToken } from "../lib/credentials.js";
 
-const REMOTE_ID_RE = /^([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)\/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)(?:@(.+))?$/;
+const REMOTE_ID_RE =
+  /^([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)\/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)(?:@(.+))?$/;
 
 const VALID_TARGETS: TargetPlatform[] = [
   "claude-code",
@@ -53,7 +54,7 @@ export function registerInstall(program: Command): void {
     .option(
       "--require-sig",
       "refuse to install if the registry has no valid Sigstore signature for this version",
-      false
+      false,
     )
     .action(
       async (
@@ -103,8 +104,7 @@ export function registerInstall(program: Command): void {
             }
           }
 
-          const gitSource: GitSource | null =
-            !isLocalDir && pack ? parseGitId(pack) : null;
+          const gitSource: GitSource | null = !isLocalDir && pack ? parseGitId(pack) : null;
           let remoteMatch: RegExpMatchArray | null = null;
           if (!isLocalDir && !gitSource && pack) {
             remoteMatch = pack.match(REMOTE_ID_RE);
@@ -117,8 +117,8 @@ export function registerInstall(program: Command): void {
                   "✗ --require-sig with a git source is not supported in v0.5.\n" +
                     "  Git-source signature verification (cosign-on-tag) arrives in v0.5.1.\n" +
                     "  For signed-by-default today, publish to a registry and install via\n" +
-                    "  `agentpack install <publisher>/<pack>@<version> --require-sig`."
-                )
+                    "  `agentpack install <publisher>/<pack>@<version> --require-sig`.",
+                ),
               );
               process.exit(2);
             }
@@ -136,8 +136,8 @@ export function registerInstall(program: Command): void {
               pc.dim(
                 `Installed from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}@${refLabel}${
                   gitSource.subpath ? "#" + gitSource.subpath : ""
-                }`
-              )
+                }`,
+              ),
             );
           }
           if (remoteMatch) {
@@ -169,8 +169,8 @@ export function registerInstall(program: Command): void {
                 console.error(
                   pc.red(
                     `\n✗ ${publisher}/${packSlug}${requestedVersion ? "@" + requestedVersion : ""} is unsigned — --require-sig refuses.\n` +
-                      `  To install anyway, rerun without --require-sig.`
-                  )
+                      `  To install anyway, rerun without --require-sig.`,
+                  ),
                 );
                 process.exit(5);
               }
@@ -178,22 +178,18 @@ export function registerInstall(program: Command): void {
                 console.error(
                   pc.red(
                     `\n✗ ${publisher}/${packSlug} signature INVALID — ${sigCheck.reason}${sigCheck.detail ? ` (${sigCheck.detail})` : ""}.\n` +
-                      `  Refusing to install. If the publisher recently re-signed, try again.`
-                  )
+                      `  Refusing to install. If the publisher recently re-signed, try again.`,
+                  ),
                 );
                 process.exit(4);
               }
-              console.log(
-                pc.green(
-                  `  ✓ signature verified — signed by ${sigCheck.san}`
-                )
-              );
+              console.log(pc.green(`  ✓ signature verified — signed by ${sigCheck.san}`));
             }
           } else if (options.requireSig) {
             console.error(
               pc.red(
-                "✗ --require-sig requires a remote pack identity (publisher/pack[@version]); local-path installs cannot be signature-checked."
-              )
+                "✗ --require-sig requires a remote pack identity (publisher/pack[@version]); local-path installs cannot be signature-checked.",
+              ),
             );
             process.exit(2);
           }
@@ -247,13 +243,9 @@ export function registerInstall(program: Command): void {
               `\n✓ Installed ${plan.packId}@${plan.packVersion} (${plan.target}, ${plan.profile}).`,
             ),
           );
+          console.log(pc.dim(`  • ${result.written.length} files written.`));
           console.log(
-            pc.dim(`  • ${result.written.length} files written.`),
-          );
-          console.log(
-            pc.dim(
-              `  • Manifest: ${result.manifestPath.replace(plan.projectRoot, ".")}`,
-            ),
+            pc.dim(`  • Manifest: ${result.manifestPath.replace(plan.projectRoot, ".")}`),
           );
           console.log(pc.dim(`  • History entry: ${result.commitEntry.id}`));
           console.log(
@@ -309,11 +301,7 @@ async function fetchRemotePack(params: {
   // 2. Policy check (Phase 5).
   const policy = await loadPolicy(params.projectRoot);
   if (policy) {
-    const versionDetails = await client.getVersion(
-      params.publisher,
-      params.pack,
-      version,
-    );
+    const versionDetails = await client.getVersion(params.publisher, params.pack, version);
     const atomTypes = await peekAtomTypes(client, params.publisher, params.pack, version);
     const enforcement = enforcePolicy(
       policy,
@@ -341,11 +329,7 @@ async function fetchRemotePack(params: {
   }
 
   // 3. Materialize manifest + atom files in a temp dir.
-  const versionMeta = await client.getVersion(
-    params.publisher,
-    params.pack,
-    version,
-  );
+  const versionMeta = await client.getVersion(params.publisher, params.pack, version);
   const tmpRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), `wgpack-${params.publisher}-${params.pack}-`),
   );
@@ -513,13 +497,17 @@ async function verifyRegistrySignature(params: {
   };
 }
 
-function printPlanSummary(plan: ReturnType<typeof planInstall> extends Promise<infer T> ? T : never): void {
+function printPlanSummary(
+  plan: ReturnType<typeof planInstall> extends Promise<infer T> ? T : never,
+): void {
   console.log(
     pc.bold(
       `\nInstall plan: ${plan.packId}@${plan.packVersion} → ${plan.target} (${plan.profile})`,
     ),
   );
   console.log(`Risk: ${riskBadge(plan.riskLevel)}`);
+  console.log(pc.bold(`\nPermissions:`));
+  console.log(renderPermissionSummary(plan.permissions));
   if (plan.warnings.length > 0) {
     console.log(pc.yellow(`\nWarnings:`));
     for (const w of plan.warnings) console.log(pc.yellow(`  ⚠ ${w}`));
@@ -547,4 +535,3 @@ function printPlanSummary(plan: ReturnType<typeof planInstall> extends Promise<i
     }
   }
 }
-

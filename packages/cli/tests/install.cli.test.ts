@@ -71,8 +71,35 @@ describe("agentpack install (CLI)", () => {
     ]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("dry-run");
+    expect(r.stdout).toContain("Permissions:");
+    expect(r.stdout).toContain("Read files in the project");
     const lockExists = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
     expect(lockExists).toBeNull();
+  });
+
+  it("plan summary shows the full permission surface before consent", async () => {
+    const dir = await freshProject("consent-permissions");
+    const r = await run([
+      "install",
+      EXAMPLE,
+      "--target",
+      "claude-code",
+      "--profile",
+      "full",
+      "--project",
+      dir,
+      "--dry-run",
+    ]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Permissions:");
+    expect(r.stdout).toContain("HIGH RISK");
+    expect(r.stdout).toContain("Run shell commands on your machine");
+    expect(r.stdout).toContain("Required secrets:");
+    expect(r.stdout).toContain("GITHUB_TOKEN");
+    expect(r.stdout).toContain("Network domains:");
+    expect(r.stdout).toContain("api.github.com");
+    expect(r.stdout).toContain("Declared shell commands:");
+    expect(r.stdout).toContain("npm run format");
   });
 
   it("install + verify + uninstall happy path", async () => {
