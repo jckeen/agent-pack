@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1-dev — 2026-06-10 (fix red master CI: coverage-gate flake + gate alignment)
+
+The post-merge `master` run of #4 failed its coverage gate at 74.97% branch coverage vs the 75% threshold — while the identical PR run measured 75.12%. Root causes and fixes:
+
+- **Coverage was knife-edge, not regressed-and-caught.** Iteration-6 added ~600 lines with many defensive branches (merge engine, recovery restore paths) that were exercised only via integration tests, putting global branch coverage exactly at the threshold where V8's run-to-run wobble (race-dependent branches in the locking/recovery suites) decides pass/fail. Added 28 targeted unit tests: `tests/merge-unit.test.ts` (26 cases — marker-span extraction/removal edges, JSON merge collisions, prior-fragment replacement, hooks dedupe, fragment-intact checks) and 2 recovery edge cases (user-recreated file is never clobbered by backup restore; malformed `backupDir` in a begin entry can't block the sweep). Branch coverage: 74.97% → 78.1% (`merge.ts` 60.6% → 95.2%).
+- **The local gate wasn't the CI gate.** `pnpm verify` ran `pnpm test` (no coverage) while CI enforces `pnpm test:coverage` — so three green local verifies never executed the check that failed. `verify` now runs `test:coverage`.
+- **Registry tests never ran in CI.** Both root `test` scripts filter `./packages/*`, silently excluding `apps/registry`'s 26 tests since the workflow was created. Root `test` now includes `./apps/*`, and CI gained an explicit "Test registry app" step.
+
+---
+
 ## 0.6.0-dev — 2026-06-10 (agent-consumer readiness: merge semantics, adapter fidelity, git-source rewrite)
 
 Full-review session (Claude + Codex + security/QA agent fleet) focused on one question: *can an AI agent autonomously and safely consume packs?* Four P0s found and fixed, plus the largest semantic upgrade since Phase 2.

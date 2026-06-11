@@ -12,7 +12,7 @@
   "scripts": {
     "build": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm --filter @agentpack/cli build && pnpm --filter @agentpack/registry build",
     "dev": "pnpm --filter @agentpack/registry dev",
-    "test": "pnpm -r --filter \"./packages/*\" test",
+    "test": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" test",
     "test:coverage": "pnpm -r --filter \"./packages/*\" test:coverage",
     "typecheck": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm -r typecheck",
     "lint": "eslint \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\" \"apps/*/{app,components,lib}/**/*.{ts,tsx}\"",
@@ -22,7 +22,7 @@
     "seed:import": "tsx scripts/seed-import.ts",
     "db:push": "pnpm --filter @agentpack/db db:push",
     "db:generate": "pnpm --filter @agentpack/db db:generate",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "verify": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm build"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "8.18.1",
