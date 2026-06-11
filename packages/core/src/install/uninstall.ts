@@ -77,6 +77,20 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
   const removed: string[] = [];
   const restored: string[] = [];
   const conflicts: UninstallResult["conflicts"] = [];
+  // Which flag can authorize each conflict. "force" covers tampered
+  // created/merged content (and symlink escapes); "restore" covers
+  // user-edited files that a backup restore would overwrite. The two are NOT
+  // interchangeable: --force-restore has no action for created/merged
+  // conflicts, so letting it bypass them would delete the manifest and orphan
+  // the content on disk (codex re-review P1-1).
+  const conflictKinds: Array<"force" | "restore"> = [];
+  const pushConflict = (
+    kind: "force" | "restore",
+    c: UninstallResult["conflicts"][number],
+  ) => {
+    conflicts.push(c);
+    conflictKinds.push(kind);
+  };
   const mergeByPath = new Map((manifest.merges ?? []).map((m) => [m.path, m]));
 
   // PHASE 1 — scan only. A refused uninstall must touch zero files, so every
@@ -95,7 +109,7 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
     } catch {
       // Path now escapes (symlink replaced with one going elsewhere).
       // Refuse to follow.
-      conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+      pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
       continue;
     }
     let current: string;
@@ -126,7 +140,7 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
         const spanIntact =
           sha256Hex(normalizeForHash(`${span.span}\n`)) === merge.fragmentSha256;
         if (!spanIntact && !opts.force) {
-          conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+          pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
           continue;
         }
         const remainder = removeMarkerSpan(current, manifest.packId);
@@ -140,14 +154,14 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
       }
       // strategy === "json"
       if (!jsonFragmentIntact(current, merge.fragment) && !opts.force) {
-        conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+        pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
         continue;
       }
       const remainder = removeJsonFragment(current, merge.fragment);
       if (remainder === null) {
         // Current content is no longer valid JSON — only act under force.
         if (!opts.force) {
-          conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+          pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
         }
         continue;
       }
@@ -166,7 +180,7 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
       const b = manifest.backups.find((bk) => bk.original === entry.path);
       if (!b) continue;
       if (currentSha !== entry.sha256 && !opts.forceRestore) {
-        conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+        pushConflict("restore", { path: entry.path, reason: "user-edited-after-install" });
         continue;
       }
       const backupAbs = fromRelative(ws.projectRoot, b.backupPath);
@@ -176,14 +190,23 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
 
     // Plain created file.
     if (currentSha !== entry.sha256 && !opts.force) {
-      conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+      pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
       continue;
     }
     actions.push({ kind: "unlink", abs, rel: entry.path });
   }
 
-  if (conflicts.length > 0 && !opts.force && !opts.forceRestore) {
-    throw new UninstallConflictError(conflicts);
+  // A conflict only counts as authorized when ITS flag was provided:
+  // --force-restore must not wave through created/merged conflicts it has no
+  // action for, and --force proceeds past restore conflicts by skipping them
+  // (documented "ignore user edits" semantics).
+  const unauthorized = conflicts.filter((_, i) => {
+    const kind = conflictKinds[i];
+    if (kind === "force") return !opts.force;
+    return !opts.force && !opts.forceRestore;
+  });
+  if (unauthorized.length > 0) {
+    throw new UninstallConflictError(unauthorized);
   }
 
   // PHASE 2 — act.

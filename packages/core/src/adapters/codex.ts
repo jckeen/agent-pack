@@ -9,6 +9,7 @@ import {
   wrapInstructionBlock,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
+import { isShellEscape } from "./commandGate.js";
 
 function tomlEscape(value: string): string {
   return value
@@ -152,12 +153,7 @@ export const codexAdapter = defineAdapter({
         unsupported.push(atom.id);
         continue;
       }
-      if (
-        !a.command ||
-        /\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b|\bnode\s+(-e|--eval)\b|\beval\b/i.test(
-          joined,
-        )
-      ) {
+      if (!a.command || isShellEscape(a.command, a.args ?? [])) {
         warnings.push(
           `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it.`,
         );
@@ -204,7 +200,7 @@ export const codexAdapter = defineAdapter({
         if (
           !command ||
           !allowedShellCommands.includes(command) ||
-          /\bsh\s+-c\b|\bbash\s+-c\b|\bnode\s+-e\b|\beval\b/i.test(command)
+          isShellEscape(command, [])
         ) {
           warnings.push(
             `Hook \`${atom.id}\` command \`${command || "(empty)"}\` is not in \`permissions.shell.commands\` or contains a shell escape. Refusing to emit it.`,
@@ -236,8 +232,10 @@ export const codexAdapter = defineAdapter({
     }
 
     // ---------- .codex/skills ----------
+    const skillSlugs = new Set<string>();
     for (const atom of byType.get("skill") ?? []) {
       const slug = slugFor(atom);
+      skillSlugs.add(slug);
       const entries = await readAtomDirectory(packRoot, atom);
       if (entries.length === 0) {
         warnings.push(
@@ -261,7 +259,17 @@ export const codexAdapter = defineAdapter({
 
     // ---------- .codex/skills (commands) ----------
     for (const atom of byType.get("command") ?? []) {
-      const slug = slugFor(atom);
+      // A command whose slug collides with a skill would emit the same
+      // SKILL.md path twice — applyInstall's create-only (`wx`) write then
+      // throws on the duplicate and rolls the install back (codex re-review
+      // P1-3). Namespace the colliding command instead.
+      let slug = slugFor(atom);
+      if (skillSlugs.has(slug)) {
+        warnings.push(
+          `Command \`${atom.id}\` slug collides with a skill of the same name; emitting it as \`.codex/skills/${slug}-command/\`.`,
+        );
+        slug = `${slug}-command`;
+      }
       const parsed = await parseAtomYaml(packRoot, atom);
       let body: string | null = null;
       const promptPath = parsed?.["prompt"];

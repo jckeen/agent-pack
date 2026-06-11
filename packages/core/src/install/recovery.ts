@@ -169,6 +169,14 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
 async function restoreBackups(ws: AgentpackPaths, backupDirRel: string): Promise<void> {
   const backupRoot = fromRelative(ws.projectRoot, backupDirRel);
   await realpathContained(ws.projectRoot, backupRoot);
+  // The recorded dir must live under .agentpack/backups/ specifically — a
+  // corrupted/forged WAL entry pointing at an arbitrary in-project directory
+  // must not let the sweep "restore" non-backup content over project files
+  // (codex re-review P2).
+  const relToBackups = path.relative(ws.backupsDir, backupRoot);
+  if (relToBackups.startsWith("..") || path.isAbsolute(relToBackups)) {
+    return;
+  }
   async function walk(dir: string, rel: string): Promise<void> {
     let entries;
     try {

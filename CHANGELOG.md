@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.2-dev — 2026-06-11 (codex adversarial re-review of iteration-6 — 4 P1 + 1 P2 fixed)
+
+Codex re-reviewed the iteration-6 fixes themselves (instructed to be adversarial, not rubber-stamp). Verdict: no P0s, all four original P0 fixes confirmed holding, 7/11 files clean — and 4 confirmed P1s + 1 P2 in the new code, all fixed here with regression tests:
+
+- **`uninstall --force-restore` could orphan pack content** (P1): the conflict gate let `forceRestore` bypass created/merged-file conflicts it has no action for — manifest deleted, files left untracked. Conflicts are now tagged by the flag that authorizes them; `--force-restore` only covers backup-restore conflicts.
+- **MCP/hook shell-escape gate missed combined flags** (P1): `bash -lc`, `sh -xec`, `python -c`, `perl -E` etc. slipped the regex. New shared structural gate (`adapters/commandGate.ts`): shell basenames reject any `-c`-bearing flag cluster, known interpreters reject their eval flags, plus a string fallback for one-string hook commands. 20 gate tests incl. legitimate-command negatives (`npx`, `node server.js`, `grep -c`).
+- **codex adapter skill/command slug collision crashed installs** (P1): both emitted `.codex/skills/<slug>/SKILL.md`; the duplicate `wx` create threw and rolled the install back. Colliding commands now emit under `<slug>-command/`, and `defineAdapter` gained a category-wide backstop that dedupes duplicate output paths with a warning.
+- **`__proto__` keys in JSON merge polluted/dropped instead of refusing** (P1): plain-object assignment with `k === "__proto__"` sets the prototype. Configs containing `__proto__`/`constructor`/`prototype` anywhere are now refused (merge → conflict, fragment checks → not-intact), and all merge intermediates are null-prototype objects.
+- **Recovery `backupDir` containment tightened** (P2): a forged WAL entry pointing at an arbitrary in-project directory can no longer feed the restore walk — the dir must resolve under `.agentpack/backups/`.
+
+Also this session: live-verified the git-source quickstart against the real GitHub API for the first time (token-authed install of `github:jckeen/agent-pack@master#examples/pr-quality` into a project with a pre-existing CLAUDE.md — merge, idempotent re-install, and fragment verify all clean end-to-end).
+
+Tests: 258 core (+13) — suite-wide green under the coverage gate.
+
+---
+
 ## 0.6.1-dev — 2026-06-10 (fix red master CI: coverage-gate flake + gate alignment)
 
 The post-merge `master` run of #4 failed its coverage gate at 74.97% branch coverage vs the 75% threshold — while the identical PR run measured 75.12%. Root causes and fixes:

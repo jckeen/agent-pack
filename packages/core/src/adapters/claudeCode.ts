@@ -11,6 +11,7 @@ import {
   wrapInstructionBlock,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
+import { isShellEscape } from "./commandGate.js";
 
 function slugFor(atom: Atom): string {
   // The atom-id regex guarantees a single `:`-separated slug component with
@@ -58,9 +59,9 @@ async function parseAtomYaml(packRoot: string, atom: Atom): Promise<ParsedYaml |
  */
 function isHookCommandAllowed(command: string, allowed: string[]): boolean {
   if (!command) return false;
-  // Reject obviously dangerous shells outright even if allow-listed —
+  // Reject shell/interpreter-escape shapes outright even if allow-listed —
   // matching `sh -c …` exactly is too easy to slip past review.
-  if (/\bsh\s+-c\b|\bbash\s+-c\b|\bnode\s+-e\b|\beval\b/i.test(command)) {
+  if (isShellEscape(command, [])) {
     return false;
   }
   return allowed.includes(command);
@@ -270,12 +271,7 @@ export const claudeCodeAdapter = defineAdapter({
           unsupported.push(atom.id);
           continue;
         }
-        if (
-          !a.command ||
-          /\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b|\bnode\s+(-e|--eval)\b|\beval\b/i.test(
-            joined,
-          )
-        ) {
+        if (!a.command || isShellEscape(a.command, a.args ?? [])) {
           warnings.push(
             `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it into .mcp.json.`,
           );

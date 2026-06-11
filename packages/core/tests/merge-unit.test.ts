@@ -253,3 +253,26 @@ describe("removeJsonFragment / jsonFragmentIntact edge cases", () => {
     );
   });
 });
+
+describe("prototype-pollution keys are refused, not mangled (codex re-review P1-4)", () => {
+  const protoCfg = '{"__proto__": {"polluted": true}, "mcpServers": {"x": {"command": "a"}}}';
+  const frag = JSON.stringify({ mcpServers: { github: { command: "npx" } } });
+
+  it("mergeJsonConfig refuses a config carrying __proto__/constructor keys", () => {
+    expect(mergeJsonConfig(protoCfg, frag).ok).toBe(false);
+    expect(mergeJsonConfig("{}", '{"constructor": {"x": 1}}').ok).toBe(false);
+    expect(
+      mergeJsonConfig('{"nested": {"deep": {"__proto__": 1}}}', frag).ok,
+    ).toBe(false);
+  });
+
+  it("removeJsonFragment and jsonFragmentIntact refuse them too", () => {
+    expect(removeJsonFragment(protoCfg, frag)).toBeNull();
+    expect(jsonFragmentIntact(protoCfg, frag)).toBe(false);
+  });
+
+  it("merging never pollutes Object.prototype", () => {
+    mergeJsonConfig(protoCfg, frag);
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+  });
+});
