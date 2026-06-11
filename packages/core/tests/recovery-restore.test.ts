@@ -155,3 +155,70 @@ describe("recovery sweep (codex P0-4)", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 });
+
+describe("recovery restoreBackups edge cases", () => {
+  it("does not clobber a file the user recreated after the crash", async () => {
+    const dir = await tempProject();
+    await fs.writeFile(path.join(dir, "AGENTS.md"), "# original user file\n", "utf8");
+
+    const plan = await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    await applyInstall({ plan, actor: { type: "cli" } });
+
+    // Crash window: no commit row, no manifest.
+    await dropLastHistoryEntry(dir);
+    const ws = await resolveAgentpackPaths(dir);
+    await fs.rm(path.join(ws.installedDir, "agentpack.pr-quality.json"));
+
+    // User recreates AGENTS.md with NEW content before recovery runs. The
+    // staged-file unlink pass skips it (hash mismatch) and the backup
+    // restore must NOT overwrite it.
+    const userNew = "# user recreated this after the crash\n";
+    await fs.writeFile(path.join(dir, "AGENTS.md"), userNew, "utf8");
+
+    const result = await recoverIncomplete(dir);
+    expect(result.rolledBack.length).toBe(1);
+    const after = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
+    expect(after).toBe(userNew);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("a begin entry with a malformed backupDir does not block the sweep", async () => {
+    const dir = await tempProject();
+    const plan = await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    await applyInstall({ plan, actor: { type: "cli" } });
+    await dropLastHistoryEntry(dir);
+    const ws = await resolveAgentpackPaths(dir);
+    await fs.rm(path.join(ws.installedDir, "agentpack.pr-quality.json"));
+
+    // Corrupt the begin entry's backupDir to an escaping path. The sweep
+    // must still roll back (best-effort restore refuses to act, silently).
+    const raw = await fs.readFile(ws.historyFile, "utf8");
+    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    const entries = lines.map((l) => JSON.parse(l));
+    const begin = entries.find((e) => e.action === "install_begin");
+    begin.backupDir = "../outside-project";
+    // Re-seal is unnecessary for this test path — recovery reads entries
+    // leniently; write the mutated line back.
+    await fs.writeFile(
+      ws.historyFile,
+      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+      "utf8",
+    );
+
+    const result = await recoverIncomplete(dir);
+    expect(result.rolledBack.length).toBe(1);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
