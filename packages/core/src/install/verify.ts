@@ -6,6 +6,7 @@ import { readInstallManifest } from "./manifest.js";
 import { parseLockfile } from "./lockfile.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 import { readHistory, verifyChain } from "./history.js";
+import { extractMarkerSpan, jsonFragmentIntact } from "./merge.js";
 
 export interface VerifyOptions {
   packId: string;
@@ -42,6 +43,8 @@ export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> 
   const drift: VerifyResult["drift"] = [];
   const missing: string[] = [];
 
+  const mergeByPath = new Map((manifest.merges ?? []).map((m) => [m.path, m]));
+
   for (const entry of [...manifest.created, ...manifest.modified]) {
     const abs = fromRelative(ws.projectRoot, entry.path);
     let current: string;
@@ -53,6 +56,30 @@ export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> 
         continue;
       }
       throw err;
+    }
+    // Merged files (shared CLAUDE.md / settings.json / .mcp.json) are checked
+    // at FRAGMENT level: only the pack's contribution must be intact. The
+    // user editing their own sections of a shared file is not drift.
+    const merge = mergeByPath.get(entry.path);
+    if (merge?.strategy === "marker") {
+      const span = extractMarkerSpan(current, manifest.packId);
+      const actual = span
+        ? sha256Hex(normalizeForHash(`${span.span}\n`))
+        : "<span-missing>";
+      if (actual !== merge.fragmentSha256) {
+        drift.push({ path: entry.path, expected: merge.fragmentSha256, actual });
+      }
+      continue;
+    }
+    if (merge?.strategy === "json") {
+      if (!jsonFragmentIntact(current, merge.fragment)) {
+        drift.push({
+          path: entry.path,
+          expected: merge.fragmentSha256,
+          actual: "<fragment-altered>",
+        });
+      }
+      continue;
     }
     const sha = sha256Hex(normalizeForHash(current));
     if (sha !== entry.sha256) {

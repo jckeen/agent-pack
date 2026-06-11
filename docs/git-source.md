@@ -37,13 +37,21 @@ The CLI's `install [pack]` command resolves the `pack` argument in this order:
 
 ## What gets fetched
 
-1. The CLI fetches `AGENTPACK.yaml` from `raw.githubusercontent.com/{owner}/{repo}/{ref}/{subpath}/AGENTPACK.yaml`.
-2. The manifest is parsed; `atoms[].files[].path` enumerates every file the pack needs.
-3. Each file is fetched from `raw.githubusercontent.com/{owner}/{repo}/{ref}/{subpath}/{path}`.
-4. All files land in a temp directory.
-5. The existing `planInstall` → `applyInstall` pipeline takes over: diff against project root, back up overwrites, atomically write, append to history.jsonl, write AGENTPACK.lock.
+1. The ref (tag/branch) is pinned to a 40-character commit SHA via the GitHub API. A SHA passes through unchanged. Every later fetch uses the pinned SHA, so a force-push mid-install cannot swap content.
+2. The repo **tree** at that SHA is listed (`GET /repos/{o}/{r}/git/trees/{sha}?recursive=1`) and every file under the pack subpath is selected — manifest, atom bodies, skill directories, prompt files, checksums. The listing must contain `<subpath>/AGENTPACK.yaml` or the install fails with a clear error. Packs are capped at 512 files; point `#subpath` at the pack directory, not a whole monorepo.
+3. Each file is fetched from `raw.githubusercontent.com` at the pinned SHA into a temp directory.
+4. The existing `planInstall` → `applyInstall` pipeline takes over: diff against project root, back up overwrites, atomically write, append to history.jsonl, write AGENTPACK.lock.
 
-The lockfile records the resolved ref, the per-file sha256 of what was actually fetched, the install timestamp, and the install profile.
+The lockfile records the per-file sha256 of what was actually fetched and the install profile.
+
+## Authentication, private repos, and rate limits
+
+When `GITHUB_TOKEN` (or `GH_TOKEN`) is set, it is sent as a Bearer token on both the GitHub API and `raw.githubusercontent.com` fetches. This enables:
+
+- **Private-repo installs** — any repo the token can read is a valid source.
+- **Higher rate limits** — anonymous api.github.com calls are capped at 60/hour per IP; a token lifts that to 5,000/hour.
+
+Failure modes are explicit: 401 says the token was rejected; 404/403 says the repo/ref/path may not exist *or* may be private (with a `GITHUB_TOKEN` hint when none was set); rate-limit responses include the reset time.
 
 ## What's intentionally not here yet
 
@@ -102,11 +110,9 @@ agentpack install github:jckeen/agent-pack@master#examples/pr-quality \
   --target codex --profile standard --project ./my-project --yes
 ```
 
-Install from a private repo (requires a GitHub token in env that has read access; signature verification still deferred to v0.5.1):
+Install from a private repo (any token with read access; signature verification still deferred to v0.5.1):
 
 ```bash
 GITHUB_TOKEN=ghp_... agentpack install github:my-org/private-pack@v1.0.0 \
-  --target claude-code --profile full --project ./my-project --yes
+  --target claude-code --profile full --project ./my-project --yes --allow-critical
 ```
-
-(Private-repo support reads `GITHUB_TOKEN` from env when present; details in v0.5.1.)

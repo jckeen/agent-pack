@@ -90,11 +90,13 @@ export function computeRisk(
 
   for (const r of resolved) {
     atomRiskCounts[r.atom.risk_level]++;
-    // Always log atom risk, regardless of whether it raises the level. This
-    // preserves the full audit trail rather than only deltas.
-    reasons.push(
-      `Atom \`${r.atom.id}\` declares risk_level: ${r.atom.risk_level}`,
-    );
+    // Log atom risk for medium+ atoms. A "declares risk_level: low" line for
+    // every atom rendered as a ⚠ warning trains consumers (especially
+    // agents told to react to warnings) to ignore the warning channel; the
+    // full per-atom audit trail lives in atomRiskCounts + the manifest.
+    if (r.atom.risk_level !== "low") {
+      reasons.push(`Atom \`${r.atom.id}\` declares risk_level: ${r.atom.risk_level}`);
+    }
     level = maxRisk(level, r.atom.risk_level);
 
     // Atom-type floors (hook/mcp/command/skill/subagent/workflow).
@@ -110,9 +112,7 @@ export function computeRisk(
     for (const cat of r.atom.permissions ?? []) {
       const esc = ESCALATING_PERMISSIONS[cat];
       if (esc) {
-        reasons.push(
-          `Permission \`${cat}\` requested by \`${r.atom.id}\` (${esc})`,
-        );
+        reasons.push(`Permission \`${cat}\` requested by \`${r.atom.id}\` (${esc})`);
         level = maxRisk(level, esc);
       }
     }
@@ -150,9 +150,7 @@ export function computeRisk(
   }
   if (manifest.permissions?.model_provider_key_access) {
     level = maxRisk(level, "critical");
-    reasons.push(
-      "Pack declares `permissions.model_provider_key_access: true` (critical)",
-    );
+    reasons.push("Pack declares `permissions.model_provider_key_access: true` (critical)");
   }
 
   // Combo: shell + secrets + network + filesystem write → critical.

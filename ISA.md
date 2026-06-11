@@ -748,3 +748,40 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 - Killed via `pkill -f "codex exec --sandbox"` after 12 minutes.
 - **Compensating control:** parallel Claude-family review agents (security-reviewer, qa-lead, content-reviewer, launch-operator, product-strategist) ran successfully — these surfaced 2 launch-blocking CVEs (already patched), 3 install-engine bugs (2 fixed inline; 1 deferred to v0.5.1), and ~30 doc-accuracy issues (9 fixed inline; rest deferred). The cross-vendor signal is THIN compared to a working Cato run, but the local-family coverage is dense.
 - Doctrine deviation noted per Algorithm v6.3.0 §Rule 2a — block-on-fail not honored because the failure mode is the wrapper, not the work. Same compensating-control pattern as iter-3 + iter-4. The agent-stall investigation memo lives at `~/.claude/PAI/MEMORY/KNOWLEDGE/Research/agent-stall-investigation.md` and the proposed Algorithm v6.4.0 fix (chunk-the-prompt + emit-progress-or-fall-back ladder) lives at `Plans/algorithm-v6.4.0-changes.md`.
+
+## Iteration-6 — agent-consumer readiness (2026-06-10)
+
+Full external review (Codex deep pass + security-reviewer + qa-lead fleet) against the question "can an AI agent autonomously and safely consume packs?" — followed by a fix-everything implementation pass. Full detail in `CHANGELOG.md` 0.6.0-dev.
+
+### Iteration-6 ISCs (all verified by tests + live CLI probes)
+
+- [x] ISC-268: Install into a project with a pre-existing user `CLAUDE.md` merges (marker-block append) instead of conflicting; user content byte-preserved.
+- [x] ISC-269: Two packs coexist in one `CLAUDE.md`/`AGENTS.md`; each uninstalls independently, removing only its own span.
+- [x] ISC-270: `.claude/settings.json` / `.mcp.json` / `.cursor/mcp.json` deep-merge; user hooks/permissions/servers preserved; same-name-different-content MCP server → `json-collision` conflict.
+- [x] ISC-271: Verify is fragment-level for merged files: user edits outside the pack's span are NOT drift; edits inside it ARE.
+- [x] ISC-272: AGENTPACK.lock hashes the pack's pristine contribution — deterministic across projects regardless of merge content.
+- [x] ISC-273: A failed install restores backed-up user files (never unlinks them); lockfile backed up before overwrite.
+- [x] ISC-274: Recovery sweep refuses roll-forward without the install manifest; rollback restores backups via `install_begin.backupDir`.
+- [x] ISC-275: Uninstall scans all conflicts before any mutation; refused uninstall touches zero files.
+- [x] ISC-276: Same pack + different target into one project is refused with guidance (no orphaned manifests).
+- [x] ISC-277: claude-code adapter writes MCP servers to `.mcp.json` (real Claude Code surface), commands to `.claude/commands/<slug>.md`, hooks schema-clean with `Edit|Write` default matcher.
+- [x] ISC-278: Rule atom bodies (severity/globs/must/must_not) render in every adapter's output.
+- [x] ISC-279: codex adapter output verified against Codex CLI 0.128.0; non-consumed `.codex/*` files labeled reference outputs; skills indexed in AGENTS.md.
+- [x] ISC-280: git-source fetches the full pack tree at a pinned SHA (tree API); README quickstart pack materializes completely.
+- [x] ISC-281: `GITHUB_TOKEN`/`GH_TOKEN` honored on all GitHub fetches (private repos, rate limits); 401/403/404/429 errors actionable.
+- [x] ISC-282: Non-TTY + no `--yes` exits 2 immediately (no hang, no false exit-0 success).
+- [x] ISC-283: `install --json` / `plan --json` emit one stable JSON object with full classification incl. merges and conflict reasons.
+- [x] ISC-284: MCP server emission gated on `permissions.mcp.servers` declaration + shell-escape refusal (hook-gate symmetry) in all adapters that emit MCP config.
+- [x] ISC-285: `--require-sig` without `--expected-signer` labels the signer identity as unpinned; `--expected-signer` threads requireIdentity/expectedSAN into the verifier.
+- [x] ISC-286: Registry-fetched AGENTPACK.yaml integrity-checked against `manifestSha256` (exit 7 on mismatch).
+- [x] ISC-287: Critical-risk plans require `--allow-critical` (exit 6); `--yes` alone never crosses.
+- [x] ISC-288: Exit-code taxonomy implemented as documented: 8=not-found, declined confirm=1, dry-run-with-conflicts=2, unknown profile=2 everywhere.
+- [x] ISC-289: `pnpm verify` green: 300 tests (219 core + 19 db + 36 cli + 26 registry), typecheck, lint, build.
+
+### Iteration-6 decisions
+
+- **Merge over whole-file ownership** for marker-block + known JSON config surfaces; whole-file ownership retained for skills/agents/commands files. Backups still taken; rollback restores pre-install state.
+- **Honesty over fidelity-theater** for the codex adapter: project-level `.codex/*` is not consumed by Codex 0.128.0 — outputs stay (forward-compatible) but are labeled reference, and AGENTS.md carries the skill index so content is reachable today.
+- **Multi-target install per project deferred** (refused with guidance) rather than keying manifests by packId+target — revisit when a real consumer asks.
+- **`fetchManifestExtra` hard-errors** instead of writing empty buffers — registry non-atom file fetch is a gap, not a silent corruption.
+- Cross-vendor review pattern worked this iteration: Codex (via codex-rescue agent) returned a structured P0/P1/P2 list in ~4 min with zero stalls — the iter-3/4/5 stall pattern did not recur under the new agent harness.

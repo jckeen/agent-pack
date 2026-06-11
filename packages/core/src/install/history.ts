@@ -2,9 +2,7 @@ import * as fs from "node:fs/promises";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import type {
-  TargetPlatform,
-} from "../schema/types.js";
+import type { TargetPlatform } from "../schema/types.js";
 import type { HistoryEntryV1 } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
 import { canonicalJson, sha256Hex } from "./checksum.js";
@@ -35,6 +33,7 @@ export const historyEntrySchema = z.object({
   plannedFiles: z
     .array(z.object({ path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }))
     .optional(),
+  backupDir: z.string().optional(),
   rolledBackTo: z.string().optional(),
   recoveredBegin: z.string().optional(),
   actor: z.object({
@@ -70,7 +69,9 @@ export function sealEntry(entry: HistoryEntryV1): HistoryEntryV1 {
   return sealed;
 }
 
-function stripChecksum<T extends { entryChecksum: string }>(o: T): Omit<T, "entryChecksum"> {
+function stripChecksum<T extends { entryChecksum: string }>(
+  o: T,
+): Omit<T, "entryChecksum"> {
   const { entryChecksum: _omit, ...rest } = o;
   return rest;
 }
@@ -275,10 +276,7 @@ export async function withProjectLock<T>(
   return LOCK_CTX.run(held, () => withFileLock(p, fn));
 }
 
-async function withFileLock<T>(
-  p: AgentpackPaths,
-  fn: () => Promise<T>,
-): Promise<T> {
+async function withFileLock<T>(p: AgentpackPaths, fn: () => Promise<T>): Promise<T> {
   const lockDir = p.historyLockFile;
   const start = Date.now();
   const timeoutMs = 10_000;
@@ -314,9 +312,7 @@ async function withFileLock<T>(
           await sleep(50);
           const after = await fs.readFile(`${lockDir}/nonce`, "utf8").catch(() => "");
           if (before === after) {
-            await fs
-              .rm(lockDir, { recursive: true, force: true })
-              .catch(() => {});
+            await fs.rm(lockDir, { recursive: true, force: true }).catch(() => {});
             continue;
           }
         }

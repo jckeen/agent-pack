@@ -1,11 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
-import type {
-  AdapterExportOptions,
-  AdapterOutputFile,
-  Atom,
-} from "../schema/types.js";
+import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/types.js";
 import {
   atomsByType,
   defineAdapter,
@@ -14,6 +10,7 @@ import {
   stableJsonStringify,
   wrapInstructionBlock,
 } from "./types.js";
+import { renderRuleMarkdown } from "./ruleContent.js";
 
 function slugFor(atom: Atom): string {
   // The atom-id regex guarantees a single `:`-separated slug component with
@@ -22,25 +19,20 @@ function slugFor(atom: Atom): string {
   return raw.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function renderInstructionBody(
-  atom: Atom,
-  body: string | null,
-): string {
+function renderInstructionBody(atom: Atom, body: string | null): string {
   return `### ${atom.name}\n\n_(${atom.id})_\n\n${(body ?? atom.description).trim()}\n`;
 }
 
-function renderRuleSection(atom: Atom): string {
-  return `### Rule: ${atom.name}\n\n_(${atom.id})_\n\n${atom.description.trim()}\n`;
+async function renderRuleSection(packRoot: string, atom: Atom): Promise<string> {
+  const body = await renderRuleMarkdown(packRoot, atom);
+  return `### Rule: ${atom.name}\n\n_(${atom.id})_\n\n${body}\n`;
 }
 
 interface ParsedYaml {
   [key: string]: unknown;
 }
 
-async function parseAtomYaml(
-  packRoot: string,
-  atom: Atom,
-): Promise<ParsedYaml | null> {
+async function parseAtomYaml(packRoot: string, atom: Atom): Promise<ParsedYaml | null> {
   const raw = await readAtomFile(packRoot, atom);
   if (!raw) return null;
   try {
@@ -105,23 +97,20 @@ export const claudeCodeAdapter = defineAdapter({
     }
     if (ruleAtoms.length > 0) {
       sections.push("## Rules\n");
-      for (const atom of ruleAtoms) sections.push(renderRuleSection(atom));
+      for (const atom of ruleAtoms) {
+        sections.push(await renderRuleSection(packRoot, atom));
+      }
     }
     if (workflowAtoms.length > 0) {
       sections.push("## Workflows\n");
       for (const atom of workflowAtoms) {
-        sections.push(
-          `### ${atom.name}\n\n_(${atom.id})_\n\n${atom.description}\n`,
-        );
+        sections.push(`### ${atom.name}\n\n_(${atom.id})_\n\n${atom.description}\n`);
       }
     }
 
     files.push({
       path: "CLAUDE.md",
-      content: wrapInstructionBlock(
-        manifest.metadata.id,
-        sections.join("\n"),
-      ),
+      content: wrapInstructionBlock(manifest.metadata.id, sections.join("\n")),
       action: "create",
     });
 
@@ -150,24 +139,29 @@ export const claudeCodeAdapter = defineAdapter({
       }
     }
 
-    // ---------- Commands (compile to skill-style folders) ----------
+    // ---------- Commands (compile to .claude/commands/ slash commands) ----------
+    // Claude Code registers user-invocable slash commands from
+    // `.claude/commands/<name>.md` — a command compiled into `.claude/skills/`
+    // would never be invocable as `/<name>`.
     const commandAtoms = byType.get("command") ?? [];
     for (const atom of commandAtoms) {
       const slug = slugFor(atom);
       const parsed = await parseAtomYaml(packRoot, atom);
-      const invocation = parsed?.["invocation"] as
-        | { slash?: string; cli?: string }
-        | undefined;
       let body: string | null = null;
       const promptPath = parsed?.["prompt"];
       if (typeof promptPath === "string" && promptPath.length > 0) {
         body = await readPromptFile(packRoot, promptPath);
       }
-      const header = `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n`;
-      const slash = invocation?.slash ? `Invocation: \`${invocation.slash}\`\n\n` : "";
+      const args = parsed?.["arguments"] as
+        | Array<{ name?: string; default?: unknown }>
+        | undefined;
+      const argHint =
+        args && args.length > 0
+          ? `argument-hint: ${args.map((a) => `[${a.name ?? "arg"}]`).join(" ")}\n`
+          : "";
       files.push({
-        path: `.claude/skills/${slug}/SKILL.md`,
-        content: `${header}# ${atom.name}\n\n${slash}${body ?? atom.description}\n`,
+        path: `.claude/commands/${slug}.md`,
+        content: `---\ndescription: ${atom.description}\n${argHint}---\n\n${body ?? `# ${atom.name}\n\n${atom.description}`}\n`,
         action: "create",
       });
     }
@@ -181,94 +175,134 @@ export const claudeCodeAdapter = defineAdapter({
         typeof parsed?.["instructions"] === "string"
           ? (parsed["instructions"] as string).trim()
           : atom.description;
+      // Frontmatter carries only keys Claude Code's agent loader understands
+      // (name, description) — provenance and risk live in the lockfile.
       files.push({
         path: `.claude/agents/${slug}.md`,
-        content:
-          `---\nname: ${slug}\ndescription: ${atom.description}\nrisk_level: ${atom.risk_level}\n---\n\n# ${atom.name}\n\n${instructions}\n`,
+        content: `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n# ${atom.name}\n\n${instructions}\n`,
         action: "create",
       });
     }
 
-    // ---------- settings.json (hooks + MCP servers) ----------
+    // ---------- .claude/settings.json (hooks) ----------
+    // Emitted entries carry ONLY the keys Claude Code's settings schema
+    // accepts ({matcher, hooks: [{type, command}]}). Provenance (source atom,
+    // risk) lives in the lockfile — extra keys here would trip the settings
+    // validator.
     const hookAtoms = byType.get("hook") ?? [];
-    const mcpAtoms = byType.get("mcp_server") ?? [];
-    if (hookAtoms.length > 0 || mcpAtoms.length > 0) {
-      const settings: Record<string, unknown> = {};
-      if (hookAtoms.length > 0) {
-        const hooks: Record<string, unknown[]> = {};
-        for (const atom of hookAtoms) {
-          const parsed = await parseAtomYaml(packRoot, atom);
-          const events =
-            ((atom as { lifecycle?: { events?: { "claude-code"?: string[] } } })
-              .lifecycle?.events?.["claude-code"] ??
-              (parsed?.["events"] as { "claude-code"?: string[] } | undefined)
-                ?.["claude-code"] ??
-              ["PostToolUse"]) as string[];
-          const handler = (parsed?.["handler"] as { command?: string } | undefined)
-            ?? (atom as { handler?: { command?: string } }).handler;
-          const command = handler?.command ?? "";
-          if (!isHookCommandAllowed(command, allowedShellCommands)) {
-            warnings.push(
-              `Hook \`${atom.id}\` declares command \`${command || "(empty)"}\` which is NOT listed in \`permissions.shell.commands\`. Refusing to emit it into settings.json.`,
-            );
-            unsupported.push(atom.id);
-            continue;
-          }
-          for (const evt of events) {
-            const list = hooks[evt] ?? [];
-            list.push({
-              matcher: "*",
-              hooks: [
-                {
-                  type: "command",
-                  command,
-                  description: atom.description,
-                  risk_level: atom.risk_level,
-                  source_atom: atom.id,
-                },
-              ],
-            });
-            hooks[evt] = list;
-          }
+    if (hookAtoms.length > 0) {
+      const hooks: Record<string, unknown[]> = {};
+      for (const atom of hookAtoms) {
+        const parsed = await parseAtomYaml(packRoot, atom);
+        const events = ((atom as { lifecycle?: { events?: { "claude-code"?: string[] } } })
+          .lifecycle?.events?.["claude-code"] ??
+          (parsed?.["events"] as { "claude-code"?: string[] } | undefined)?.[
+            "claude-code"
+          ] ?? ["PostToolUse"]) as string[];
+        const handler =
+          (parsed?.["handler"] as { command?: string; matcher?: string } | undefined) ??
+          (atom as { handler?: { command?: string; matcher?: string } }).handler;
+        const command = handler?.command ?? "";
+        if (!isHookCommandAllowed(command, allowedShellCommands)) {
+          warnings.push(
+            `Hook \`${atom.id}\` declares command \`${command || "(empty)"}\` which is NOT listed in \`permissions.shell.commands\`. Refusing to emit it into settings.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
         }
-        if (Object.keys(hooks).length > 0) settings.hooks = hooks;
+        for (const evt of events) {
+          const list = hooks[evt] ?? [];
+          const entry: Record<string, unknown> = {
+            hooks: [{ type: "command", command }],
+          };
+          // Tool-event hooks need a tool matcher. A pack may pin its own via
+          // handler.matcher; otherwise default to file-editing tools — a
+          // bare "*" would fire the command after EVERY tool call (Read,
+          // Grep, Bash, ...), which is never what an after-edit hook means.
+          if (evt === "PreToolUse" || evt === "PostToolUse") {
+            entry["matcher"] = handler?.matcher ?? "Edit|Write";
+          }
+          list.push(entry);
+          hooks[evt] = list;
+        }
+      }
+      if (Object.keys(hooks).length > 0) {
+        files.push({
+          path: ".claude/settings.json",
+          content: stableJsonStringify({ hooks }),
+          action: "create",
+        });
         warnings.push(
           "Hook atom(s) installed — they run shell commands after agent edits. Review before enabling.",
         );
       }
-      if (mcpAtoms.length > 0) {
-        const mcpServers: Record<string, unknown> = {};
-        for (const atom of mcpAtoms) {
-          const slug = slugFor(atom);
-          const a = atom as {
-            transport?: string;
-            command?: string;
-            args?: string[];
-            env?: Record<string, unknown>;
-            url?: string;
-          };
+    }
+
+    // ---------- .mcp.json (MCP servers) ----------
+    // Claude Code reads project-scoped MCP servers from `.mcp.json` at the
+    // project root — NOT from `.claude/settings.json`. Entries written there
+    // are silently ignored. Schema per server: {type, command, args, env} for
+    // stdio, {type, url} for http/sse. `${VAR}` env values are expanded by
+    // Claude Code from the user's environment, so secrets never land on disk.
+    const mcpAtoms = byType.get("mcp_server") ?? [];
+    if (mcpAtoms.length > 0) {
+      const mcpServers: Record<string, unknown> = {};
+      const declaredServers = manifest.permissions?.mcp?.servers ?? [];
+      for (const atom of mcpAtoms) {
+        const slug = slugFor(atom);
+        const a = atom as {
+          transport?: string;
+          command?: string;
+          args?: string[];
+          env?: Record<string, unknown>;
+          url?: string;
+        };
+        // Gate symmetric to hooks: an MCP server's command is arbitrary
+        // process execution at session start. Require the server to be
+        // declared in `permissions.mcp.servers`, and refuse shell-escape
+        // shapes outright (`bash -c`, `node -e`, ...) — otherwise an
+        // mcp_server atom is a trivial bypass of the hook allow-list.
+        const joined = [a.command ?? "", ...(a.args ?? [])].join(" ");
+        if (!declaredServers.includes(slug)) {
+          warnings.push(
+            `MCP server \`${atom.id}\` is not declared in \`permissions.mcp.servers\`. Refusing to emit it into .mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        if (
+          !a.command ||
+          /\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b|\bnode\s+(-e|--eval)\b|\beval\b/i.test(
+            joined,
+          )
+        ) {
+          warnings.push(
+            `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it into .mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        const transport = a.transport ?? "stdio";
+        if (transport === "stdio") {
           mcpServers[slug] = {
-            transport: a.transport ?? "stdio",
+            type: "stdio",
             command: a.command,
             args: a.args ?? [],
             env: Object.fromEntries(
               Object.entries(a.env ?? {}).map(([k]) => [k, `\${${k}}`]),
             ),
-            url: a.url,
-            description: atom.description,
-            risk_level: atom.risk_level,
-            source_atom: atom.id,
           };
-          warnings.push(
-            `MCP server \`${atom.id}\` configured. Required env: ${Object.keys(a.env ?? {}).join(", ") || "(none)"}.`,
-          );
+        } else {
+          mcpServers[slug] = { type: transport, url: a.url };
         }
-        if (Object.keys(mcpServers).length > 0) settings.mcpServers = mcpServers;
+        warnings.push(
+          `MCP server \`${atom.id}\` configured in .mcp.json. Required env: ${Object.keys(a.env ?? {}).join(", ") || "(none)"}.`,
+        );
       }
-      if (Object.keys(settings).length > 0) {
+      if (Object.keys(mcpServers).length > 0) {
         files.push({
-          path: ".claude/settings.json",
-          content: stableJsonStringify(settings),
+          path: ".mcp.json",
+          content: stableJsonStringify({ mcpServers }),
           action: "create",
         });
       }
@@ -297,10 +331,7 @@ export const claudeCodeAdapter = defineAdapter({
   },
 });
 
-async function readPromptFile(
-  packRoot: string,
-  relPath: string,
-): Promise<string | null> {
+async function readPromptFile(packRoot: string, relPath: string): Promise<string | null> {
   // Containment: reject absolute paths and `..` traversal — same rules as
   // atom.path. The prompt path is a manifest-controlled string referenced
   // from an atom body file (yaml `prompt:` field), so the trust boundary is

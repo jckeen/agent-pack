@@ -119,7 +119,7 @@ describe("recoverIncomplete", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  it("rolls forward when staged files are present and clean", async () => {
+  it("rolls BACK a clean-files dangling begin that has no install manifest (codex P0-4)", async () => {
     const dir = await tempProject();
     // First do a real install to get all the right files on disk.
     const plan = await planInstall({
@@ -151,7 +151,11 @@ describe("recoverIncomplete", () => {
     });
     const r = await recoverIncomplete(dir);
     expect(r.found).toBe(1);
-    expect(r.recovered.length).toBe(1);
+    // Files-on-disk alone is not a durable install: synthetic.dangling has no
+    // install manifest, so rolling forward would record a "successful" install
+    // that verify/uninstall/rollback cannot find. It must roll back instead.
+    expect(r.recovered.length).toBe(0);
+    expect(r.rolledBack.length).toBe(1);
     await fs.rm(dir, { recursive: true, force: true });
   });
 });

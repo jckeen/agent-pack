@@ -21,14 +21,22 @@ const VALID_TARGETS: TargetPlatform[] = [
 export function registerPlan(program: Command): void {
   program
     .command("plan [path]")
-    .description("Resolve the profile, compute permissions/risk, and print the file plan an export would write.")
+    .description(
+      "Resolve the profile, compute permissions/risk, and print the file plan an export would write.",
+    )
     .option("--target <target>", "platform target", "claude-code")
     .option("--profile <profile>", "install profile")
     .option("--only <atomIds>", "comma-separated subset of atom ids to include")
+    .option("--json", "emit the plan as a single JSON object on stdout")
     .action(
       async (
         target: string | undefined,
-        options: { target: TargetPlatform; profile?: string; only?: string },
+        options: {
+          target: TargetPlatform;
+          profile?: string;
+          only?: string;
+          json?: boolean;
+        },
       ) => {
         if (!VALID_TARGETS.includes(options.target)) {
           console.error(
@@ -73,7 +81,10 @@ export function registerPlan(program: Command): void {
             process.exit(2);
           }
           const adapter = getAdapter(options.target);
-          const onlyAtoms = options.only?.split(",").map((s) => s.trim()).filter(Boolean);
+          const onlyAtoms = options.only
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
           const plan = await createInstallPlan({
             manifest: loaded.manifest,
             packRoot: loaded.packRoot,
@@ -82,7 +93,24 @@ export function registerPlan(program: Command): void {
             adapter,
             onlyAtoms,
           });
-          console.log(renderInstallPlan(plan));
+          if (options.json) {
+            console.log(
+              JSON.stringify({
+                packId: plan.packId,
+                packVersion: plan.packVersion,
+                target: plan.target,
+                profile: plan.profile,
+                riskLevel: plan.riskLevel,
+                atoms: plan.atoms,
+                permissions: plan.permissions,
+                warnings: plan.warnings,
+                unsupportedAtoms: plan.unsupportedAtoms,
+                files: plan.files.map((f) => ({ path: f.path, action: f.action })),
+              }),
+            );
+          } else {
+            console.log(renderInstallPlan(plan));
+          }
         } catch (err) {
           failCleanly(err);
         }

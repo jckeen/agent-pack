@@ -9,6 +9,7 @@ import { getAdapter } from "../adapters/index.js";
 import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
 import { createInstallPlan } from "../planner/createInstallPlan.js";
+import { UnknownProfileError } from "../planner/resolveAtoms.js";
 
 export interface ExportPackOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -113,9 +114,7 @@ function resolveProfile(
 ): string {
   if (requested) {
     if (!manifest.profiles[requested]) {
-      throw new Error(
-        `Unknown profile \`${requested}\`. Declared profiles: ${Object.keys(manifest.profiles).join(", ")}`,
-      );
+      throw new UnknownProfileError(requested, Object.keys(manifest.profiles));
     }
     return requested;
   }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -56,6 +57,16 @@ export function registerInstall(program: Command): void {
       "refuse to install if the registry has no valid Sigstore signature for this version",
       false,
     )
+    .option("--json", "emit the plan/result as a single JSON object on stdout", false)
+    .option(
+      "--expected-signer <san>",
+      "with --require-sig: require the Sigstore certificate identity (SAN) to equal this value",
+    )
+    .option(
+      "--allow-critical",
+      "permit installing a pack whose computed risk level is critical (otherwise refused even with --yes)",
+      false,
+    )
     .action(
       async (
         pack: string | undefined,
@@ -68,6 +79,9 @@ export function registerInstall(program: Command): void {
           force: boolean;
           registry: string;
           requireSig: boolean;
+          json: boolean;
+          expectedSigner?: string;
+          allowCritical: boolean;
         },
       ) => {
         try {
@@ -105,6 +119,19 @@ export function registerInstall(program: Command): void {
           }
 
           const gitSource: GitSource | null = !isLocalDir && pack ? parseGitId(pack) : null;
+          // An arg that LOOKS like a git source but failed to parse must not
+          // fall through to the local-path or registry branches — the
+          // resulting "Could not access path github:..." error sends the
+          // caller down the wrong debugging trail.
+          if (!isLocalDir && !gitSource && pack && /^github(\.com)?[:/]/.test(pack)) {
+            console.error(
+              pc.red(
+                `✗ \`${pack}\` is not a valid git source. Expected \`github:owner/repo[@ref][#subpath]\` — ` +
+                  `refs allow [A-Za-z0-9._/+-], subpaths must be relative without \`..\`.`,
+              ),
+            );
+            process.exit(2);
+          }
           let remoteMatch: RegExpMatchArray | null = null;
           if (!isLocalDir && !gitSource && pack) {
             remoteMatch = pack.match(REMOTE_ID_RE);
@@ -145,15 +172,27 @@ export function registerInstall(program: Command): void {
             if (!publisher || !packSlug) {
               throw new Error("remote identity parse failed");
             }
-            source = await fetchRemotePack({
-              publisher,
-              pack: packSlug,
-              requestedVersion,
-              registry: options.registry,
-              target: options.target,
-              profile: options.profile ?? "safe",
-              projectRoot: options.project,
-            });
+            try {
+              source = await fetchRemotePack({
+                publisher,
+                pack: packSlug,
+                requestedVersion,
+                registry: options.registry,
+                target: options.target,
+                profile: options.profile ?? "safe",
+                projectRoot: options.project,
+              });
+            } catch (err) {
+              // Bare network errors ("fetch failed") give an agent nothing to
+              // act on — say which registry was contacted and note the common
+              // mistake (a typo'd local path matches the registry-id shape).
+              const msg = err instanceof Error ? err.message : String(err);
+              throw new Error(
+                `Could not fetch \`${publisher}/${packSlug}\` from registry ${options.registry}: ${msg}\n` +
+                  `  If you meant a local pack, pass its path (e.g. ./${publisher}/${packSlug}); ` +
+                  `for a git repo use github:owner/repo[@ref][#subpath].`,
+              );
+            }
 
             // --require-sig: per ROADMAP exit-code taxonomy 0=ok, 2=drift,
             // 3=chain, 4=sig invalid, 5=unsigned-when-required. We enforce
@@ -164,6 +203,7 @@ export function registerInstall(program: Command): void {
                 publisher,
                 pack: packSlug,
                 version: requestedVersion,
+                expectedSigner: options.expectedSigner,
               });
               if (sigCheck.code === "unsigned") {
                 console.error(
@@ -183,7 +223,24 @@ export function registerInstall(program: Command): void {
                 );
                 process.exit(4);
               }
-              console.log(pc.green(`  ✓ signature verified — signed by ${sigCheck.san}`));
+              if (options.expectedSigner) {
+                console.log(
+                  pc.green(
+                    `  ✓ signature verified — signed by ${sigCheck.san} (identity pinned)`,
+                  ),
+                );
+              } else {
+                // Without --expected-signer ANY valid Sigstore identity passes
+                // (trust-on-first-use). Never imply the publisher signed it.
+                console.log(
+                  pc.green(`  ✓ signature cryptographically valid — signer: ${sigCheck.san}`),
+                );
+                console.log(
+                  pc.yellow(
+                    `  ⚠ signer identity NOT pinned — pass --expected-signer <san> to require a specific identity.`,
+                  ),
+                );
+              }
             }
           } else if (options.requireSig) {
             console.error(
@@ -209,10 +266,40 @@ export function registerInstall(program: Command): void {
             generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
           });
 
-          printPlanSummary(plan);
+          const planJson = () => ({
+            packId: plan.packId,
+            packVersion: plan.packVersion,
+            target: plan.target,
+            profile: plan.profile,
+            riskLevel: plan.riskLevel,
+            atoms: plan.atoms,
+            warnings: plan.warnings,
+            unsupportedAtoms: plan.unsupportedAtoms,
+            files: {
+              create: plan.created.map((f) => f.path),
+              modify: plan.modified.map((f) => f.path),
+              unchanged: plan.unchanged.map((f) => f.path),
+              conflicts: plan.conflicts.map((c) => ({
+                path: c.file.path,
+                reason: c.reason,
+                otherPackId: c.otherPackId,
+              })),
+              merges: plan.merges.map((m) => ({ path: m.path, strategy: m.strategy })),
+            },
+          });
+
+          if (!options.json) printPlanSummary(plan);
 
           if (options.dryRun) {
-            console.log(pc.dim("\n(--dry-run) No files were written."));
+            if (options.json) {
+              console.log(JSON.stringify({ ...planJson(), dryRun: true }));
+            } else {
+              console.log(pc.dim("\n(--dry-run) No files were written."));
+            }
+            // Surface conflicts through the exit code so a probing agent can
+            // detect them without parsing prose — same code the real install
+            // path uses when it refuses.
+            if (plan.conflicts.length > 0 && !options.force) process.exit(2);
             return;
           }
 
@@ -225,6 +312,18 @@ export function registerInstall(program: Command): void {
             process.exit(2);
           }
 
+          // Risk ceiling: a critical-risk plan never installs implicitly. A
+          // single -y in a script (the documented CI path) must not be able
+          // to cross it — the opt-in is explicit and greppable.
+          if (plan.riskLevel === "critical" && !options.allowCritical) {
+            console.error(
+              pc.red(
+                `\n✗ Computed risk level is CRITICAL. Re-run with --allow-critical to proceed (this flag is intentionally separate from --yes).`,
+              ),
+            );
+            process.exit(ExitCode.PolicyViolation);
+          }
+
           if (!options.yes) {
             const ok = await confirm(
               pc.bold(
@@ -233,11 +332,23 @@ export function registerInstall(program: Command): void {
             );
             if (!ok) {
               console.log(pc.dim("Aborted."));
-              process.exit(0);
+              process.exit(1);
             }
           }
 
           const result = await applyInstall({ plan, force: options.force });
+          if (options.json) {
+            console.log(
+              JSON.stringify({
+                ...planJson(),
+                installed: true,
+                written: result.written,
+                manifestPath: result.manifestPath.replace(plan.projectRoot, "."),
+                historyEntryId: result.commitEntry.id,
+              }),
+            );
+            return;
+          }
           console.log(
             pc.green(
               `\n✓ Installed ${plan.packId}@${plan.packVersion} (${plan.target}, ${plan.profile}).`,
@@ -331,13 +442,21 @@ async function fetchRemotePack(params: {
   // 3. Materialize manifest + atom files in a temp dir.
   const versionMeta = await client.getVersion(params.publisher, params.pack, version);
   const tmpRoot = await fs.mkdtemp(
-    path.join(os.tmpdir(), `wgpack-${params.publisher}-${params.pack}-`),
+    path.join(os.tmpdir(), `agentpack-${params.publisher}-${params.pack}-`),
   );
 
   const manifestBytes = Buffer.from(
     await client.fetchManifest(params.publisher, params.pack, version),
     "utf-8",
   );
+  // Integrity-check the manifest against the registry's recorded hash — atom
+  // files already get this treatment, and the manifest drives atom
+  // resolution, the risk summary the user consents to, and the lockfile
+  // checksum (security-reviewer MEDIUM-1).
+  const actualManifestSha = createHash("sha256").update(manifestBytes).digest("hex");
+  if (actualManifestSha !== versionMeta.manifestSha256) {
+    throw new IntegrityError(versionMeta.manifestSha256, actualManifestSha, "AGENTPACK.yaml");
+  }
   await fs.writeFile(path.join(tmpRoot, "AGENTPACK.yaml"), manifestBytes);
 
   for (const file of versionMeta.files) {
@@ -400,14 +519,18 @@ async function peekAtomTypes(
 
 async function fetchManifestExtra(
   _client: RegistryClient,
-  _publisher: string,
-  _pack: string,
-  _version: string,
-  _file: { path: string; sha256: string; bytes: number },
+  publisher: string,
+  pack: string,
+  version: string,
+  file: { path: string; sha256: string; bytes: number },
 ): Promise<Buffer> {
-  // Files without an atom id (e.g. README) are rare in iter-4. Return empty
-  // for now; future iterations can extend the client interface.
-  return Buffer.alloc(0);
+  // The registry client has no fetch path for files without an atom id yet.
+  // Writing an empty buffer here would silently corrupt the install (the
+  // lockfile would pin a hash for a file whose bytes were discarded) — fail
+  // loudly instead until the client grows a by-path fetch (codex P1-4).
+  throw new Error(
+    `Registry version ${publisher}/${pack}@${version} contains a non-atom file \`${file.path}\` that this CLI cannot fetch yet. Install from the pack's git source instead.`,
+  );
 }
 
 /**
@@ -437,6 +560,7 @@ async function verifyRegistrySignature(params: {
   publisher: string;
   pack: string;
   version: string | undefined;
+  expectedSigner?: string | undefined;
 }): Promise<SigCheck> {
   const versionPath = params.version ?? "latest";
   const url = `${params.registry.replace(/\/+$/, "")}/api/v1/packs/${params.publisher}/${params.pack}/versions/${versionPath}/signatures`;
@@ -486,6 +610,9 @@ async function verifyRegistrySignature(params: {
       metadata: latest.metadata,
       envelopeVersion: 1,
     },
+    ...(params.expectedSigner
+      ? { requireIdentity: true, expectedSAN: params.expectedSigner }
+      : {}),
   });
   if (result.valid) {
     return { code: "ok", san: result.metadata.identity.san };

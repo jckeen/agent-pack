@@ -28,7 +28,8 @@ describe("diffPlan", () => {
 
   it("includes a unified diff for conflicts", async () => {
     const dir = await tempProject();
-    await fs.writeFile(path.join(dir, "AGENTS.md"), "user owned\n");
+    await fs.mkdir(path.join(dir, "skills/code-review"), { recursive: true });
+    await fs.writeFile(path.join(dir, "skills/code-review/SKILL.md"), "user owned\n");
     const plan = await planInstall({
       source: EXAMPLE_PACK,
       target: "generic",
@@ -37,7 +38,9 @@ describe("diffPlan", () => {
       generator: GEN,
     });
     const entries = await diffPlan(plan);
-    const c = entries.find((e) => e.path === "AGENTS.md" && e.status === "conflict");
+    const c = entries.find(
+      (e) => e.path === "skills/code-review/SKILL.md" && e.status === "conflict",
+    );
     expect(c?.diff).toMatch(/user owned/);
     await fs.rm(dir, { recursive: true, force: true });
   });

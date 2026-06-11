@@ -62,10 +62,17 @@ agentpack plan     examples/pr-quality --target claude-code --profile safe
 agentpack pack export examples/pr-quality \
   --target claude-code --profile safe --out dist/claude
 
-# Install into a project (Phase 2): diff → backup → write → lockfile + history
+# Install into a project (Phase 2): diff → backup → write → lockfile + history.
+# Shared files MERGE: an existing CLAUDE.md keeps the user's content and other
+# packs' blocks; .claude/settings.json and .mcp.json are deep-merged.
 agentpack install examples/pr-quality \
   --target claude-code --profile safe \
   --project /tmp/my-claude-project --yes
+
+# Machine-readable output for agents: one JSON object with the plan + result
+agentpack install examples/pr-quality \
+  --target claude-code --profile safe \
+  --project /tmp/my-claude-project --yes --json
 
 # Drift detection, rollback, history (Phase 2)
 agentpack verify agentpack.pr-quality --project /tmp/my-claude-project
@@ -102,7 +109,7 @@ The manifest is `AGENTPACK.yaml`. Each pack is composed of **atoms** — the sma
 | `rule`         | `.cursor/rules/*.mdc`, scoped sections in `CLAUDE.md` / `AGENTS.md`               |
 | `skill`        | `.claude/skills/<name>/`, `.codex/skills/<name>/`, `skills/<name>/` (Agent Skills) |
 | `hook`         | `.claude/settings.json` hooks, `.codex/hooks.json` (high risk by policy)          |
-| `command`      | skill-style folders, MCP tool stubs                                               |
+| `command`      | `.claude/commands/*.md` slash commands, skill folders, MCP tool stubs             |
 | `subagent`     | `.claude/agents/*.md`, `.codex/agents/*.toml`                                     |
 | `mcp_server`   | `.claude/settings.json#mcpServers`, `.codex/config.toml`, `.cursor/mcp.json`      |
 | `plugin`       | ChatGPT Apps SDK skeleton, editor plugin metadata                                 |
@@ -175,7 +182,7 @@ Full reference: [`docs/cli.md`](./docs/cli.md).
 
 | Target        | Output surface |
 |---------------|----------------|
-| **claude-code** | `CLAUDE.md`, `.claude/skills/*`, `.claude/agents/*`, `.claude/settings.json` (hooks + MCP) |
+| **claude-code** | `CLAUDE.md`, `.claude/skills/*`, `.claude/commands/*`, `.claude/agents/*`, `.claude/settings.json` (hooks), `.mcp.json` (MCP servers) |
 | **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/*`, `.codex/agents/*.toml` |
 | **cursor**      | `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
 | **chatgpt**     | `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only) |
@@ -184,7 +191,7 @@ Full reference: [`docs/cli.md`](./docs/cli.md).
 Every adapter:
 
 - Is **deterministic** — two runs produce byte-identical output.
-- Wraps instruction content in `<!-- BEGIN AGENTPACK: <id> --> … <!-- END AGENTPACK: <id> -->` markers so multiple packs can coexist in one file.
+- Wraps instruction content in `<!-- BEGIN AGENTPACK: <id> --> … <!-- END AGENTPACK: <id> -->` markers — and the install engine honors them: packs coexist with each other AND with the user's own `CLAUDE.md`/`AGENTS.md` content (merge on install, surgical span removal on uninstall, fragment-level drift detection).
 - Returns warnings for atoms it cannot map to its platform — never silently drops dangerous capability.
 
 Details: [`docs/adapters.md`](./docs/adapters.md).
@@ -196,8 +203,8 @@ Details: [`docs/adapters.md`](./docs/adapters.md).
 Risk is computed from atom risk levels, declared permissions, and the install profile. The model is opinionated and conservative:
 
 - Hooks are **always** high-risk — they run shell commands after agent edits.
-- MCP servers requiring secrets/env are high.
-- `shell.execution + secrets.env + network.access + filesystem.write` raises a plan to **critical**.
+- Hook commands must appear verbatim in `permissions.shell.commands`; MCP servers must be declared in `permissions.mcp.servers` — and shell-escape shapes (`bash -c`, `node -e`, …) are refused in both, so neither atom type can smuggle arbitrary shell.
+- `shell.execution + secrets.env + network.access + filesystem.write` raises a plan to **critical** — and a critical plan requires an explicit `--allow-critical` (a `--yes` in CI never crosses that line alone).
 - `package.installation` and `model_provider_key.access` are critical.
 - Permission categories are surfaced **only** when an included atom backs them — no leaky pack-level declarations.
 
@@ -210,7 +217,7 @@ Phase 4 trust:
 
 - **Sigstore cosign keyless** signing (OIDC → Fulcio cert + Rekor witness). No publisher-managed keys.
 - `agentpack publish --sign` populates `lockfile.signatures.{manifest, cert}` (slots reserved in v0.2.0).
-- `agentpack verify --sig --strict` exits non-zero on unsigned, signature-invalid, or quarantined packs.
+- `agentpack verify --sig --strict` exits non-zero on unsigned, signature-invalid, or quarantined packs; `--expected-signer <san>` pins the Sigstore identity (without it the CLI explicitly labels the signer as unpinned).
 - Registry serves 451 on a quarantined version; admin UI at `/admin/packs` flips status.
 
 Full details: [`docs/security.md`](./docs/security.md) and [`docs/signatures.md`](./docs/signatures.md).

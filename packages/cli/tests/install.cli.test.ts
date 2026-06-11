@@ -157,7 +157,14 @@ describe("agentpack install (CLI)", () => {
       dir,
       "--yes",
     ]);
-    await fs.appendFile(path.join(dir, "AGENTS.md"), "\ntampered\n");
+    // Tamper INSIDE the pack's marker span — edits outside it are the user's
+    // own content and are deliberately not drift under merge semantics.
+    const cur = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
+    await fs.writeFile(
+      path.join(dir, "AGENTS.md"),
+      cur.replace("Pull Request Quality Pack", "Tampered Pack"),
+      "utf8",
+    );
     const r = await run(["verify", "agentpack.pr-quality", "--project", dir]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("drift");
@@ -212,7 +219,8 @@ describe("agentpack install (CLI)", () => {
 
   it("diff prints unified diff for a conflict", async () => {
     const dir = await freshProject("diff");
-    await fs.writeFile(path.join(dir, "AGENTS.md"), "user content\n");
+    await fs.mkdir(path.join(dir, "skills/code-review"), { recursive: true });
+    await fs.writeFile(path.join(dir, "skills/code-review/SKILL.md"), "user content\n");
     const r = await run([
       "diff",
       EXAMPLE,
@@ -225,12 +233,13 @@ describe("agentpack install (CLI)", () => {
     ]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("conflict");
-    expect(r.stdout).toContain("AGENTS.md");
+    expect(r.stdout).toContain("skills/code-review/SKILL.md");
   });
 
   it("install refuses conflicts without --force", async () => {
     const dir = await freshProject("conflict-refuse");
-    await fs.writeFile(path.join(dir, "AGENTS.md"), "user content\n");
+    await fs.mkdir(path.join(dir, "skills/code-review"), { recursive: true });
+    await fs.writeFile(path.join(dir, "skills/code-review/SKILL.md"), "user content\n");
     const r = await run([
       "install",
       EXAMPLE,

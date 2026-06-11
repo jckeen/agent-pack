@@ -2,13 +2,20 @@
  * Git source resolver — install AgentPacks directly from a git repo.
  *
  * Today's surface: GitHub (`github:owner/repo@ref[#subpath]` or
- * `github.com/owner/repo[@ref][#subpath]`). The fetcher pulls
- * AGENTPACK.yaml first, derives the file list from the manifest's
- * `atoms[].files[]`, then fetches each file from raw.githubusercontent.com.
+ * `github.com/owner/repo[@ref][#subpath]`). The fetcher pins the ref to a
+ * commit SHA, lists the repo tree at that SHA via the GitHub git/trees API,
+ * and materializes EVERY file under the pack subpath from
+ * raw.githubusercontent.com — manifest, atom bodies, skill directories,
+ * referenced prompt files, checksums, all of it. (An earlier revision fetched
+ * only `atoms[].files[]`, a field the schema's `atom.path` packs never set,
+ * which silently produced empty packs — codex P0-2.)
  *
  * The result is a tmpRoot path with the same shape `fetchRemotePack` returns
  * for registry-hosted packs — so the existing `planInstall` pipeline takes
  * it from there with no changes downstream.
+ *
+ * Auth: `GITHUB_TOKEN` / `GH_TOKEN` is sent when present — enables
+ * private-repo installs and lifts the anonymous api.github.com rate limit.
  *
  * Constraints:
  *   - No new npm deps. Built-in `fetch` + `yaml` (already a core dep).
@@ -23,8 +30,6 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
-import yaml from "yaml";
 
 export interface GitSource {
   host: "github" | "github.com";
@@ -45,7 +50,7 @@ export interface GitSource {
  * - `owner` and `repo` follow GitHub's slug rules: alphanumeric, dash,
  *   underscore, dot; 1-39 chars for owner, 1-100 chars for repo.
  * - `ref` accepts any non-`#` characters (tags can have `.` and `/`).
- * - `subpath` is a relative POSIX path; `..` is stripped at fetch time.
+ * - `subpath` is a relative POSIX path; `..` and absolute paths are rejected.
  */
 const GIT_ID_RE =
   /^(github(?:\.com)?)[:/]([A-Za-z0-9_.-]{1,39})\/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?(?:@([^#]+))?(?:#(.+))?$/;
@@ -77,10 +82,14 @@ export function parseGitId(input: string): GitSource | null {
   // directly) and can construct a malformed raw.githubusercontent.com URL
   // even after percent-encoding. Reject loudly rather than coerce.
   if (ref !== undefined && !REF_RE.test(ref)) return null;
-  // Subpath sanitization: full traversal check happens at fetch time
-  // (fetchGitPack). Here we reject the obvious shape errors that the regex
-  // above lets through (NUL byte, control chars, leading slash).
-  if (subpath !== undefined && /[\x00-\x1f\x7f]/.test(subpath)) return null;
+  // Subpath sanitization: reject control chars, absolute paths, and `..`
+  // segments here — a traversal subpath must never reach the URL builder or
+  // the tree filter (security-reviewer LOW-1 / codex P2-2).
+  if (subpath !== undefined) {
+    if (/[\x00-\x1f\x7f]/.test(subpath)) return null;
+    if (subpath.startsWith("/") || subpath.startsWith("~")) return null;
+    if (subpath.split("/").includes("..")) return null;
+  }
   // Normalize host. `github:` and `github.com` are both treated as
   // GitHub; the host field records which surface the user spelled, in
   // case a future revision wants to surface that in lockfile provenance.
@@ -95,22 +104,71 @@ export function parseGitId(input: string): GitSource | null {
 }
 
 /**
+ * Auth token for GitHub fetches. `GITHUB_TOKEN` (Actions convention) or
+ * `GH_TOKEN` (gh CLI convention). Enables private-repo installs and lifts
+ * the 60-requests/hour anonymous api.github.com rate limit.
+ */
+function githubToken(): string | undefined {
+  return process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"] ?? undefined;
+}
+
+function githubHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = githubToken();
+  return {
+    ...extra,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+/**
+ * Translate a failed GitHub response into an actionable error. A
+ * non-interactive agent needs to know WHICH recovery path applies: auth,
+ * waiting out a rate limit, or fixing the ref/path.
+ */
+function describeGitHubFailure(res: Response, url: string, context: string): Error {
+  const hasToken = githubToken() !== undefined;
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  const reset = res.headers.get("x-ratelimit-reset");
+  if ((res.status === 403 || res.status === 429) && remaining === "0") {
+    const resetAt = reset ? new Date(Number(reset) * 1000).toISOString() : "(unknown)";
+    return new Error(
+      `GitHub rate limit exceeded while ${context} (${url}). Limit resets at ${resetAt}. ` +
+        (hasToken
+          ? "Wait for the reset or use a token with more quota."
+          : "Set GITHUB_TOKEN to raise the anonymous 60 requests/hour limit."),
+    );
+  }
+  if (res.status === 401) {
+    return new Error(
+      `GitHub rejected the provided token (401) while ${context} (${url}). Check GITHUB_TOKEN/GH_TOKEN.`,
+    );
+  }
+  if (res.status === 404 || res.status === 403) {
+    return new Error(
+      `GitHub returned ${res.status} while ${context} (${url}). The repo, ref, or path may not exist — ` +
+        (hasToken
+          ? "or the token lacks access to it."
+          : "or the repo is private. Set GITHUB_TOKEN to access private repos."),
+    );
+  }
+  return new Error(`GitHub returned ${res.status} while ${context} (${url}).`);
+}
+
+/**
  * Resolve the default branch for a repo via GitHub's public API.
  * Used when the user omits `@ref`.
  */
 async function resolveDefaultBranch(
   owner: string,
   repo: string,
-  fetchImpl: typeof fetch = globalThis.fetch
+  fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<string> {
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const res = await fetchImpl(url, {
-    headers: { Accept: "application/vnd.github+json" },
+    headers: githubHeaders({ Accept: "application/vnd.github+json" }),
   });
   if (!res.ok) {
-    throw new Error(
-      `GitHub API ${url} returned ${res.status} — repo may be private or missing.`
-    );
+    throw describeGitHubFailure(res, url, "resolving the default branch");
   }
   const body = (await res.json()) as { default_branch?: string };
   if (!body.default_branch) {
@@ -139,41 +197,68 @@ async function resolveRefToSha(
   if (SHA40_RE.test(ref)) return ref.toLowerCase();
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
   const res = await fetchImpl(url, {
-    headers: { Accept: "application/vnd.github+json" },
+    headers: githubHeaders({ Accept: "application/vnd.github+json" }),
   });
   if (!res.ok) {
-    throw new Error(
-      `GitHub API ${url} returned ${res.status} — unable to pin ref "${ref}" to a SHA.`,
-    );
+    throw describeGitHubFailure(res, url, `pinning ref "${ref}" to a commit SHA`);
   }
   const body = (await res.json()) as { sha?: string };
   if (!body.sha || !SHA40_RE.test(body.sha)) {
-    throw new Error(
-      `GitHub API returned no SHA for ${owner}/${repo}@${ref}.`,
-    );
+    throw new Error(`GitHub API returned no SHA for ${owner}/${repo}@${ref}.`);
   }
   return body.sha.toLowerCase();
 }
 
 /**
- * Build the raw.githubusercontent.com URL for a file at a given ref +
- * optional subpath. Refs that look like commit SHAs are passed through;
- * tags and branches go through the `refs/{kind}/...` namespace only when
- * the caller already knows the kind — for safety, we let raw.gh.com's
- * generic prefix resolve any ref shape.
+ * List every blob path in the repo tree at the pinned SHA. One API call,
+ * recursive. Throws when GitHub reports the listing was truncated (packs
+ * that large should be cloned, not raw-fetched).
  */
-function rawUrl(
+async function listTree(
   owner: string,
   repo: string,
-  ref: string,
-  filePath: string
-): string {
+  sha: string,
+  fetchImpl: typeof fetch,
+): Promise<string[]> {
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}?recursive=1`;
+  const res = await fetchImpl(url, {
+    headers: githubHeaders({ Accept: "application/vnd.github+json" }),
+  });
+  if (!res.ok) {
+    throw describeGitHubFailure(res, url, "listing the repository tree");
+  }
+  const body = (await res.json()) as {
+    tree?: Array<{ path?: string; type?: string }>;
+    truncated?: boolean;
+  };
+  if (body.truncated) {
+    throw new Error(
+      `GitHub truncated the tree listing for ${owner}/${repo}@${sha} — the repo is too large to fetch file-by-file. Clone it locally and install from the path instead.`,
+    );
+  }
+  return (body.tree ?? [])
+    .filter((e) => e.type === "blob" && typeof e.path === "string")
+    .map((e) => e.path as string);
+}
+
+/**
+ * Build the raw.githubusercontent.com URL for a file at a given ref +
+ * optional subpath.
+ */
+function rawUrl(owner: string, repo: string, ref: string, filePath: string): string {
   const cleanPath = filePath.replace(/^\/+/, "");
   return `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${cleanPath
     .split("/")
     .map(encodeURIComponent)
     .join("/")}`;
 }
+
+/**
+ * Hard cap on files materialized from a git source. AgentPacks are small
+ * (tens of files); hitting this means the source points at something that
+ * is not a pack directory.
+ */
+const MAX_PACK_FILES = 512;
 
 export interface FetchGitPackOptions {
   source: GitSource;
@@ -202,11 +287,11 @@ export interface FetchGitPackResult {
  *   1. If source.ref is null, resolve the repo's default branch.
  *   2. Resolve the ref to a 40-char commit SHA — pin EVERY subsequent fetch
  *      to that SHA so a concurrent force-push cannot rewrite content under
- *      us between the manifest fetch and the per-atom fetches.
- *   3. Fetch AGENTPACK.yaml from raw.githubusercontent.com at SHA/subpath.
- *   4. Parse the manifest to enumerate atom file paths.
- *   5. Fetch each file in sequence at the same pinned SHA.
- *   6. Return { tmpRoot, resolvedSha, requestedRef }.
+ *      us between the tree listing and the per-file fetches.
+ *   3. List the repo tree at the SHA and select every file under the pack
+ *      subpath. Require AGENTPACK.yaml among them.
+ *   4. Fetch each file at the pinned SHA and write it under tmpRoot.
+ *   5. Return { tmpRoot, resolvedSha, requestedRef }.
  */
 export async function fetchGitPack(
   options: FetchGitPackOptions,
@@ -225,29 +310,20 @@ export async function fetchGitPack(
     ? `${source.subpath.replace(/^\/+|\/+$/g, "")}/`
     : "";
 
-  // 1. Fetch the manifest.
-  const manifestUrl = rawUrl(
-    source.owner,
-    source.repo,
-    ref,
-    `${subpathPrefix}AGENTPACK.yaml`
+  // 1. Enumerate the pack's files from the tree at the pinned SHA.
+  const allPaths = await listTree(source.owner, source.repo, ref, fetchImpl);
+  const packPaths = allPaths.filter(
+    (p) => subpathPrefix === "" || p.startsWith(subpathPrefix),
   );
-  const manifestRes = await fetchImpl(manifestUrl, {
-    headers: { Accept: "text/plain" },
-  });
-  if (!manifestRes.ok) {
+  const manifestRepoPath = `${subpathPrefix}AGENTPACK.yaml`;
+  if (!packPaths.includes(manifestRepoPath)) {
     throw new Error(
-      `GitHub raw fetch ${manifestUrl} returned ${manifestRes.status} — confirm the ref + subpath.`
+      `No AGENTPACK.yaml at ${source.owner}/${source.repo}@${requestedRef ?? "default"}${source.subpath ? `#${source.subpath}` : ""} — confirm the ref + subpath point at a pack directory.`,
     );
   }
-  const manifestText = await manifestRes.text();
-  const manifest = yaml.parse(manifestText) as {
-    atoms?: Array<{ id?: string; files?: Array<{ path?: string }> }>;
-  };
-
-  if (!manifest || typeof manifest !== "object") {
+  if (packPaths.length > MAX_PACK_FILES) {
     throw new Error(
-      `Fetched ${manifestUrl} but the YAML did not parse to a manifest object.`
+      `Pack source lists ${packPaths.length} files (limit ${MAX_PACK_FILES}). Point #subpath at the pack directory rather than a whole repository.`,
     );
   }
 
@@ -255,44 +331,35 @@ export async function fetchGitPack(
   const tmpRoot =
     options.tmpRootHint ??
     (await fs.mkdtemp(
-      path.join(
-        os.tmpdir(),
-        `wgpack-git-${source.owner}-${source.repo}-`
-      )
+      path.join(os.tmpdir(), `agentpack-git-${source.owner}-${source.repo}-`),
     ));
   await fs.mkdir(tmpRoot, { recursive: true });
-  await fs.writeFile(path.join(tmpRoot, "AGENTPACK.yaml"), manifestText, "utf-8");
 
-  // 3. Fetch each atom file.
-  const atoms = Array.isArray(manifest.atoms) ? manifest.atoms : [];
-  for (const atom of atoms) {
-    const files = Array.isArray(atom?.files) ? atom.files : [];
-    for (const file of files) {
-      const rel = typeof file?.path === "string" ? file.path : null;
-      if (!rel) continue;
-      // Reject path-traversal at the manifest boundary.
-      if (rel.includes("..") || rel.startsWith("/")) {
-        throw new Error(
-          `Manifest declares file path "${rel}" with traversal or absolute root — refusing to fetch.`
-        );
-      }
-      const fileUrl = rawUrl(
-        source.owner,
-        source.repo,
-        ref,
-        `${subpathPrefix}${rel}`
+  // 3. Fetch every pack file at the pinned SHA.
+  for (const repoPath of packPaths) {
+    const rel = subpathPrefix === "" ? repoPath : repoPath.slice(subpathPrefix.length);
+    // Defense-in-depth: the tree API returns repo-relative paths, but never
+    // trust them blindly when joining onto the local filesystem.
+    if (rel.split("/").includes("..") || rel.startsWith("/")) {
+      throw new Error(
+        `Tree listing produced suspicious path "${repoPath}" — refusing to write it.`,
       );
-      const fileRes = await fetchImpl(fileUrl);
-      if (!fileRes.ok) {
-        throw new Error(
-          `GitHub raw fetch ${fileUrl} returned ${fileRes.status} — manifest referenced "${rel}" but the file is missing at this ref.`
-        );
-      }
-      const bytes = Buffer.from(await fileRes.arrayBuffer());
-      const dest = path.join(tmpRoot, rel);
-      await fs.mkdir(path.dirname(dest), { recursive: true });
-      await fs.writeFile(dest, bytes);
     }
+    const fileUrl = rawUrl(source.owner, source.repo, ref, repoPath);
+    const fileRes = await fetchImpl(fileUrl, { headers: githubHeaders() });
+    if (!fileRes.ok) {
+      throw describeGitHubFailure(fileRes, fileUrl, `fetching "${repoPath}"`);
+    }
+    const bytes = Buffer.from(await fileRes.arrayBuffer());
+    const dest = path.join(tmpRoot, rel);
+    const destRel = path.relative(tmpRoot, dest);
+    if (destRel.startsWith("..") || path.isAbsolute(destRel)) {
+      throw new Error(
+        `Tree listing produced suspicious path "${repoPath}" — refusing to write it.`,
+      );
+    }
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.writeFile(dest, bytes);
   }
 
   return { tmpRoot, resolvedSha: ref, requestedRef };

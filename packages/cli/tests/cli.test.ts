@@ -198,7 +198,7 @@ describe("agentpack pack export", () => {
     }
   });
 
-  it("writes settings.json with hooks + mcpServers for claude-code full profile", async () => {
+  it("writes hooks to settings.json and MCP servers to .mcp.json for claude-code full profile", async () => {
     const out = path.join(TMP_ROOT, "export-claude-full");
     const r = await run([
       "pack",
@@ -216,8 +216,9 @@ describe("agentpack pack export", () => {
       await fs.readFile(path.join(out, ".claude/settings.json"), "utf8"),
     );
     expect(settings).toHaveProperty("hooks");
-    expect(settings).toHaveProperty("mcpServers");
-    expect(settings.mcpServers).toHaveProperty("github");
+    expect(settings).not.toHaveProperty("mcpServers");
+    const mcp = JSON.parse(await fs.readFile(path.join(out, ".mcp.json"), "utf8"));
+    expect(mcp.mcpServers).toHaveProperty("github");
   });
 
   it("rejects unknown --target with exit 2 and does not create outDir", async () => {

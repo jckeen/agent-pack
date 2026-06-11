@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.6.0-dev — 2026-06-10 (agent-consumer readiness: merge semantics, adapter fidelity, git-source rewrite)
+
+Full-review session (Claude + Codex + security/QA agent fleet) focused on one question: *can an AI agent autonomously and safely consume packs?* Four P0s found and fixed, plus the largest semantic upgrade since Phase 2.
+
+**Install engine — shared-file merge semantics (the big one)**
+
+- **Packs now coexist with the user's own `CLAUDE.md`/`AGENTS.md` and with each other.** Previously ANY project that already had a `CLAUDE.md` hit a hard conflict (the markers only protected same-pack reinstalls), making installs unusable on real projects. Marker-block files now merge: install appends the pack's `BEGIN/END AGENTPACK` block (user content preserved byte-for-byte), re-install replaces only the pack's span, uninstall removes only the span (deleting the file only if the pack created it and nothing else remains). (`packages/core/src/install/merge.ts`, `plan.ts`, `apply.ts`, `verify.ts`, `uninstall.ts`)
+- **JSON configs deep-merge.** `.claude/settings.json`, `.mcp.json`, `.cursor/mcp.json`, `.codex/hooks.json`: the pack's hook entries / MCP servers are added, user entries preserved; same-name-different-content MCP server is a `json-collision` conflict; uninstall removes only the pack's entries.
+- **Fragment-level verify.** For merged files, drift is checked against the pack's contribution (marker span hash / JSON entries), so user edits to their own sections of a shared file are not drift; tampering inside the pack's span is. Lockfiles keep hashing the pack's pristine output, so they stay deterministic across projects.
+- 11 new tests in `packages/core/tests/merge-install.test.ts` covering coexistence, two-pack independence, re-install idempotence, surgical uninstall, JSON merge round-trips, and collisions.
+
+**Install engine — data-loss fixes (codex P0-1, P0-4)**
+
+- **A failed install no longer deletes overwritten user files.** The failure-cleanup path unlinked every written file, including files that had replaced user content (whose backups existed but were never restored). Cleanup now restores from backup; only freshly-created files are unlinked. The lockfile is also backed up before overwrite.
+- **The recovery sweep no longer rolls a crashed install forward without its install manifest.** Files-on-disk alone previously got a synthetic `install_commit` while `verify`/`uninstall`/`rollback` couldn't find the install. Roll-forward now requires the manifest; otherwise the sweep rolls back AND restores backed-up user files via the backup dir now recorded in the `install_begin` WAL entry.
+- **Uninstall scans before it mutates** (qa-lead P1-1): a refused uninstall now touches zero files (previously it deleted non-conflicting files, then errored, recording no history).
+- **Same pack + second target is refused** (qa-lead P1-2): previously the second install silently overwrote the per-pack install manifest, permanently orphaning the first target's files.
+
+**Adapters — output fidelity (what the host tools actually read)**
+
+- **claude-code: MCP servers moved from `.claude/settings.json` to `.mcp.json`** at the project root — Claude Code does not read server definitions from settings.json, so installed MCP servers were silently dead. Entries now use the real schema (`type`/`command`/`args`/`env` with `${VAR}` expansion).
+- **claude-code: command atoms compile to `.claude/commands/<slug>.md`** (with `description` + `argument-hint` frontmatter and the real prompt body) so `/pr-summary` actually registers — previously they landed in `.claude/skills/` where slash invocation never works.
+- **claude-code: hook entries are schema-clean** — `{matcher, hooks:[{type, command}]}` only (provenance moved to the lockfile), and tool-event hooks default to `matcher: "Edit|Write"` instead of `"*"` (which ran the formatter after every Read/Grep/Bash call). Packs can pin a matcher via `handler.matcher`.
+- **Rule atom bodies are no longer dropped** (codex P0-3): all adapters now render the rule's `severity`, scope globs, and `must`/`must_not` lists (`packages/core/src/adapters/ruleContent.ts`) — previously only the one-line description shipped, silently discarding the rule's entire effect.
+- **codex: honesty pass, verified against Codex CLI 0.128.0** — Codex reads repo-root `AGENTS.md` and `~/.codex/config.toml` only; project-level `.codex/*` files are not consumed. Skills are now indexed in `AGENTS.md` (so the agent can find them), and `.codex/config.toml`/`hooks.json`/`agents/*.toml` are labeled reference outputs with activation instructions.
+- **cursor: skills/commands/subagents are actually inlined into `AGENTS.md`** (warnings previously claimed this but nothing was emitted); rule `.mdc` files carry full rule bodies.
+
+**Security (security-reviewer HIGH-1/HIGH-2, MEDIUM-1/MEDIUM-2)**
+
+- **MCP command gate** symmetric to the hook allow-list: MCP servers must be declared in `permissions.mcp.servers` and shell-escape shapes (`bash -c`, `node -e`, `eval`, …) are refused across claude-code/codex/cursor adapters — an `mcp_server` atom can no longer smuggle arbitrary shell past the hook gate.
+- **Signature identity binding**: new `--expected-signer <san>` on `install --require-sig` and `verify --sig` threads `requireIdentity`/`expectedSAN` into the Sigstore verifier. Without it, the CLI no longer prints "signed by X" (implying publisher identity) — it says "cryptographically valid" and explicitly warns the signer identity is not pinned.
+- **Registry manifest integrity**: the fetched `AGENTPACK.yaml` is now verified against the registry's recorded `manifestSha256` (atom files already were) — closes a MITM/compromised-registry manifest-swap window.
+- **Risk ceiling**: a plan computing `critical` risk now requires an explicit `--allow-critical`; `--yes` alone (the CI path) never crosses it. Exit 6.
+
+**git-source — rewrite (codex P0-2; the README quickstart was broken)**
+
+- **The fetcher now lists the repo tree at the pinned SHA and materializes every file under the pack subpath.** The previous implementation read `atoms[].files[]` — a field real packs (including the bundled example) never set — so git installs fetched only `AGENTPACK.yaml` and degraded to description-only stubs, silently.
+- **`GITHUB_TOKEN`/`GH_TOKEN` auth** on all GitHub fetches: private-repo installs work, and the anonymous 60-req/hour API limit is lifted.
+- **Actionable error mapping**: 401 (bad token), 404/403 (missing-or-private, with token hint), rate-limit (with reset time), truncated-tree (repo too big — clone instead), missing `AGENTPACK.yaml` at ref/subpath. Subpaths reject `..`/absolute at parse time; a `github:`-prefixed arg that fails to parse errors as an invalid git source instead of falling through to a confusing local-path error.
+
+**CLI — agent ergonomics**
+
+- **Non-TTY confirm fixed (qa-lead P0-1)**: a missing `--yes` without a terminal previously hung forever (silent pipe) or exited 0 having installed nothing (stdin EOF — an agent would record success). Now exits 2 immediately with "pass --yes".
+- **`--json` on `install` and `plan`**: one stable JSON object with the full classification (create/modify/unchanged/conflicts-with-reasons/merges), risk, warnings, and on success the written paths + history entry id.
+- Exit-code tightening: declined confirm → 1 (was 0); `whoami` logged-out → 1 (was 0); `install --dry-run` with conflicts → 2 (was 0); registry not-found → 8 (`ExitCode.NotFound`, matching the documented taxonomy); unknown profile → 2 everywhere (was 1 or 2 depending on command).
+- Registry fetch failures now name the registry URL and hint at local-path/git alternatives (previously a bare undici "fetch failed").
+- Risk summary no longer emits a ⚠ warning line for every low-risk atom declaration (warning-channel noise that trains agents to ignore warnings).
+- Branding sweep: `AGENTPACK_HOME`/`AGENTPACK_DEBUG`/`AGENTPACK_REGISTRY` env vars (legacy `WORKGRAPH_*` still honored), `agentpack-` tmpdir prefixes, `generated_by: agentpack-cli`.
+
+**Schema/docs**
+
+- `schemas/AGENTPACK.schema.json` version pattern aligned with the zod schema (`^1\.\d+`, was `^1\.0`).
+- `docs/cli.md` (flags, exit-code conventions, rollback `--cascade`), `docs/install.md` (merge semantics, recovery contract), `docs/git-source.md` (tree fetch, auth, limits), `docs/adapters.md` (fidelity + honesty notes), README updated in the same pass.
+
+Test suite: 219 core + 36 cli (+ db/registry unchanged) — `pnpm verify` green.
+
+---
+
 ## 0.5.1-dev — 2026-06-10 (consent permission summary + adapter readback + cleanup)
 
 Audit-driven fix batch. No new commands — closes the gap between what `plan` shows and what `install` asks consent for, plus two assurance/cleanup items.

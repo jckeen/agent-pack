@@ -13,7 +13,7 @@
   "properties": {
     "agentpack": {
       "type": "string",
-      "pattern": "^1\\.0"
+      "pattern": "^1\\.\\d+"
     },
     "metadata": {
       "type": "object",

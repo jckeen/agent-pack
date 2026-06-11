@@ -17,6 +17,7 @@ export const ExitCode = {
   Unsigned: 5,
   PolicyViolation: 6,
   IntegrityError: 7,
+  NotFound: 8,
   Conflict: 9,
 } as const;
 
@@ -46,6 +47,8 @@ export function errorNameToExitCode(name: string): ExitCodeValue {
   switch (name) {
     case RegistryErrorName.VersionExists:
       return ExitCode.Conflict;
+    case RegistryErrorName.NotFound:
+      return ExitCode.NotFound;
     case RegistryErrorName.Unauthorized:
     case RegistryErrorName.Forbidden:
       return ExitCode.Generic;

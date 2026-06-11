@@ -54,7 +54,7 @@ export function registerUninstall(program: Command): void {
             );
             if (!ok) {
               console.log(pc.dim("Aborted."));
-              process.exit(0);
+              process.exit(1);
             }
           }
 
