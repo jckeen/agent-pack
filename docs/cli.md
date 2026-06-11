@@ -38,18 +38,18 @@ Prints metadata (name, id, version, publisher, tags), compatibility matrix, prof
 ### `agentpack plan [path]`
 
 ```
-agentpack plan [path] [--target <target>] [--profile <profile>] [--only <ids>]
+agentpack plan [path] [--target <target>] [--profile <profile>] [--only <ids>] [--json]
 ```
 
-Resolves atoms for the profile, computes risk + permissions, runs the adapter to produce a file plan, and prints the pack id, target/profile/risk badge, selected atoms, permission summary (with secrets / network / shell), and the full file plan. No files are written. `--only` accepts a comma-separated list of atom IDs to filter further.
+Resolves atoms for the profile, computes risk + permissions, runs the adapter to produce a file plan, and prints the pack id, target/profile/risk badge, selected atoms, permission summary (with secrets / network / shell), and the full file plan. No files are written. `--only` accepts a comma-separated list of atom IDs to filter further. `--json` emits the whole plan as a single JSON object for agents and scripts.
 
 ### `agentpack diff [pack] --target <t> --profile <p> --project <dir>`
 
 Computes the same plan as `install`, but prints a unified diff between current project files and what the install would write. Read-only — exits without writing.
 
-### `agentpack verify <packId> [--project <dir>] [--sig] [--strict] [--chain]`
+### `agentpack verify <packId> [--project <dir>] [--sig] [--strict] [--chain] [--expected-signer <san>]`
 
-Computes per-file SHA-256 of every lockfile-tracked file under `--project`, reports `clean` or per-path `drift[]`/`missing[]`. With `--sig`, also verifies the Sigstore signature on the manifest. With `--strict`, exits non-zero on unsigned packs. With `--chain`, validates the hash-chain integrity of `.agentpack/history.jsonl`.
+Computes per-file SHA-256 of every lockfile-tracked file under `--project`, reports `clean` or per-path `drift[]`/`missing[]`. Files installed via **merge** (shared `CLAUDE.md` / `AGENTS.md` / JSON configs — see [`install.md`](./install.md)) are checked at fragment level: only the pack's own marker span / JSON entries must be intact, so the user editing their own sections of a shared file is not drift. With `--sig`, also verifies the Sigstore signature on the manifest. With `--strict`, exits non-zero on unsigned packs. With `--expected-signer <san>`, the certificate identity must equal `<san>` — without it, a valid signature from ANY Sigstore identity passes and the CLI says so explicitly. With `--chain`, validates the hash-chain integrity of `.agentpack/history.jsonl`.
 
 Exit codes follow the project taxonomy (see below).
 
@@ -59,7 +59,7 @@ Lists `.agentpack/history.jsonl` entries (most recent first) — install_begin, 
 
 ### `agentpack whoami`
 
-Reads `~/.agentpack/credentials.json`, calls `/api/me` on the configured registry, prints the authenticated user + publisher memberships. No-op if not logged in.
+Reads `~/.agentpack/credentials.json`, calls `/api/me` on the configured registry, prints the authenticated user + publisher memberships. Exits 1 when not logged in, so scripts can gate on it.
 
 ### `agentpack doctor`
 
@@ -87,7 +87,8 @@ The same engine as `plan`, but writes the planned files to `--out`. `--no-strict
 agentpack install <source> \
   --target <target> --profile <profile> \
   --project <dir> \
-  [--yes] [--dry-run] [--force] [--require-sig] [--registry <url>]
+  [--yes] [--dry-run] [--force] [--json] [--allow-critical] \
+  [--require-sig] [--expected-signer <san>] [--registry <url>]
 ```
 
 `<source>` can be:
@@ -96,15 +97,19 @@ agentpack install <source> \
 - **A git source** — `github:owner/repo[@ref][#subpath]` or `github.com/owner/repo[@ref][#subpath]` (see [`git-source.md`](./git-source.md)).
 - **A registry identity** — `<publisher>/<pack>[@<version>]` (when the hosted registry is available; see [`remote-install.md`](./remote-install.md)).
 
-The CLI runs the same WAL-protected pipeline regardless of source: plan → backup any existing AgentPack-marked content → write begin entry → write project files → write manifest → write commit entry. With `--yes` it skips the interactive `[y/N]` prompt; `--dry-run` exits 0 without writing; `--force` allows overwriting non-AgentPack-marked files (after backup); `--require-sig` refuses to install unsigned packs (registry-resolved sources only — see exit code 5); `--registry <url>` overrides the default registry endpoint (subject to `agentpack.policy.json` allowlist).
+The CLI runs the same WAL-protected pipeline regardless of source: plan → backup → write begin entry → write project files → write manifest → write commit entry. Shared files **merge** instead of conflicting: an existing user `CLAUDE.md`/`AGENTS.md` gets the pack's marker block appended (other packs' blocks and user content are preserved), and `.claude/settings.json` / `.mcp.json` / `.cursor/mcp.json` are deep-merged (the pack's hook entries and MCP servers are added; user entries are untouched). See [`install.md`](./install.md) for the full merge semantics.
 
-### `agentpack uninstall <packId> --project <dir> [--yes] [--force-restore]`
+Flags: `--yes` skips the interactive `[y/N]` prompt (required in non-TTY sessions — a missing `--yes` without a terminal exits 2 immediately instead of hanging); `--dry-run` previews without writing and exits 2 if conflicts exist; `--json` emits the plan/result as one JSON object (paths created/modified/unchanged, conflicts with reasons, merges, history entry id); `--force` allows overwriting genuinely conflicting files (after backup); `--allow-critical` is required to install a plan whose computed risk is `critical` — `--yes` alone never crosses that line; `--require-sig` refuses to install unsigned packs (registry-resolved sources only — see exit code 5); `--expected-signer <san>` additionally pins the Sigstore identity; `--registry <url>` overrides the default registry endpoint (subject to `agentpack.policy.json` allowlist).
 
-Reads the install manifest at `.agentpack/installed/<packId>.json`, restores backups, deletes created files, removes the manifest, appends an `uninstall` history entry. Refuses without `--force-restore` if a restored file would overwrite user-edited content.
+Installing the same pack for a **second target** into one project is refused (it would orphan the first target's files) — uninstall first or use separate project directories.
 
-### `agentpack rollback [historyEntryId] --project <dir> [--yes] [--to <id>]`
+### `agentpack uninstall <packId> --project <dir> [--yes] [--force] [--force-restore]`
 
-Restores the project to the state before the named history entry (or to a target entry via `--to`). Refuses to roll back a superseded install unless `--to` is specified to make the cascade explicit.
+Reads the install manifest at `.agentpack/installed/<packId>.json` and removes the pack's footprint: plainly-created files are deleted; **merged** files get surgical removal — only the pack's marker span or JSON entries are taken out, the user's surrounding content stays. Whole-file overwrites are restored from backup. The conflict scan runs **before** any mutation: a refused uninstall touches zero files. Refuses without `--force`/`--force-restore` when the pack's content was user-edited after install.
+
+### `agentpack rollback [historyEntryId] --project <dir> [--yes] [--to <id>] [--pack <id>] [--cascade]`
+
+Restores the project to the state before the named history entry (or to a target entry via `--to`). Refuses to roll back a superseded install unless `--cascade` is passed to make undoing the later installs explicit. `--pack` limits the rollback to one pack.
 
 ## Registry / publish commands (require login)
 
@@ -151,6 +156,8 @@ Empties the blob store.
 | `6`  | policy violation (`agentpack.policy.json` rejected install) |
 | `7`  | integrity error (registry-declared sha256 mismatched fetched bytes) |
 | `8`  | not found (registry returned 404 for the requested pack/version) |
+
+Additional conventions: a **declined** confirmation prompt ("Aborted.") exits `1`; a confirmation required in a **non-TTY** session without `--yes` exits `2`; `install --dry-run` exits `2` when the plan has conflicts. Set `AGENTPACK_DEBUG=1` to print stack traces with errors.
 
 ## Examples
 

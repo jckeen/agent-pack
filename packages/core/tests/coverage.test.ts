@@ -322,7 +322,7 @@ describe("adapters · cursor warning paths", () => {
     expect(warnings).toMatch(/Hook atom .* no stable Cursor hook target/);
     expect(warnings).toMatch(/Subagent atom .* no stable Cursor subagent target/);
     expect(warnings).toMatch(/Skill atom .* Cursor has no Skills format/);
-    expect(warnings).toMatch(/Command atom .* rule note/);
+    expect(warnings).toMatch(/Command atom .* surfaced in AGENTS\.md only/);
     expect(result.plan.unsupportedAtoms).toContain("hook:h");
   });
 });

@@ -70,26 +70,55 @@ ordering is non-negotiable because it's the crash-recovery contract:
 If the process is killed between steps 3 and 8, the next CLI invocation runs
 a recovery sweep. For every dangling `install_begin`:
 
-- If every `plannedFiles[i]` exists on disk with matching SHA-256 → roll
-  forward by writing the missing `install_commit`.
-- Otherwise → delete the partial files and append
+- If every `plannedFiles[i]` exists on disk with matching SHA-256 **and the
+  install manifest was written** → roll forward by writing the missing
+  `install_commit`. (Files-on-disk alone is not a durable install — without
+  the manifest, verify/uninstall/rollback couldn't see it.)
+- Otherwise → delete the partial files, **restore any backed-up user files**
+  from the backup dir recorded in the begin entry, and append
   `install_rollback_recovery`.
 
-## Plan classification
+A failed install's own cleanup follows the same rule: files that overwrote
+existing content are restored from their backups, never deleted.
 
-`agentpack install` (and `diff`) classifies each target path into one of four
-bins:
+## Plan classification and merge semantics
 
-| Status      | Meaning                                                        | Action                   |
-| ----------- | -------------------------------------------------------------- | ------------------------ |
-| `create`    | No file exists at this path                                    | Write                    |
-| `unchanged` | File exists, byte-identical                                    | Skip                     |
-| `modify`    | File exists, has our `<!-- BEGIN AGENTPACK: <pack> -->` marker | Backup + overwrite       |
-| `conflict`  | File exists, no marker (or marker belongs to another pack)     | Refuse without `--force` |
+`agentpack install` (and `diff`) classifies each target path:
 
-Two-pack marker overlap is detected but not merged in Phase 2 — install
-refuses with a clear error pointing at the other pack ID. Marker-aware merge
-is Phase 3.
+| Status      | Meaning                                                                 | Action                   |
+| ----------- | ----------------------------------------------------------------------- | ------------------------ |
+| `create`    | No file exists at this path                                             | Write                    |
+| `unchanged` | File exists; the merged result would be byte-identical                  | Skip                     |
+| `modify`    | Mergeable file, or a file carrying only our marker                      | Backup + write merged    |
+| `conflict`  | Non-mergeable file with foreign content, or a JSON key collision        | Refuse without `--force` |
+
+**Marker-block merge.** Shared instruction files (`CLAUDE.md`, `AGENTS.md`,
+`project-instructions.md`) are wrapped in
+`<!-- BEGIN AGENTPACK: <pack> --> … <!-- END AGENTPACK: <pack> -->` markers,
+and the installer treats them as *shared surfaces*, not owned files:
+
+- A pre-existing user file gets the pack's block **appended** — user content
+  is preserved, byte for byte.
+- Multiple packs coexist in one file, each inside its own marker span.
+- Re-install replaces only the pack's own span, in place.
+- Uninstall removes only the pack's span; if nothing else remains and the
+  pack created the file, the file is deleted.
+
+**JSON config merge.** `.claude/settings.json`, `.mcp.json`,
+`.cursor/mcp.json`, and `.codex/hooks.json` are deep-merged: the pack's hook
+entries are appended to the matching event arrays and its MCP servers are
+added by name, while user entries (permissions, other hooks, other servers)
+are untouched. A same-name MCP server with different content is a
+`json-collision` conflict. Uninstall removes only the pack's entries.
+
+**Fragment-level verify.** For merged files, `agentpack verify` checks that
+the *pack's contribution* is intact — the marker span hash or the JSON
+entries — so the user editing their own sections of a shared file is not
+drift, while tampering inside the pack's span is.
+
+Non-mergeable outputs (skill folders, agents, commands) keep whole-file
+ownership: a foreign file at one of those paths is a conflict, exactly as
+before.
 
 ## Lockfile shape
 

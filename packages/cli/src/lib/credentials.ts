@@ -1,7 +1,7 @@
 /**
  * Credentials file for the CLI — `~/.agentpack/credentials.json`.
  *
- * Honors `WORKGRAPH_HOME` env override for tests. Mode `0o600` on POSIX (no-op
+ * Honors `AGENTPACK_HOME` (legacy: `WORKGRAPH_HOME`) env override for tests. Mode `0o600` on POSIX (no-op
  * on Windows). Atomic write via temp file + rename. Token storage is plain —
  * if a user wants stronger storage they can wrap the CLI with a keychain
  * front-end; protocol-level we follow the npm/pnpm convention.
@@ -23,7 +23,7 @@ export interface CredentialsFile {
 }
 
 const WORKGRAPH_HOME = (): string =>
-  process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".agentpack");
+  process.env.AGENTPACK_HOME ?? process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".agentpack");
 
 export function credentialsPath(): string {
   return path.join(WORKGRAPH_HOME(), "credentials.json");

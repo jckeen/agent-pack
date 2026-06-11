@@ -348,7 +348,7 @@ export type CliAuthPollResponse = z.infer<typeof cliAuthPollResponseSchema>;
 export type { ProfileName, RiskLevel };
 
 // ---------------------------------------------------------------------------
-// Default registry URL — overridable via `--registry` flag or `WORKGRAPH_REGISTRY`
+// Default registry URL — overridable via `--registry` flag or `AGENTPACK_REGISTRY`
 // env var. Pinned here so worktree agents don't drift on the literal.
 // ---------------------------------------------------------------------------
 

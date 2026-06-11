@@ -20,15 +20,21 @@ Every adapter MUST:
 | Atom           | Output                                                       |
 |----------------|--------------------------------------------------------------|
 | `instruction`  | `CLAUDE.md` section                                          |
-| `rule`         | `CLAUDE.md` rules section                                    |
+| `rule`         | `CLAUDE.md` rules section (full body: severity, globs, must/must-not) |
 | `skill`        | `.claude/skills/<slug>/` (verbatim file copy of the atom dir)|
-| `command`      | `.claude/skills/<slug>/SKILL.md` (skill-style command)       |
-| `subagent`     | `.claude/agents/<slug>.md`                                   |
+| `command`      | `.claude/commands/<slug>.md` (real slash command — `/<slug>` works) |
+| `subagent`     | `.claude/agents/<slug>.md` (frontmatter: name + description only) |
 | `hook`         | `.claude/settings.json#hooks` block                          |
-| `mcp_server`   | `.claude/settings.json#mcpServers` block                     |
+| `mcp_server`   | `.mcp.json` at project root                                  |
 | `workflow`     | `CLAUDE.md` workflow section                                 |
 
 `CLAUDE.md` always wraps content in the AgentPack BEGIN/END markers.
+
+Fidelity notes (these mirror what Claude Code actually reads):
+
+- Project-scoped MCP servers live in **`.mcp.json` at the project root**, not in `.claude/settings.json` — entries written there are silently ignored by Claude Code. Schema per stdio server: `{type, command, args, env}`; env values use `${VAR}` expansion so secrets never land on disk.
+- Hook entries carry **only schema keys** (`{matcher, hooks: [{type, command}]}`). Tool-event hooks default to `matcher: "Edit|Write"` (a pack can pin its own via the hook atom's `handler.matcher`); a bare `*` would fire after every tool call including reads.
+- MCP servers are **gated**: the server must be declared in the manifest's `permissions.mcp.servers`, and shell-escape shapes (`bash -c`, `node -e`, …) are refused — the same posture as the hook command allow-list, so an `mcp_server` atom can't be used to smuggle arbitrary shell past it.
 
 ## Codex
 
@@ -37,13 +43,22 @@ Every adapter MUST:
 | Atom           | Output                                                       |
 |----------------|--------------------------------------------------------------|
 | `instruction`  | `AGENTS.md` section                                          |
-| `rule`         | `AGENTS.md` rules section                                    |
-| `skill`        | `.codex/skills/<slug>/`                                      |
-| `command`      | `.codex/skills/<slug>/SKILL.md`                              |
-| `subagent`     | `.codex/agents/<slug>.toml` (conservative)                   |
-| `hook`         | `.codex/hooks.json` (events keyed by codex / generic mapping)|
-| `mcp_server`   | `.codex/config.toml` `[mcp_servers.<slug>]` table            |
+| `rule`         | `AGENTS.md` rules section (full body)                        |
+| `skill`        | `.codex/skills/<slug>/` + an index entry in `AGENTS.md`      |
+| `command`      | `.codex/skills/<slug>/SKILL.md` + `AGENTS.md` index entry    |
+| `subagent`     | `.codex/agents/<slug>.toml` (reference output)               |
+| `hook`         | `.codex/hooks.json` (reference output)                       |
+| `mcp_server`   | `.codex/config.toml` `[mcp_servers.<slug>]` table (reference output; same declaration + shell-escape gate as claude-code) |
 | `workflow`     | `AGENTS.md` workflow section                                 |
+
+**Honesty note (verified against Codex CLI 0.128.0):** Codex reads the
+repo-root `AGENTS.md` and `~/.codex/config.toml` — it does **not** read
+project-level `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/`, or
+`.codex/agents/`. The adapter therefore (a) surfaces every skill in
+`AGENTS.md` with a pointer to its SKILL.md so the agent can actually find it,
+and (b) labels the `.codex/` files as reference outputs (the generated
+`config.toml` header says to copy `mcp_servers` tables into
+`~/.codex/config.toml` to activate them).
 
 ## Cursor
 
@@ -52,12 +67,12 @@ Every adapter MUST:
 | Atom           | Output                                                       |
 |----------------|--------------------------------------------------------------|
 | `instruction`  | `AGENTS.md` section                                          |
-| `rule`         | `.cursor/rules/<slug>.mdc` (Cursor rule frontmatter)         |
-| `skill`        | warning — Cursor has no native Skills format yet             |
-| `command`      | rule-level note in `AGENTS.md`                               |
-| `subagent`     | warning — no stable Cursor subagent target                   |
+| `rule`         | `.cursor/rules/<slug>.mdc` (frontmatter + full rule body)    |
+| `skill`        | inlined into `AGENTS.md` (Cursor has no Skills format)       |
+| `command`      | description surfaced in `AGENTS.md`                          |
+| `subagent`     | role description surfaced in `AGENTS.md`                     |
 | `hook`         | warning — no stable Cursor hook target                       |
-| `mcp_server`   | `.cursor/mcp.json` entry                                     |
+| `mcp_server`   | `.cursor/mcp.json` entry (declaration + shell-escape gate)   |
 | `workflow`     | `AGENTS.md` workflow section                                 |
 
 ## ChatGPT Apps SDK

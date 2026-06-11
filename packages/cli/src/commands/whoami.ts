@@ -21,16 +21,14 @@ export function registerWhoami(program: Command): void {
       const token = await getToken(registry);
       if (!token) {
         console.log(pc.dim("Not logged in. Run `agentpack login`."));
-        process.exit(0);
+        process.exit(1);
       }
       try {
         const res = await fetch(`${registry}/api/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.status === 401) {
-          console.error(
-            pc.red("Token rejected. Re-run `agentpack login`.")
-          );
+          console.error(pc.red("Token rejected. Re-run `agentpack login`."));
           process.exit(1);
         }
         if (!res.ok) {

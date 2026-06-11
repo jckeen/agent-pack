@@ -1,8 +1,6 @@
 import * as fs from "node:fs/promises";
 import { z } from "zod";
-import type {
-  TargetPlatform,
-} from "../schema/types.js";
+import type { TargetPlatform } from "../schema/types.js";
 import type { InstallManifestV1 } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
 import { installManifestPath } from "./paths.js";
@@ -29,12 +27,18 @@ const backupRecord = z.object({
     .string()
     .min(1)
     .refine((p) => !p.startsWith("/"), "backups[].original must be project-relative")
-    .refine((p) => !/^[A-Za-z]:[\\/]/.test(p), "backups[].original must be project-relative"),
+    .refine(
+      (p) => !/^[A-Za-z]:[\\/]/.test(p),
+      "backups[].original must be project-relative",
+    ),
   backupPath: z
     .string()
     .min(1)
     .refine((p) => !p.startsWith("/"), "backups[].backupPath must be project-relative")
-    .refine((p) => !/^[A-Za-z]:[\\/]/.test(p), "backups[].backupPath must be project-relative"),
+    .refine(
+      (p) => !/^[A-Za-z]:[\\/]/.test(p),
+      "backups[].backupPath must be project-relative",
+    ),
   originalSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
@@ -51,6 +55,23 @@ export const installManifestSchema = z.object({
   modified: z.array(fileRecord),
   backups: z.array(backupRecord),
   atomIds: z.array(z.string()),
+  merges: z
+    .array(
+      z.object({
+        path: z
+          .string()
+          .min(1)
+          .refine((p) => !p.startsWith("/"), "merges[].path must be project-relative")
+          .refine(
+            (p) => !/^[A-Za-z]:[\\/]/.test(p),
+            "merges[].path must be project-relative",
+          ),
+        strategy: z.enum(["marker", "json"]),
+        fragment: z.string(),
+        fragmentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      }),
+    )
+    .optional(),
   lockfileChecksum: z.string().regex(/^[a-f0-9]{64}$/),
   rollbackable: z.boolean(),
   rollbackBlockers: z.array(z.string()).optional(),
@@ -83,7 +104,10 @@ export function parseInstallManifest(raw: string): InstallManifestV1 {
 }
 
 export class InstallManifestNotFoundError extends Error {
-  constructor(public packId: string, public path: string) {
+  constructor(
+    public packId: string,
+    public path: string,
+  ) {
     super(
       `No install manifest found for pack \`${packId}\` (expected ${path}). Has it been installed?`,
     );

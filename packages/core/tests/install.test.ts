@@ -38,9 +38,15 @@ describe("planInstall", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  it("flags pre-existing non-marker file as conflict", async () => {
+  it("flags a pre-existing non-mergeable file as conflict; marker files merge instead", async () => {
     const dir = await tempProject();
-    // Write a user-owned AGENTS.md without the marker.
+    // A user-owned file at a non-merge path (skill output) is a conflict...
+    await fs.mkdir(path.join(dir, "skills/code-review"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "skills/code-review/SKILL.md"),
+      "user content\n",
+    );
+    // ...while a user-owned AGENTS.md (marker surface) merges, not conflicts.
     await fs.writeFile(path.join(dir, "AGENTS.md"), "user content\n");
     const plan = await planInstall({
       source: EXAMPLE_PACK,
@@ -49,9 +55,10 @@ describe("planInstall", () => {
       projectRoot: dir,
       generator: GEN,
     });
-    expect(plan.conflicts.length).toBeGreaterThan(0);
-    const c = plan.conflicts.find((c) => c.file.path === "AGENTS.md");
+    const c = plan.conflicts.find((c) => c.file.path === "skills/code-review/SKILL.md");
     expect(c?.reason).toBe("no-marker-existing-content");
+    expect(plan.conflicts.find((c) => c.file.path === "AGENTS.md")).toBeUndefined();
+    expect(plan.merges.some((m) => m.path === "AGENTS.md")).toBe(true);
     await fs.rm(dir, { recursive: true, force: true });
   });
 
@@ -169,7 +176,11 @@ describe("applyInstall", () => {
 
   it("refuses conflicts without --force", async () => {
     const dir = await tempProject();
-    await fs.writeFile(path.join(dir, "AGENTS.md"), "user content\n");
+    await fs.mkdir(path.join(dir, "skills/code-review"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "skills/code-review/SKILL.md"),
+      "user content\n",
+    );
     const plan = await planInstall({
       source: EXAMPLE_PACK,
       target: "generic",
@@ -231,10 +242,13 @@ describe("verifyInstall", () => {
       generator: GEN,
     });
     await applyInstall({ plan });
-    await fs.appendFile(path.join(dir, "AGENTS.md"), "\ntampered\n");
+    await fs.appendFile(
+      path.join(dir, "skills/code-review/SKILL.md"),
+      "\ntampered\n",
+    );
     const r = await verifyInstall({ packId: plan.packId, projectRoot: dir });
     expect(r.clean).toBe(false);
-    expect(r.drift.some((d) => d.path === "AGENTS.md")).toBe(true);
+    expect(r.drift.some((d) => d.path === "skills/code-review/SKILL.md")).toBe(true);
     await fs.rm(dir, { recursive: true, force: true });
   });
 
@@ -302,7 +316,10 @@ describe("uninstall", () => {
       generator: GEN,
     });
     await applyInstall({ plan });
-    await fs.appendFile(path.join(dir, "AGENTS.md"), "\nuser change\n");
+    await fs.appendFile(
+      path.join(dir, "skills/code-review/SKILL.md"),
+      "\nuser change\n",
+    );
     await expect(uninstall({ packId: plan.packId, projectRoot: dir })).rejects.toThrow(/conflict/i);
     await fs.rm(dir, { recursive: true, force: true });
   });

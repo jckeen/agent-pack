@@ -1,12 +1,21 @@
 # agent-pack — STATUS
 
-Last updated: 2026-05-19 (iteration-5 launch-readiness pass — Next.js + vitest CVE bumps, doc rewrite, live install probe)
+Last updated: 2026-06-10 (iteration-6 agent-consumer readiness — merge semantics, adapter fidelity, git-source rewrite, security hardening; see CHANGELOG 0.6.0-dev)
 
 ## Where we are
 
 **AgentPack is OPEN SOURCE.** Standard, registry, CLI, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
-**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) fixed 4 P0s and landed shared-file merge semantics — see CHANGELOG 0.6.0-dev; v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+
+## Iteration-6 highlights (2026-06-10)
+
+- **Merge semantics**: installs coexist with user `CLAUDE.md`/`AGENTS.md` and other packs (marker-span merge + JSON deep-merge, fragment-level verify, surgical uninstall). The README's coexistence promise is now real.
+- **Adapter fidelity**: MCP servers → `.mcp.json` (Claude Code never read settings.json#mcpServers), command atoms → `.claude/commands/` (slash commands actually register), hooks schema-clean with `Edit|Write` matcher, rule bodies rendered (were silently dropped), codex `.codex/*` outputs honestly labeled (verified vs Codex 0.128.0: only AGENTS.md is consumed project-level).
+- **git-source rewrite**: tree-API fetch at pinned SHA (old code fetched a manifest field no pack sets — git installs were silently empty), GITHUB_TOKEN auth (private repos), actionable 401/403/404/rate-limit errors.
+- **Data-loss fixes**: failed installs restore backups instead of unlinking user files; recovery sweep requires the install manifest before roll-forward and restores backups on rollback; uninstall scans before mutating; second-target installs refused instead of orphaning.
+- **Security**: MCP command gate (no `bash -c` smuggling), `--expected-signer` identity pinning + honest unpinned-signer messaging, registry manifest sha256 verification, `--allow-critical` risk ceiling.
+- **Agent ergonomics**: non-TTY confirm exits 2 instead of hanging/false-success; `--json` on install/plan; exit-code tightening (declined=1, whoami logged-out=1, dry-run conflicts=2, not-found=8).
 
 ## Shipped phases
 
@@ -29,7 +38,7 @@ Last updated: 2026-05-19 (iteration-5 launch-readiness pass — Next.js + vitest
 
 ## Test status
 
-- **269 tests passing** across 24 files: 189 core + 19 db + 35 cli + 26 registry (+11 new git-source tests in v0.5).
+- **300 tests passing**: 219 core + 19 db + 36 cli + 26 registry (iteration-6 added merge-install, recovery-restore, and rewrote git-source mocks).
 - All four workspace packages typecheck + lint + build cleanly.
 - Registry builds Next.js 15.5.18 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.

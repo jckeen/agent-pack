@@ -79,6 +79,29 @@ async function applyInstallLocked(
 ): Promise<ApplyInstallResult> {
   const plan = opts.plan;
 
+  // Install manifests are keyed by packId: a second install of the same pack
+  // for a DIFFERENT target would silently overwrite the manifest and orphan
+  // the first target's files on disk (qa-lead P1-2). Refuse with guidance
+  // until multi-target installs are tracked separately.
+  const existing = await readPriorManifest(ws, plan.packId);
+  if (existing && existing.target !== plan.target) {
+    throw new Error(
+      `Pack \`${plan.packId}\` is already installed in this project for target \`${existing.target}\`. ` +
+        `Installing it again for \`${plan.target}\` would orphan the \`${existing.target}\` files. ` +
+        `Uninstall first (\`agentpack uninstall ${plan.packId}\`) or use a separate project directory per target.`,
+    );
+  }
+
+  // Compute the backup dir BEFORE the WAL begin entry so the begin row can
+  // record it — the recovery sweep needs it to restore overwritten user
+  // files when rolling back a crashed install.
+  const backupBase = backupDirForInstall(
+    ws,
+    plan.packId,
+    Date.now(),
+    randomBytes(3).toString("hex"),
+  );
+
   // 1. WAL begin
   const beginEntry = await recordHistory(ws, {
     id: newHistoryId(),
@@ -89,6 +112,7 @@ async function applyInstallLocked(
     target: plan.target,
     profile: plan.profile,
     plannedFiles: plannedFilesFromPlan(plan),
+    backupDir: toRelative(ws.projectRoot, backupBase),
     actor: opts.actor ?? { type: "cli" },
     result: "partial",
   });
@@ -99,12 +123,6 @@ async function applyInstallLocked(
   const created: InstallManifestV1["created"] = [];
   const modifiedRecords: InstallManifestV1["modified"] = [];
   const backups: InstallManifestV1["backups"] = [];
-  const backupBase = backupDirForInstall(
-    ws,
-    plan.packId,
-    Date.now(),
-    randomBytes(3).toString("hex"),
-  );
 
   // Combined list: created + modified + (forced) conflicts.
   const toWrite = [
@@ -211,7 +229,27 @@ async function applyInstallLocked(
       }
     }
 
-    // 4. AGENTPACK.lock
+    // 4. AGENTPACK.lock — back up any existing lockfile first (it may belong
+    // to a previously-installed pack; a failed install must restore it).
+    const priorLock = await fs.readFile(ws.lockfilePath, "utf8").catch(() => undefined);
+    if (priorLock !== undefined) {
+      const lockBackupRel = path.posix.join(
+        ".agentpack",
+        "backups",
+        sanitizePack(plan.packId),
+        path.basename(backupBase),
+        toRelative(ws.projectRoot, ws.lockfilePath),
+      );
+      const lockBackupAbs = path.resolve(ws.projectRoot, lockBackupRel);
+      await realpathContained(ws.projectRoot, lockBackupAbs);
+      await fs.mkdir(path.dirname(lockBackupAbs), { recursive: true });
+      await fs.writeFile(lockBackupAbs, priorLock, "utf8");
+      backups.push({
+        original: toRelative(ws.projectRoot, ws.lockfilePath),
+        backupPath: lockBackupRel,
+        originalSha256: sha256Hex(normalizeForHash(priorLock)),
+      });
+    }
     const lockBytes = serializeLockfile(plan.lockfile);
     await atomicWriteFile(ws.lockfilePath, lockBytes);
     writtenAbsolute.push(ws.lockfilePath);
@@ -231,6 +269,14 @@ async function applyInstallLocked(
       modified: modifiedRecords,
       backups,
       atomIds: plan.atoms,
+      // Keep merge records only for paths this manifest actually tracks —
+      // verify and uninstall use them for fragment-level checks and surgical
+      // removal.
+      merges: (plan.merges ?? []).filter(
+        (m) =>
+          created.some((c) => c.path === m.path) ||
+          modifiedRecords.some((r) => r.path === m.path),
+      ),
       lockfileChecksum: lockfileChecksum(plan.lockfile),
       rollbackable: true,
     };
@@ -252,10 +298,29 @@ async function applyInstallLocked(
 
     return { manifestPath, written: writtenRelative, commitEntry };
   } catch (err) {
-    // Best-effort cleanup of files we just wrote; the begin entry stays for
-    // the next CLI invocation's recovery sweep to consume.
+    // Best-effort cleanup of files we just wrote. Files that overwrote
+    // existing content are RESTORED from their backups — unlinking them
+    // would destroy the user's pre-install file (codex P0-1). Files we
+    // created fresh are unlinked. The begin entry stays for the next CLI
+    // invocation's recovery sweep to consume.
+    const backupByOriginal = new Map(backups.map((b) => [b.original, b]));
     for (const w of writtenAbsolute) {
-      await fs.unlink(w).catch(() => {});
+      const rel = toRelative(ws.projectRoot, w);
+      const backup = backupByOriginal.get(rel);
+      if (backup) {
+        try {
+          const original = await fs.readFile(
+            path.resolve(ws.projectRoot, backup.backupPath),
+            "utf8",
+          );
+          await fs.writeFile(w, original, "utf8");
+        } catch {
+          // Backup unreadable — leave the written file in place rather than
+          // deleting the only remaining copy of anything.
+        }
+      } else {
+        await fs.unlink(w).catch(() => {});
+      }
     }
     // Record the failure for audit; recovery sweep still owns rollback.
     await recordHistory(ws, {
@@ -275,12 +340,10 @@ async function applyInstallLocked(
   }
 }
 
-function plannedFilesFromPlan(plan: InstallPlanV2): Array<{ path: string; sha256: string }> {
-  const all = [
-    ...plan.created,
-    ...plan.modified,
-    ...plan.conflicts.map((c) => c.file),
-  ];
+function plannedFilesFromPlan(
+  plan: InstallPlanV2,
+): Array<{ path: string; sha256: string }> {
+  const all = [...plan.created, ...plan.modified, ...plan.conflicts.map((c) => c.file)];
   return all.map((f) => {
     const content = normalizeForHash(
       f.content.endsWith("\n") ? f.content : `${f.content}\n`,

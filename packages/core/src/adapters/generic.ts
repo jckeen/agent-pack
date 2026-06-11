@@ -7,6 +7,7 @@ import {
   stableJsonStringify,
   wrapInstructionBlock,
 } from "./types.js";
+import { renderRuleMarkdown } from "./ruleContent.js";
 
 export const genericAdapter = defineAdapter({
   target: "generic",
@@ -28,7 +29,8 @@ export const genericAdapter = defineAdapter({
       sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${body.trim()}\n`);
     }
     for (const atom of byType.get("rule") ?? []) {
-      sections.push(`## Rule: ${atom.name}\n\n${atom.description}\n`);
+      const body = await renderRuleMarkdown(packRoot, atom);
+      sections.push(`## Rule: ${atom.name}\n\n${body}\n`);
     }
     files.push({
       path: "AGENTS.md",
@@ -72,8 +74,7 @@ export const genericAdapter = defineAdapter({
     if (commandAtoms.length > 0) {
       readmeLines.push("\n## Commands\n");
       for (const atom of commandAtoms) {
-        const inv = (atom as { invocation?: { slash?: string; cli?: string } })
-          .invocation;
+        const inv = (atom as { invocation?: { slash?: string; cli?: string } }).invocation;
         readmeLines.push(
           `- \`${inv?.slash ?? inv?.cli ?? atom.name}\` — ${atom.description}`,
         );

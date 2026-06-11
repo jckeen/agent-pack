@@ -2,14 +2,16 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { InstallManifestV1 } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
-import {
-  resolveAgentpackPaths,
-  fromRelative,
-  realpathContained,
-} from "./paths.js";
+import { resolveAgentpackPaths, fromRelative, realpathContained } from "./paths.js";
 import { readInstallManifest, deleteInstallManifest } from "./manifest.js";
 import { recordHistory, newHistoryId } from "./history.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
+import {
+  extractMarkerSpan,
+  removeMarkerSpan,
+  removeJsonFragment,
+  jsonFragmentIntact,
+} from "./merge.js";
 
 export interface UninstallOptions {
   packId: string;
@@ -45,7 +47,9 @@ export class UninstallConflictError extends Error {
     super(
       `Uninstall conflicts on ${conflicts.length} file(s):\n${conflicts
         .map((c) => `  • ${c.path} (${c.reason})`)
-        .join("\n")}\nRe-run with --force to ignore user edits, or --force-restore to restore backups over user edits.`,
+        .join(
+          "\n",
+        )}\nRe-run with --force to ignore user edits, or --force-restore to restore backups over user edits.`,
     );
     this.name = "UninstallConflictError";
   }
@@ -73,9 +77,18 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
   const removed: string[] = [];
   const restored: string[] = [];
   const conflicts: UninstallResult["conflicts"] = [];
+  const mergeByPath = new Map((manifest.merges ?? []).map((m) => [m.path, m]));
 
-  // 1. Delete created files.
-  for (const entry of manifest.created) {
+  // PHASE 1 — scan only. A refused uninstall must touch zero files, so every
+  // conflict is discovered before any mutation (qa-lead P1-1).
+  type Action =
+    | { kind: "unlink"; abs: string; rel: string }
+    | { kind: "write"; abs: string; rel: string; content: string }
+    | { kind: "restore"; abs: string; rel: string; backupAbs: string };
+  const actions: Action[] = [];
+  const modifiedPaths = new Set(manifest.modified.map((m) => m.path));
+
+  for (const entry of [...manifest.created, ...manifest.modified]) {
     const abs = fromRelative(ws.projectRoot, entry.path);
     try {
       await realpathContained(ws.projectRoot, abs);
@@ -90,53 +103,107 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
       current = await fs.readFile(abs, "utf8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        // File already gone — nothing to do.
-        continue;
+        continue; // Already gone — nothing to do.
       }
       throw err;
     }
     const currentSha = sha256Hex(normalizeForHash(current));
+    const merge = mergeByPath.get(entry.path);
+    const isModified = modifiedPaths.has(entry.path);
+
+    if (merge) {
+      // Merged file: remove only the pack's contribution, never the user's
+      // surrounding content. A backup is NOT restored over a merged file —
+      // that would erase the user's post-install edits to their own sections.
+      if (currentSha === entry.sha256 && !isModified) {
+        // Fast path: file is exactly what we created — remove it whole.
+        actions.push({ kind: "unlink", abs, rel: entry.path });
+        continue;
+      }
+      if (merge.strategy === "marker") {
+        const span = extractMarkerSpan(current, manifest.packId);
+        if (!span) continue; // Our span already removed by the user.
+        const spanIntact =
+          sha256Hex(normalizeForHash(`${span.span}\n`)) === merge.fragmentSha256;
+        if (!spanIntact && !opts.force) {
+          conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+          continue;
+        }
+        const remainder = removeMarkerSpan(current, manifest.packId);
+        if (remainder === null) continue;
+        if (remainder === "" && !isModified) {
+          actions.push({ kind: "unlink", abs, rel: entry.path });
+        } else {
+          actions.push({ kind: "write", abs, rel: entry.path, content: remainder });
+        }
+        continue;
+      }
+      // strategy === "json"
+      if (!jsonFragmentIntact(current, merge.fragment) && !opts.force) {
+        conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+        continue;
+      }
+      const remainder = removeJsonFragment(current, merge.fragment);
+      if (remainder === null) {
+        // Current content is no longer valid JSON — only act under force.
+        if (!opts.force) {
+          conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+        }
+        continue;
+      }
+      if (remainder === "" && !isModified) {
+        actions.push({ kind: "unlink", abs, rel: entry.path });
+      } else if (remainder === "") {
+        actions.push({ kind: "write", abs, rel: entry.path, content: "{}\n" });
+      } else {
+        actions.push({ kind: "write", abs, rel: entry.path, content: remainder });
+      }
+      continue;
+    }
+
+    if (isModified) {
+      // Whole-file overwrite with a backup: restore the backup.
+      const b = manifest.backups.find((bk) => bk.original === entry.path);
+      if (!b) continue;
+      if (currentSha !== entry.sha256 && !opts.forceRestore) {
+        conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
+        continue;
+      }
+      const backupAbs = fromRelative(ws.projectRoot, b.backupPath);
+      actions.push({ kind: "restore", abs, rel: entry.path, backupAbs });
+      continue;
+    }
+
+    // Plain created file.
     if (currentSha !== entry.sha256 && !opts.force) {
       conflicts.push({ path: entry.path, reason: "user-edited-after-install" });
       continue;
     }
-    await fs.unlink(abs);
-    removed.push(entry.path);
-    // Best-effort cleanup of empty parent directories up to projectRoot. We
-    // never recurse into directories we didn't create here, so this only
-    // succeeds when the directory is empty.
-    await pruneEmptyParents(ws.projectRoot, abs);
-  }
-
-  // 2. Restore backups.
-  for (const b of manifest.backups) {
-    const targetAbs = fromRelative(ws.projectRoot, b.original);
-    let currentSha = "";
-    try {
-      const cur = await fs.readFile(targetAbs, "utf8");
-      currentSha = sha256Hex(normalizeForHash(cur));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    }
-    const expectedCur = manifest.modified.find((m) => m.path === b.original)?.sha256;
-    if (
-      expectedCur !== undefined &&
-      currentSha !== "" &&
-      currentSha !== expectedCur &&
-      !opts.forceRestore
-    ) {
-      conflicts.push({ path: b.original, reason: "user-edited-after-install" });
-      continue;
-    }
-    const backupAbs = fromRelative(ws.projectRoot, b.backupPath);
-    const data = await fs.readFile(backupAbs, "utf8");
-    await fs.mkdir(path.dirname(targetAbs), { recursive: true });
-    await fs.writeFile(targetAbs, data, "utf8");
-    restored.push(b.original);
+    actions.push({ kind: "unlink", abs, rel: entry.path });
   }
 
   if (conflicts.length > 0 && !opts.force && !opts.forceRestore) {
     throw new UninstallConflictError(conflicts);
+  }
+
+  // PHASE 2 — act.
+  for (const a of actions) {
+    if (a.kind === "unlink") {
+      await fs.unlink(a.abs);
+      removed.push(a.rel);
+      // Best-effort cleanup of empty parent directories up to projectRoot. We
+      // never recurse into directories we didn't create here, so this only
+      // succeeds when the directory is empty.
+      await pruneEmptyParents(ws.projectRoot, a.abs);
+    } else if (a.kind === "write") {
+      await fs.writeFile(a.abs, a.content, "utf8");
+      removed.push(a.rel);
+    } else {
+      const data = await fs.readFile(a.backupAbs, "utf8");
+      await fs.mkdir(path.dirname(a.abs), { recursive: true });
+      await fs.writeFile(a.abs, data, "utf8");
+      restored.push(a.rel);
+    }
   }
 
   // 3. Delete install manifest.
@@ -162,10 +229,7 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
   return { packId: opts.packId, removed, restored, conflicts };
 }
 
-async function pruneEmptyParents(
-  projectRoot: string,
-  startAbs: string,
-): Promise<void> {
+async function pruneEmptyParents(projectRoot: string, startAbs: string): Promise<void> {
   let cur = path.dirname(startAbs);
   while (cur !== projectRoot && cur.startsWith(projectRoot)) {
     try {

@@ -52,7 +52,7 @@ export {
   ManifestTooLargeError,
 } from "./parser/loadManifest.js";
 export { validateManifest } from "./validator/validateManifest.js";
-export { resolveAtoms } from "./planner/resolveAtoms.js";
+export { resolveAtoms, UnknownProfileError } from "./planner/resolveAtoms.js";
 export { summarizePermissions } from "./permissions/summarizePermissions.js";
 export { computeRisk } from "./risk/computeRisk.js";
 export { createInstallPlan } from "./planner/createInstallPlan.js";

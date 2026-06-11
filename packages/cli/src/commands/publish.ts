@@ -89,7 +89,7 @@ export function registerPublish(program: Command): void {
             const ok = await confirm(pc.bold(`\nPublish? [y/N] `));
             if (!ok) {
               console.log(pc.dim("Aborted."));
-              process.exit(0);
+              process.exit(1);
             }
           }
 

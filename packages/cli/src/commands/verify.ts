@@ -30,10 +30,20 @@ export function registerVerify(program: Command): void {
       "with --sig, exit non-zero if the lockfile records no signature",
       false
     )
+    .option(
+      "--expected-signer <san>",
+      "with --sig: require the Sigstore certificate identity (SAN) to equal this value",
+    )
     .action(
       async (
         packId: string,
-        options: { project: string; chain: boolean; sig: boolean; strict: boolean }
+        options: {
+          project: string;
+          chain: boolean;
+          sig: boolean;
+          strict: boolean;
+          expectedSigner?: string;
+        }
       ) => {
         try {
           const result = await verifyInstall({
@@ -72,14 +82,23 @@ export function registerVerify(program: Command): void {
             const sigResult = await checkLockfileSignature(
               options.project,
               packId,
-              options.strict
+              options.strict,
+              options.expectedSigner
             );
             if (sigResult.code === "ok") {
-              console.log(
-                pc.green(
-                  `✓ ${packId} clean — signature valid (${sigResult.san})`
-                )
-              );
+              if (options.expectedSigner) {
+                console.log(
+                  pc.green(
+                    `✓ ${packId} clean — signature valid, signer pinned (${sigResult.san})`
+                  )
+                );
+              } else {
+                console.log(
+                  pc.green(`✓ ${packId} clean — signature cryptographically valid (${sigResult.san})`) +
+                    " " +
+                    pc.yellow("(signer identity not pinned — pass --expected-signer to enforce)")
+                );
+              }
             } else if (sigResult.code === "unsigned") {
               if (options.strict) {
                 console.error(
@@ -133,7 +152,8 @@ type SigCheck = SigOk | SigUnsigned | SigInvalid;
 async function checkLockfileSignature(
   projectRoot: string,
   _packId: string,
-  _strict: boolean
+  _strict: boolean,
+  expectedSigner?: string
 ): Promise<SigCheck> {
   const lockfilePath = path.join(projectRoot, "AGENTPACK.lock");
   let raw: string;
@@ -174,6 +194,7 @@ async function checkLockfileSignature(
   const result = await signing.verifyManifestSignature({
     manifestChecksum: lockfile.manifestChecksum,
     signed: envelope,
+    ...(expectedSigner ? { requireIdentity: true, expectedSAN: expectedSigner } : {}),
   });
   if (result.valid) {
     return { code: "ok", san: result.metadata.identity.san };

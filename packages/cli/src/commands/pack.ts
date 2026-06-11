@@ -71,7 +71,7 @@ export function registerPack(program: Command): void {
           console.log(pc.dim(`outDir: ${result.outDir}`));
         } catch (err) {
           spinner.fail(`Export failed: ${(err as Error).message}`);
-          if (process.env["WORKGRAPH_DEBUG"] === "1" && err instanceof Error) {
+          if ((process.env["AGENTPACK_DEBUG"] === "1" || process.env["WORKGRAPH_DEBUG"] === "1") && err instanceof Error) {
             console.error(pc.dim(err.stack ?? ""));
           }
           process.exit(1);

@@ -119,6 +119,18 @@ export interface InstallManifestV1 {
     originalSha256: string;
   }>;
   atomIds: string[];
+  /**
+   * Files installed via merge (marker-block or JSON deep-merge). The fragment
+   * is the pack's pristine contribution: verify checks it (not the whole
+   * file), and uninstall removes only it — never the user's surrounding
+   * content.
+   */
+  merges?: Array<{
+    path: string;
+    strategy: "marker" | "json";
+    fragment: string;
+    fragmentSha256: string;
+  }>;
   /** sha256 of the lockfile bytes at install time. */
   lockfileChecksum: string;
   /** Static: was this install reversible at the time we made it? */
@@ -157,6 +169,13 @@ export interface HistoryEntryV1 {
   manifestPath?: string;
   /** For action=install_begin: file paths the install plans to write. */
   plannedFiles?: Array<{ path: string; sha256: string }>;
+  /**
+   * For action=install_begin: project-relative backup directory for this
+   * install attempt. Lets the recovery sweep restore overwritten user files
+   * when rolling back a crashed install — without this, backups exist on
+   * disk but nothing can locate them.
+   */
+  backupDir?: string;
   /** For action=rollback: id of the history entry rolled back to (or `to`). */
   rolledBackTo?: string;
   /** For action=install_rollback_recovery: id of the begin entry being recovered. */
@@ -201,9 +220,21 @@ export interface InstallPlanV2 {
    */
   conflicts: Array<{
     file: AdapterOutputFile;
-    reason: "no-marker-existing-content" | "other-pack-marker";
+    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision";
     existingSha256: string;
     otherPackId?: string;
+  }>;
+  /**
+   * Files installed via merge (marker-block or JSON deep-merge) rather than
+   * whole-file ownership. The fragment is the pack's pristine contribution;
+   * verify checks it instead of the whole file, and uninstall removes only
+   * it.
+   */
+  merges: Array<{
+    path: string;
+    strategy: "marker" | "json";
+    fragment: string;
+    fragmentSha256: string;
   }>;
   /** The lockfile that would be produced. */
   lockfile: LockfileV1;
@@ -236,7 +267,7 @@ export interface DiffEntry {
   diff?: string;
   /** Conflict subtype. */
   conflict?: {
-    reason: "no-marker-existing-content" | "other-pack-marker";
+    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision";
     otherPackId?: string;
   };
 }

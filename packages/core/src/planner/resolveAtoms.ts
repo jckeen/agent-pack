@@ -27,13 +27,18 @@ export interface ResolveAtomsOptions {
  * profile, applying include/exclude patterns deterministically (atoms keep
  * manifest order).
  */
+export class UnknownProfileError extends Error {
+  constructor(profile: string, declared: string[]) {
+    super(`Unknown profile \`${profile}\`. Declared: ${declared.join(", ")}`);
+    this.name = "UnknownProfileError";
+  }
+}
+
 export function resolveAtoms(options: ResolveAtomsOptions): ResolvedAtom[] {
   const { manifest, profile, onlyAtoms } = options;
   const spec: ProfileSpec | undefined = manifest.profiles[profile];
   if (!spec) {
-    throw new Error(
-      `Unknown profile \`${profile}\`. Available: ${Object.keys(manifest.profiles).join(", ")}`,
-    );
+    throw new UnknownProfileError(profile, Object.keys(manifest.profiles));
   }
   const allAtoms = manifest.atoms;
 

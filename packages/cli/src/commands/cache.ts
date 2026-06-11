@@ -39,7 +39,7 @@ export function registerCache(program: Command): void {
         const ok = await confirm("Clear the entire cache? [y/N] ");
         if (!ok) {
           console.log(pc.dim("Aborted."));
-          return;
+          process.exit(1);
         }
       }
       const result = await cache.cacheClear();

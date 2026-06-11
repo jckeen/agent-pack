@@ -8,6 +8,14 @@ import { loadManifest } from "../parser/loadManifest.js";
 import { resolveAgentpackPaths, ensureAgentpackDirs, realpathContained } from "./paths.js";
 import { buildLockfile } from "./lockfile.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
+import {
+  isMarkerBlock,
+  mergeMarkerFile,
+  mergeJsonConfig,
+  JSON_MERGE_PATHS,
+  type MergeRecord,
+} from "./merge.js";
+import { readInstallManifest, InstallManifestNotFoundError } from "./manifest.js";
 
 const BEGIN_MARKER = /<!--\s*BEGIN AGENTPACK:\s*([\w.\-/]+)\s*-->/;
 
@@ -57,28 +65,68 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       allowMissingBodies: opts.allowMissingBodies,
     });
     const planFiles = result.plan.files;
+    // Snapshot the pack's pristine contribution per path BEFORE any merge
+    // rewrites staged content. The lockfile must hash the pack's output (so
+    // it stays deterministic and reproducible across projects), and merge
+    // records pin the same fragment for drift checks + surgical uninstall.
+    const pristine = new Map(planFiles.map((f) => [f.path, normalizeContent(f)]));
+    // Prior install manifest (re-install case): lets the JSON merge replace
+    // entries this pack contributed last time instead of colliding with them.
+    let priorManifest = null;
+    try {
+      priorManifest = await readInstallManifest(ws, result.plan.packId);
+    } catch (err) {
+      if (!(err instanceof InstallManifestNotFoundError)) throw err;
+    }
     const created: AdapterOutputFile[] = [];
     const modified: AdapterOutputFile[] = [];
     const unchanged: AdapterOutputFile[] = [];
     const conflicts: InstallPlanV2["conflicts"] = [];
+    const merges: MergeRecord[] = [];
     for (const f of planFiles) {
       // Refuse to escape projectRoot before classifying.
       const absTarget = path.resolve(ws.projectRoot, f.path);
       await realpathContained(ws.projectRoot, absTarget);
+      const plannedContent = pristine.get(f.path) ?? normalizeContent(f);
+      const recordMerge = (strategy: MergeRecord["strategy"]) => {
+        merges.push({
+          path: f.path,
+          strategy,
+          fragment: plannedContent,
+          fragmentSha256: sha256Hex(normalizeForHash(plannedContent)),
+        });
+      };
       const cls = await classify({
         absTarget,
-        plannedContent: normalizeContent(f),
+        plannedContent,
         packId: result.plan.packId,
+        relPath: f.path,
+        priorFragment: priorManifest?.merges?.find((m) => m.path === f.path)?.fragment,
       });
       switch (cls.kind) {
         case "create":
           created.push(f);
+          // Merge-capable files get a record even on create: the user may
+          // append their own content later, and uninstall must then remove
+          // only our span/entries instead of deleting their file.
+          if (isMarkerBlock(plannedContent)) recordMerge("marker");
+          else if (JSON_MERGE_PATHS.has(f.path)) recordMerge("json");
           break;
         case "unchanged":
           unchanged.push(f);
+          if (isMarkerBlock(plannedContent)) recordMerge("marker");
+          else if (JSON_MERGE_PATHS.has(f.path)) recordMerge("json");
           break;
         case "modify":
           modified.push(f);
+          break;
+        case "merge":
+          // Stage the merged result — apply writes files verbatim, so the
+          // merge must happen here. The lockfile + merge record keep the
+          // pack's pristine fragment.
+          f.content = cls.mergedContent;
+          modified.push(f);
+          recordMerge(cls.strategy);
           break;
         case "conflict":
           conflicts.push({
@@ -111,7 +159,10 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
           sourceBytes: loaded.rawYaml,
           files: planFiles,
           fileHashes: planFiles.map((f) => {
-            const content = normalizeContent(f);
+            // Hash the pack's PRISTINE contribution, not merge-rewritten
+            // staged content — the lockfile must stay deterministic across
+            // projects regardless of what user content a merge preserved.
+            const content = pristine.get(f.path) ?? normalizeContent(f);
             return {
               path: f.path,
               sha256: sha256Hex(normalizeForHash(content)),
@@ -137,6 +188,7 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       modified,
       unchanged,
       conflicts,
+      merges,
       lockfile: lock,
     };
   } finally {
@@ -148,9 +200,10 @@ type Classification =
   | { kind: "create" }
   | { kind: "unchanged" }
   | { kind: "modify" }
+  | { kind: "merge"; strategy: "marker" | "json"; mergedContent: string }
   | {
       kind: "conflict";
-      reason: "no-marker-existing-content" | "other-pack-marker";
+      reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision";
       existingSha256: string;
       otherPackId?: string;
     };
@@ -159,6 +212,9 @@ async function classify(input: {
   absTarget: string;
   plannedContent: string;
   packId: string;
+  relPath: string;
+  /** This pack's fragment from a prior install of the same file, if any. */
+  priorFragment?: string;
 }): Promise<Classification> {
   let existing: string;
   try {
@@ -170,6 +226,31 @@ async function classify(input: {
   const ourPlannedNormalized = normalizeForHash(input.plannedContent);
   const existingNormalized = normalizeForHash(existing);
   if (ourPlannedNormalized === existingNormalized) return { kind: "unchanged" };
+
+  // Marker-block files (CLAUDE.md, AGENTS.md, ...) coexist with user content
+  // and with other packs: merge our block in (replacing our previous span on
+  // re-install) instead of demanding whole-file ownership.
+  if (isMarkerBlock(input.plannedContent)) {
+    const merged = mergeMarkerFile(existing, input.plannedContent, input.packId);
+    if (normalizeForHash(merged) === existingNormalized) return { kind: "unchanged" };
+    return { kind: "merge", strategy: "marker", mergedContent: merged };
+  }
+
+  // Known JSON config surfaces (.claude/settings.json, .mcp.json, ...) are
+  // deep-merged: our entries are added, user/other-pack entries preserved.
+  if (JSON_MERGE_PATHS.has(input.relPath)) {
+    const res = mergeJsonConfig(existing, input.plannedContent, input.priorFragment);
+    if (res.ok) {
+      if (normalizeForHash(res.merged) === existingNormalized) return { kind: "unchanged" };
+      return { kind: "merge", strategy: "json", mergedContent: res.merged };
+    }
+    return {
+      kind: "conflict",
+      reason: "invalidJson" in res ? "no-marker-existing-content" : "json-collision",
+      existingSha256: sha256Hex(existingNormalized),
+    };
+  }
+
   const markerMatch = BEGIN_MARKER.exec(existing);
   if (!markerMatch) {
     return {

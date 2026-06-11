@@ -1,8 +1,10 @@
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { HistoryEntryV1 } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
 import { resolveAgentpackPaths, fromRelative, realpathContained } from "./paths.js";
 import { readHistory, recordHistory, newHistoryId } from "./history.js";
+import { readInstallManifest } from "./manifest.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 
 export interface RecoveryResult {
@@ -72,7 +74,21 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
         break;
       }
     }
+    // Roll-forward additionally requires the install manifest to exist —
+    // files-on-disk alone is not a durable install. A crash after the file
+    // writes but before the manifest write would otherwise be marked
+    // "success" while verify/uninstall/rollback cannot find the install
+    // (codex P0-4). Manifest missing or unreadable → roll back.
+    let manifestPresent = false;
     if (allPresentAndClean && planned.length > 0) {
+      try {
+        const m = await readInstallManifest(ws, begin.packId);
+        manifestPresent = m.packId === begin.packId;
+      } catch {
+        manifestPresent = false;
+      }
+    }
+    if (allPresentAndClean && manifestPresent && planned.length > 0) {
       // Roll forward: synthesize a commit entry.
       const committed = await recordHistory(ws, {
         id: newHistoryId(),
@@ -110,6 +126,17 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
           // File not present; nothing to do.
         }
       }
+      // Restore any backed-up user files this install attempt overwrote.
+      // Backups live under the project-relative dir the begin entry recorded;
+      // the layout mirrors the project tree, so each file's path relative to
+      // the backup root IS its original project-relative path. Restore only
+      // into destinations the unlink pass above left empty — never clobber a
+      // file the user has since recreated.
+      if (begin.backupDir) {
+        await restoreBackups(ws, begin.backupDir).catch(() => {
+          // Best-effort: a malformed backupDir must not block the sweep.
+        });
+      }
       const rolled = await recordHistory(ws, {
         id: newHistoryId(),
         action: "install_rollback_recovery",
@@ -132,6 +159,46 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
   return result;
 }
 
+/**
+ * Walk a project-relative backup directory and copy every file back to its
+ * original location (the path relative to the backup root). Restores only
+ * when the destination is missing — the rollback unlink pass removes staged
+ * files first, and anything else at the destination is user content we must
+ * not overwrite.
+ */
+async function restoreBackups(ws: AgentpackPaths, backupDirRel: string): Promise<void> {
+  const backupRoot = fromRelative(ws.projectRoot, backupDirRel);
+  await realpathContained(ws.projectRoot, backupRoot);
+  async function walk(dir: string, rel: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return; // Backup dir missing — nothing to restore.
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const abs = path.join(dir, entry.name);
+      const nextRel = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        await walk(abs, nextRel);
+      } else if (entry.isFile()) {
+        const dest = fromRelative(ws.projectRoot, nextRel);
+        await realpathContained(ws.projectRoot, dest);
+        try {
+          const content = await fs.readFile(abs, "utf8");
+          await fs.mkdir(path.dirname(dest), { recursive: true });
+          // `wx`: restore only if the destination is missing.
+          await fs.writeFile(dest, content, { encoding: "utf8", flag: "wx" });
+        } catch {
+          // Destination exists or unreadable backup — skip.
+        }
+      }
+    }
+  }
+  await walk(backupRoot, "");
+}
+
 function findDanglingBegins(entries: readonly HistoryEntryV1[]): HistoryEntryV1[] {
   // An install_begin is "matched" only by a directly-pointing commit or
   // rollback-recovery. The previous "same packId + next install_commit"
@@ -143,8 +210,7 @@ function findDanglingBegins(entries: readonly HistoryEntryV1[]): HistoryEntryV1[
     const after = entries[i];
     if (after === undefined) continue;
     if (
-      (after.action === "install_commit" ||
-        after.action === "install_rollback_recovery") &&
+      (after.action === "install_commit" || after.action === "install_rollback_recovery") &&
       after.recoveredBegin
     ) {
       matchedBeginIds.add(after.recoveredBegin);

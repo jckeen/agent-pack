@@ -1,17 +1,15 @@
-import type {
-  AdapterExportOptions,
-  AdapterOutputFile,
-  Atom,
-} from "../schema/types.js";
+import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/types.js";
 import {
   atomsByType,
   defineAdapter,
+  readAtomDirectory,
   readAtomFile,
   stableJsonStringify,
   wrapInstructionBlock,
 } from "./types.js";
+import { renderRuleMarkdown } from "./ruleContent.js";
 
-function renderRuleMdc(atom: Atom): string {
+function renderRuleMdc(atom: Atom, body: string): string {
   const scope = (atom as { scope?: { file_globs?: string[] } }).scope;
   const globs = scope?.file_globs ?? ["**/*"];
   const globsBlock = globs.map((g) => `  - "${g}"`).join("\n");
@@ -21,7 +19,7 @@ function renderRuleMdc(atom: Atom): string {
     `globs:\n${globsBlock}\n` +
     `alwaysApply: false\n` +
     `---\n\n` +
-    `# ${atom.name}\n\n${atom.description}\n`
+    `# ${atom.name}\n\n${body}\n`
   );
 }
 
@@ -44,6 +42,26 @@ export const cursorAdapter = defineAdapter({
       const body = (await readAtomFile(packRoot, atom)) ?? atom.description;
       sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${body.trim()}\n`);
     }
+    // Cursor has no native skill/command/subagent surface — their content
+    // must land in AGENTS.md or it is lost. Skill bodies are inlined; the
+    // warnings below tell the author this happened.
+    const skillAtoms = byType.get("skill") ?? [];
+    for (const atom of skillAtoms) {
+      const entries = await readAtomDirectory(packRoot, atom);
+      const skillMd = entries.find((e) => e.relPath === "SKILL.md");
+      const body = skillMd
+        ? skillMd.content.replace(/^---[\s\S]*?---\s*/, "").trim()
+        : atom.description;
+      sections.push(`## Skill: ${atom.name}\n\n_(${atom.id})_\n\n${body}\n`);
+    }
+    for (const atom of byType.get("command") ?? []) {
+      sections.push(`## Command: ${atom.name}\n\n_(${atom.id})_\n\n${atom.description}\n`);
+    }
+    for (const atom of byType.get("subagent") ?? []) {
+      sections.push(
+        `## Subagent role: ${atom.name}\n\n_(${atom.id})_\n\n${atom.description}\n`,
+      );
+    }
     files.push({
       path: "AGENTS.md",
       content: wrapInstructionBlock(manifest.metadata.id, sections.join("\n")),
@@ -53,9 +71,10 @@ export const cursorAdapter = defineAdapter({
     // ---------- .cursor/rules/*.mdc ----------
     for (const atom of byType.get("rule") ?? []) {
       const slug = atom.id.split(":")[1] ?? atom.name;
+      const body = await renderRuleMarkdown(packRoot, atom);
       files.push({
         path: `.cursor/rules/${slug}.mdc`,
-        content: renderRuleMdc(atom),
+        content: renderRuleMdc(atom, body),
         action: "create",
       });
     }
@@ -64,6 +83,7 @@ export const cursorAdapter = defineAdapter({
     const mcpAtoms = byType.get("mcp_server") ?? [];
     if (mcpAtoms.length > 0) {
       const mcpServers: Record<string, unknown> = {};
+      const declaredServers = manifest.permissions?.mcp?.servers ?? [];
       for (const atom of mcpAtoms) {
         const slug = atom.id.split(":")[1] ?? atom.name;
         const a = atom as {
@@ -72,22 +92,46 @@ export const cursorAdapter = defineAdapter({
           env?: Record<string, unknown>;
           url?: string;
         };
+        // Same gate as the claude-code adapter: MCP commands are arbitrary
+        // process execution. Require declaration in permissions.mcp.servers
+        // and refuse shell-escape shapes.
+        const joined = [a.command ?? "", ...(a.args ?? [])].join(" ");
+        if (!declaredServers.includes(slug)) {
+          warnings.push(
+            `MCP server \`${atom.id}\` is not declared in \`permissions.mcp.servers\`. Refusing to emit it into .cursor/mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        if (
+          !a.command ||
+          /\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b|\bnode\s+(-e|--eval)\b|\beval\b/i.test(
+            joined,
+          )
+        ) {
+          warnings.push(
+            `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it into .cursor/mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         const envKeys = Object.keys(a.env ?? {});
         mcpServers[slug] = {
           command: a.command,
           args: a.args ?? [],
           env: Object.fromEntries(envKeys.map((k) => [k, `\${${k}}`])),
-          url: a.url,
         };
         warnings.push(
           `Cursor MCP server \`${atom.id}\` requires env: ${envKeys.join(", ") || "(none)"}.`,
         );
       }
-      files.push({
-        path: ".cursor/mcp.json",
-        content: stableJsonStringify({ mcpServers }),
-        action: "create",
-      });
+      if (Object.keys(mcpServers).length > 0) {
+        files.push({
+          path: ".cursor/mcp.json",
+          content: stableJsonStringify({ mcpServers }),
+          action: "create",
+        });
+      }
     }
 
     // Hooks: no stable Cursor target → warning only
@@ -110,7 +154,7 @@ export const cursorAdapter = defineAdapter({
     }
     for (const atom of byType.get("command") ?? []) {
       warnings.push(
-        `Command atom \`${atom.id}\` — Cursor adapter emits this as a rule note rather than a registered command.`,
+        `Command atom \`${atom.id}\` — Cursor has no registered-command surface; surfaced in AGENTS.md only.`,
       );
     }
 

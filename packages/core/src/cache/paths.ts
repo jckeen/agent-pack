@@ -1,8 +1,8 @@
 /**
  * Resolve the canonical `~/.agentpack/cache/...` paths.
  *
- * Honors `process.env.WORKGRAPH_HOME` as an override for testing — when set,
- * the cache root is `<WORKGRAPH_HOME>/cache/` instead of `$HOME/.agentpack/cache/`.
+ * Honors `process.env.AGENTPACK_HOME` (legacy: `WORKGRAPH_HOME`) as an override for testing — when set,
+ * the cache root is `<AGENTPACK_HOME>/cache/` instead of `$HOME/.agentpack/cache/`.
  */
 
 import path from "node:path";
@@ -22,7 +22,7 @@ export interface CachePaths {
 }
 
 export function getAgentpackHome(): string {
-  return process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".agentpack");
+  return process.env.AGENTPACK_HOME ?? process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".agentpack");
 }
 
 export function getCachePaths(home?: string): CachePaths {

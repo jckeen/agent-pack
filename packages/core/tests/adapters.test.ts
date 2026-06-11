@@ -54,13 +54,35 @@ describe("adapters write expected files", () => {
     ).toBe(true);
   });
 
-  it("claude-code (full) writes .claude/settings.json with hook and MCP blocks", async () => {
+  it("claude-code (full) writes hooks to .claude/settings.json and MCP servers to .mcp.json", async () => {
     const r = await runExport("claude-code", "full");
     const settingsPath = path.join(r.outDir, ".claude/settings.json");
     expect(await pathExists(settingsPath)).toBe(true);
     const settings = JSON.parse(await fs.readFile(settingsPath, "utf8"));
     expect(settings).toHaveProperty("hooks");
-    expect(settings).toHaveProperty("mcpServers");
+    // MCP servers must NOT live in settings.json — Claude Code only reads
+    // project-scoped servers from .mcp.json at the project root.
+    expect(settings).not.toHaveProperty("mcpServers");
+    expect(await pathExists(path.join(r.outDir, ".mcp.json"))).toBe(true);
+    // Hook entries carry only schema keys, with a real tool matcher.
+    const entry = settings.hooks.PostToolUse[0];
+    expect(entry.matcher).toBe("Edit|Write");
+    expect(entry.hooks[0]).toEqual({ type: "command", command: "npm run format" });
+  });
+
+  it("claude-code compiles command atoms to .claude/commands/<slug>.md", async () => {
+    const r = await runExport("claude-code", "safe");
+    const cmdPath = path.join(r.outDir, ".claude/commands/pr-summary.md");
+    expect(await pathExists(cmdPath)).toBe(true);
+    const cmd = await fs.readFile(cmdPath, "utf8");
+    expect(cmd).toMatch(/^---\ndescription: /);
+  });
+
+  it("claude-code renders rule body must/must_not into CLAUDE.md", async () => {
+    const r = await runExport("claude-code", "safe");
+    const claudeMd = await fs.readFile(path.join(r.outDir, "CLAUDE.md"), "utf8");
+    expect(claudeMd).toContain("Must not:");
+    expect(claudeMd).toContain("Explicitly flag security-sensitive changes.");
   });
 
   it("codex writes AGENTS.md and .codex/config.toml", async () => {
@@ -149,18 +171,19 @@ describe("adapters write expected files", () => {
     }
   });
 
-  it("claude-code settings.json parses back with the github MCP server intact", async () => {
+  it("claude-code .mcp.json parses back with the github MCP server intact", async () => {
     const r = await runExport("claude-code", "full");
     const settings = JSON.parse(
-      await fs.readFile(path.join(r.outDir, ".claude/settings.json"), "utf8"),
+      await fs.readFile(path.join(r.outDir, ".mcp.json"), "utf8"),
     ) as {
       mcpServers: Record<
         string,
-        { command: string; args: string[]; env: Record<string, string> }
+        { type: string; command: string; args: string[]; env: Record<string, string> }
       >;
     };
     const github = settings.mcpServers["github"];
     expect(github).toBeDefined();
+    expect(github!.type).toBe("stdio");
     expect(github!.command).toBe("npx");
     expect(github!.args).toEqual(["-y", "@modelcontextprotocol/server-github"]);
     expect(github!.env).toEqual({ GITHUB_TOKEN: "${GITHUB_TOKEN}" });
