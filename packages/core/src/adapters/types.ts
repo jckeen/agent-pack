@@ -250,10 +250,25 @@ export function defineAdapter(init: AdapterBaseInit): AgentPackAdapter {
       const files = result.files
         .slice()
         .sort((a, b) => a.path.localeCompare(b.path));
+      // Backstop: two atoms emitting the same output path would make the
+      // installer attempt a duplicate create and roll the install back.
+      // Keep the first, drop the rest, and say so.
+      const warnings = [...result.warnings];
+      const seen = new Set<string>();
+      const deduped = files.filter((f) => {
+        if (seen.has(f.path)) {
+          warnings.push(
+            `Adapter emitted \`${f.path}\` more than once; keeping the first occurrence. This usually means two atoms share a slug.`,
+          );
+          return false;
+        }
+        seen.add(f.path);
+        return true;
+      });
       return {
         target: init.target,
-        files,
-        warnings: result.warnings,
+        files: deduped,
+        warnings,
         unsupportedAtoms: result.unsupportedAtoms,
       };
     },

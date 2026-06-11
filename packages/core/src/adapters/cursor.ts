@@ -8,6 +8,7 @@ import {
   wrapInstructionBlock,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
+import { isShellEscape } from "./commandGate.js";
 
 function renderRuleMdc(atom: Atom, body: string): string {
   const scope = (atom as { scope?: { file_globs?: string[] } }).scope;
@@ -103,12 +104,7 @@ export const cursorAdapter = defineAdapter({
           unsupported.push(atom.id);
           continue;
         }
-        if (
-          !a.command ||
-          /\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b|\bnode\s+(-e|--eval)\b|\beval\b/i.test(
-            joined,
-          )
-        ) {
+        if (!a.command || isShellEscape(a.command, a.args ?? [])) {
           warnings.push(
             `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it into .cursor/mcp.json.`,
           );

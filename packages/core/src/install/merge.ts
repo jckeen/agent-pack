@@ -101,11 +101,32 @@ export function removeMarkerSpan(content: string, packId: string): string | null
 
 type Json = Record<string, unknown>;
 
+const DUNDER_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * True when any object in the tree carries a prototype-pollution key.
+ * Plain-object assignment (`out[k] = v` with k === "__proto__") would set
+ * the prototype instead of an own property, silently dropping or polluting —
+ * so configs containing these keys are REFUSED outright rather than mangled
+ * (codex re-review P1-4).
+ */
+function hasDunderKeys(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasDunderKeys);
+  if (value && typeof value === "object") {
+    for (const k of Object.getOwnPropertyNames(value)) {
+      if (DUNDER_KEYS.has(k)) return true;
+      if (hasDunderKeys((value as Json)[k])) return true;
+    }
+  }
+  return false;
+}
+
 function parseJsonObject(raw: string): Json | null {
   try {
     const v = JSON.parse(raw) as unknown;
-    if (v && typeof v === "object" && !Array.isArray(v)) return v as Json;
-    return null;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    if (hasDunderKeys(v)) return null;
+    return v as Json;
   } catch {
     return null;
   }
@@ -118,7 +139,9 @@ function deepEqual(a: unknown, b: unknown): boolean {
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
+    // Null-prototype object: assignment can never hit a setter or mutate
+    // the prototype chain, whatever the key is.
+    const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const k of Object.keys(value as Json).sort()) {
       out[k] = sortKeys((value as Json)[k]);
     }

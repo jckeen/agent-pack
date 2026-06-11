@@ -266,3 +266,80 @@ describe("multi-target install guard (qa-lead P1-2)", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 });
+
+describe("uninstall force-flag separation (codex re-review P1-1)", () => {
+  it("--force-restore alone does NOT bypass a tampered created/merged file", async () => {
+    const dir = await tempProject();
+    await install(dir);
+    // Tamper INSIDE the pack's span — a "force"-class conflict.
+    const cur = await fs.readFile(path.join(dir, "CLAUDE.md"), "utf8");
+    await fs.writeFile(
+      path.join(dir, "CLAUDE.md"),
+      cur.replace("Pull Request Quality Pack", "Tampered"),
+      "utf8",
+    );
+    // forceRestore has no action for created/merged conflicts; letting it
+    // proceed would delete the manifest and orphan the content.
+    await expect(
+      uninstall({
+        packId: "agentpack.pr-quality",
+        projectRoot: dir,
+        forceRestore: true,
+      }),
+    ).rejects.toThrow(/conflict/i);
+    // Manifest still present — uninstall touched nothing.
+    await expect(
+      fs.readFile(
+        path.join(dir, ".agentpack/installed/agentpack.pr-quality.json"),
+        "utf8",
+      ),
+    ).resolves.toContain("agentpack.pr-quality");
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("--force still proceeds past the same conflict", async () => {
+    const dir = await tempProject();
+    await install(dir);
+    const cur = await fs.readFile(path.join(dir, "CLAUDE.md"), "utf8");
+    await fs.writeFile(
+      path.join(dir, "CLAUDE.md"),
+      cur.replace("Pull Request Quality Pack", "Tampered"),
+      "utf8",
+    );
+    const r = await uninstall({
+      packId: "agentpack.pr-quality",
+      projectRoot: dir,
+      force: true,
+    });
+    expect(r.conflicts.length).toBe(0);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("adapter output-path dedupe backstop (codex re-review P1-3)", () => {
+  it("a command whose slug collides with a skill installs without a duplicate-path crash", async () => {
+    // Clone the example pack and rename the command atom's slug to collide
+    // with the skill atom (`code-review`).
+    const packDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-collide-"));
+    await fs.cp(EXAMPLE_PACK, packDir, { recursive: true });
+    const manifestPath = path.join(packDir, "AGENTPACK.yaml");
+    let raw = await fs.readFile(manifestPath, "utf8");
+    raw = raw.replaceAll("command:pr-summary", "command:code-review");
+    await fs.writeFile(manifestPath, raw, "utf8");
+
+    const dir = await tempProject();
+    const plan = await planInstall({
+      source: packDir,
+      target: "codex" as never,
+      profile: "safe" as never,
+      projectRoot: dir,
+      generator: GEN,
+    });
+    // No duplicate paths in the staged plan.
+    const all = [...plan.created, ...plan.modified, ...plan.unchanged].map((f) => f.path);
+    expect(new Set(all).size).toBe(all.length);
+    await applyInstall({ plan, actor: { type: "cli" } });
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(packDir, { recursive: true, force: true });
+  });
+});

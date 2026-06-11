@@ -222,3 +222,43 @@ describe("recovery restoreBackups edge cases", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 });
+
+describe("recovery backupDir containment (codex re-review P2)", () => {
+  it("ignores a backupDir pointing at an in-project NON-backup directory", async () => {
+    const dir = await tempProject();
+    // A directory inside the project that is NOT under .agentpack/backups —
+    // a forged WAL entry must not let recovery "restore" its contents.
+    await fs.mkdir(path.join(dir, "not-backups"), { recursive: true });
+    await fs.writeFile(path.join(dir, "not-backups/planted.md"), "evil\n", "utf8");
+
+    const plan = await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    await applyInstall({ plan, actor: { type: "cli" } });
+    await dropLastHistoryEntry(dir);
+    const ws = await resolveAgentpackPaths(dir);
+    await fs.rm(path.join(ws.installedDir, "agentpack.pr-quality.json"));
+
+    const raw = await fs.readFile(ws.historyFile, "utf8");
+    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    const entries = lines.map((l) => JSON.parse(l));
+    const begin = entries.find((e) => e.action === "install_begin");
+    begin.backupDir = "not-backups";
+    await fs.writeFile(
+      ws.historyFile,
+      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+      "utf8",
+    );
+
+    const result = await recoverIncomplete(dir);
+    expect(result.rolledBack.length).toBe(1);
+    // The planted file was NOT copied anywhere: rollback removed the staged
+    // AGENTS.md and nothing recreated it from "not-backups".
+    await expect(fs.readFile(path.join(dir, "planted.md"), "utf8")).rejects.toThrow();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
