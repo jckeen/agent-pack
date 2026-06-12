@@ -68,6 +68,8 @@ export {
 } from "./adapters/index.js";
 export {
   wrapInstructionBlock,
+  readAtomFile,
+  readAtomDirectory,
   AtomPathEscapeError,
   AtomReadError,
 } from "./adapters/types.js";
