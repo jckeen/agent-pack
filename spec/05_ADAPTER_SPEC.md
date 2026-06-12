@@ -1,3 +1,5 @@
+> **Historical** — point-in-time record (2026-06-12). Do not act on this.
+
 # Adapter Spec
 
 Adapters compile AgentPack atoms into platform-native outputs.

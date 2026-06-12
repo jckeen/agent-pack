@@ -690,14 +690,16 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 
 #### Deferred to v0.5.1 (documented, not auto-fixed)
 
-- [ ] ISC-289 [DEFERRED-VERIFY]: Sigstore identity-mismatch enforcement — `verifyManifestSignature` accepts any valid Sigstore signature when no `expectedSAN` is passed. Fix: make `expectedSAN` (or registry-side per-publisher SAN-allowlist) required on `--require-sig` and registry publish-side call sites. Follow-up issue: TBD.
-- [ ] ISC-290 [DEFERRED-VERIFY]: Audit-events race — concurrent `appendAuditEvent` calls can fork the hash chain. Fix: wrap in `db.transaction()` + `SELECT … FOR UPDATE` on the head row, or add `UNIQUE(org_id, previous_entry_id)` partial index. Lives at `apps/registry/lib/audit.ts:54-90`.
-- [ ] ISC-291 [DEFERRED-VERIFY]: Admin status POST route missing Origin/CSRF check. Fix at `apps/registry/app/api/admin/.../status/route.ts`. Lower priority — registry not yet live.
-- [ ] ISC-292 [DEFERRED-VERIFY]: `parseGitId` accepts refs containing control characters (`\n`, `\r`, NUL) — log-injection vector. Fix: regex validate `ref` to `/^[A-Za-z0-9._\/-]{1,255}$/` in `parseGitId`.
-- [ ] ISC-293 [DEFERRED-VERIFY]: `fetchGitPack` doesn't pin SHA for branch refs — force-push between manifest fetch and atom fetches can swap content. Fix: when `source.ref` is not a 40-hex SHA, resolve to SHA via `GET /repos/{o}/{r}/commits/{ref}` and use SHA for all fetches.
-- [ ] ISC-294 [DEFERRED-VERIFY]: Concurrent `agentpack install` against same project root races at `fs.writeFile(…, "wx")` because `withHistoryLock` only guards JSONL appends, not the file-writing phase. Fix: extract `withProjectLock` covering plan→write→commit.
-- [ ] ISC-295 [DEFERRED-VERIFY]: Non-typed exit codes — `failCleanly` hardcodes `process.exit(1)`. Fix: inspect typed `ExitCode` enum on errors; map `InstallManifestNotFoundError → 8`, integrity errors → 7, etc.
-- [ ] ISC-296 [DEFERRED-VERIFY]: Windows reserved filename validation absent in atom paths (CON, PRN, AUX, NUL, COM1-9, LPT1-9). Fix: `.refine` rejecting basenames matching `/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i`.
+Open [DEFERRED-VERIFY] findings are tracked as GitHub issues (state lives there, not here):
+
+- ISC-289 → [#14](https://github.com/jckeen/agent-pack/issues/14): Sigstore identity-mismatch enforcement — `expectedSAN` not required with `--require-sig`.
+- ISC-290 → [#15](https://github.com/jckeen/agent-pack/issues/15): audit-events hash chain can fork under concurrent `appendAuditEvent`.
+- ISC-291 → [#16](https://github.com/jckeen/agent-pack/issues/16): admin status POST route missing Origin/CSRF check.
+- ISC-292 → [#17](https://github.com/jckeen/agent-pack/issues/17): `parseGitId` accepts refs with control characters (log-injection vector).
+- ISC-293 → [#18](https://github.com/jckeen/agent-pack/issues/18): `fetchGitPack` doesn't pin SHA for branch refs (content-swap TOCTOU).
+- ISC-294 → [#19](https://github.com/jckeen/agent-pack/issues/19): concurrent `agentpack install` races — lock doesn't cover the file-writing phase.
+- ISC-295 → [#20](https://github.com/jckeen/agent-pack/issues/20): typed exit codes not honored — `failCleanly` hardcodes `process.exit(1)`.
+- ISC-296 → [#21](https://github.com/jckeen/agent-pack/issues/21): Windows reserved filenames not rejected in atom paths.
 
 #### Anti-criteria
 

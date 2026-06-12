@@ -1,3 +1,5 @@
+> **Historical** — point-in-time record (2026-06-12). Do not act on this.
+
 # Data Models and API
 
 The MVP can use static seed data. These models define the future registry backend.

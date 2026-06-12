@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Doc truth (.doc-contract)
+        run: ./scripts/check-doc-truth.sh
+
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4

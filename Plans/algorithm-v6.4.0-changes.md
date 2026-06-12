@@ -1,3 +1,5 @@
+> **Historical** — point-in-time record (2026-06-12). Do not act on this.
+
 # Proposed Algorithm v6.4.0 doctrine changes
 
 > Scratchpad from the 2026-05-19 agent-pack /max session, task D4 (agent-stall investigation). The primary lands these into `~/.claude/PAI/ALGORITHM/v6.4.0.md` if/when they survive review. Source memo: `~/.claude/PAI/MEMORY/KNOWLEDGE/Research/agent-stall-investigation.md`.

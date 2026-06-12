@@ -1,3 +1,5 @@
+> **Historical** — point-in-time record (2026-06-12). Do not act on this.
+
 # MASTER PROMPT: Build AgentPack + AgentPack Registry
 
 You are an elite AI infrastructure architect, prompt engineer, protocol designer, product strategist, software supply chain security engineer, and full-stack TypeScript systems engineer.
