@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.6-dev — 2026-06-12 (Directory-plugin emit path + portability ceilings)
+
+Lets a pack escape the terminal and reach Claude's other surfaces, with honesty about how far each atom travels. Grounded in cross-surface research (June 2026): Skills and remote-MCP connectors are account-level and reach every Claude surface; commands/subagents ride inside a plugin on plugin-aware surfaces (Code, Cowork, Desktop, the web Directory); hooks and ambient CLAUDE.md instructions are structurally Claude-Code-only.
+
+- **`agentpack pack plugin [path]`** compiles a pack into a Claude Code **plugin** directory — `.claude-plugin/plugin.json` (+ `marketplace.json`) with `skills/`, `commands/`, `agents/`, `hooks/hooks.json`, and `.mcp.json` at plugin root. One `/plugin install` then reaches Code, Cowork, Desktop, and the web Directory. Verified against the live plugin/marketplace schemas.
+- **Honest instruction bridging**: instruction/rule atoms (no ambient home outside Code) are bundled into an on-invoke `<slug>-guidance` skill so the guidance still travels — explicitly _not_ presented as ambient behavior.
+- **Per-atom portability ceiling** (`portability.ts`): each atom type → `universal` / `plugin` / `sdk` / `terminal` with its mechanism and a one-line honest note. `inspect` gains a Portability section (overall reach = the least-portable atom); `pack plugin` prints the same breakdown plus the terminal-only caveat for hooks/instructions.
+
+Tests: core 272 (+8 plugin-export + portability); `pnpm verify` exit 0.
+
+---
+
 ## 0.6.5-dev — 2026-06-12 (registry pre-launch hardening)
 
 Fixes the backend-architect review findings in the (not-yet-live) registry write path.
