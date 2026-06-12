@@ -1,3 +1,5 @@
+> **Historical** — point-in-time record (2026-06-12). Do not act on this.
+
 # Acceptance Criteria
 
 The product is acceptable when all items below pass.

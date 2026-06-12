@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.10-dev — 2026-06-12 (doc contract; drift-sweep bootstrap)
+
+Docs/CI-only. Every tracked markdown surface is now declared in a root `.doc-contract` (LIVING / SOURCE / HISTORICAL) and asserted in CI by a vendored `scripts/check-doc-truth.sh` (ADR 0005 in dotfiles), running as the first CI step.
+
+- **HISTORICAL**: `spec/*.md` (the original build packet — ISA.md is the canonical spec) and `Plans/algorithm-v6.4.0-changes.md` got point-in-time banners.
+- **Shadow tracker migrated**: the 8 open `[DEFERRED-VERIFY]` checkboxes in ISA.md (ISC-289..296) became GitHub issues [#14](https://github.com/jckeen/agent-pack/issues/14)–[#21](https://github.com/jckeen/agent-pack/issues/21); ISA lines now link them. A `BANNED` guard keeps open checkboxes out of living docs.
+- **Old-name drift fixed**: `Plans/ROADMAP.md` still used the pre-v0.5.1 CLI name in its Phase-6 `audit` examples; a `BANNED` regex on old-name CLI invocations prevents recurrence ("Workgraph" the separate product remains legal).
+- **Checker improved** (DOC_TRUTH_VERSION=2, synced to the canonical dotfiles copy): the dead-link rule now strips fenced code blocks and inline code spans first — slug regexes like `[a-z0-9](?:…)` no longer parse as markdown links.
+- Deleted the stray empty `agentpack_workgraph_build_packet/`.
+
 ## 0.6.9-dev — 2026-06-12 (Agent Skills spec conformance; ISA iteration-8)
 
 AgentPack now provably **emits and consumes [Agent Skills](https://agentskills.io) spec-conformant skill folders** and positions itself a layer above the spec (multi-atom packs, install discipline, governance). Audited against the live spec (agentskills/agentskills `docs/specification.mdx` + `skills-ref` reference validator, commit 5d4c1fd); every emitted skill folder — example pack and an adversarial fixture, across claude-code/codex/generic exports and plugin layout — passes `skills-ref validate`.

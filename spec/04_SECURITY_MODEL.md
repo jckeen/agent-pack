@@ -1,3 +1,5 @@
+> **Historical** — point-in-time record (2026-06-12). Do not act on this.
+
 # Security Model
 
 Agent packages can alter agent behavior, expose data, run commands, install hooks, call APIs, access secrets, and write files. Treat them like software supply chain artifacts.

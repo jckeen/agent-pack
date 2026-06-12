@@ -67,7 +67,7 @@ The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase
                                 Agent Commons
 ```
 
-**Hard dependencies** (Phase X *cannot* start without artifact from Phase Y): 3 → 5 (registry exists to install from), 3 → 4 (PackVersion row holds signature column + metadata), 4 → 5-soft (verified-by-default is the right UX but Phase 5 can ship unsigned install), 5 → 6 (enterprise reuses CLI auth + policy primitives), 6 → 7-soft (AgentPack integration can land standalone but enterprise customers are the natural early Workgraph customers).
+**Hard dependencies** (Phase X _cannot_ start without artifact from Phase Y): 3 → 5 (registry exists to install from), 3 → 4 (PackVersion row holds signature column + metadata), 4 → 5-soft (verified-by-default is the right UX but Phase 5 can ship unsigned install), 5 → 6 (enterprise reuses CLI auth + policy primitives), 6 → 7-soft (AgentPack integration can land standalone but enterprise customers are the natural early Workgraph customers).
 
 **Why this order:** Phase 3 unlocks the registry economy. Phase 4 unlocks supply-chain trust (and Phase 5 ships with verification on by default). Phase 5 unlocks the "one command, anywhere" remote-install ergonomics. Phase 6 unlocks org adoption and policy. Phase 7 unlocks the network effect by making the registry a destination for non-hand-authored workflows.
 
@@ -98,6 +98,7 @@ The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase
 **Rationale:** GitHub OAuth matches the developer audience and inherits their identity. Opaque CLI tokens are the standard pattern (npm, PyPI, crates.io variants). NextAuth is the App Router-native option; Clerk would lock us out of Phase 6 self-host. Adding `scopes` later is migration hell — pay the schema cost now.
 
 **Schema slot:**
+
 ```sql
 create table api_tokens (
   id              uuid primary key,
@@ -130,6 +131,7 @@ create table api_tokens (
 **Rationale (flipped from initial pick of Vercel Blob):** R2 has zero egress pricing — which matters because every `agentpack install publisher/pack` in Phase 5 reads from this bucket. Vercel Blob's egress gets ugly past ~100GB. R2 is S3-compatible, so Phase 6 self-host customers can point at their own S3-compatible store with one env var change. SDK ergonomics are a wash.
 
 **Path layout:**
+
 ```
 /<publisher>/<pack>/<version>/manifest.yaml
 /<publisher>/<pack>/<version>/readme.md
@@ -146,6 +148,7 @@ create table api_tokens (
 **Rationale:** At <1000 packs, Postgres FTS handles it with p95 <100ms. Generated column (not trigger) — fewer footguns, the index stays in sync mechanically. Skip `pg_trgm` (typo tolerance) until users actually complain — premature.
 
 **Schema slot:**
+
 ```sql
 alter table packs add column search tsvector
   generated always as (
@@ -442,6 +445,7 @@ CLI loads it on every install/verify invocation. Violations are hard refusals wi
 **Decision:** v0.6.0 ships multi-tenant SaaS only — `Org` becomes a first-class entity alongside `Publisher`, but the registry hosts all orgs in one Vercel+Neon deploy. OSS self-host (a customer running the registry on their own infra against their own Postgres + R2) is Phase 6.5, gated by the first concrete customer requirement.
 
 Schema:
+
 ```sql
 create table orgs (
   id              uuid primary key,
@@ -486,12 +490,11 @@ alter table publishers add column org_id uuid references orgs(id);
 **Decision:** v0.6 extends `agentpack.policy.json` (Phase 5) with org-managed policies that the CLI fetches at install time via `GET /api/orgs/<slug>/policy`. Policy schema stays declarative JSON. OPA/Rego DSL is Phase 6.5+ — when policy logic outgrows declarative constraints.
 
 Org policy adds:
+
 ```json
 {
   "approvedPublishers": ["agentpack", "stripe", "internal"],
-  "approvedPacks": [
-    { "pack": "internal/audit-checks", "minVersion": "1.2.0" }
-  ],
+  "approvedPacks": [{ "pack": "internal/audit-checks", "minVersion": "1.2.0" }],
   "deniedAtomTypes": ["hook"],
   "requireSignedPacks": true,
   "allowedProfiles": ["safe", "standard"],
@@ -512,7 +515,7 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
 - `apps/registry` — WorkOS integration (env vars: `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`).
 - `apps/registry` — admin pages for quarantine/block (Phase 4 hooks, now scoped to org admins).
 - `packages/cli` — org-policy fetch + merge at install time.
-- `packages/cli` — `workgraph audit list --org <slug> --since 2026-01-01`.
+- `packages/cli` — `agentpack audit list --org <slug> --since 2026-01-01`.
 - Phase 6 docs at `docs/enterprise.md` and `docs/sso.md`.
 
 ### Phase 6 dependencies
@@ -525,7 +528,7 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
 
 1. `agentpack install` against an org's private pack with an SSO-issued token works end-to-end.
 2. Org policy denying `deniedAtomTypes: [hook]` blocks `agentpack install` of a pack containing a hook atom; exit 6.
-3. `audit_events` table has rows for every state-mutating action in a representative test scenario; `workgraph audit verify --org <slug> --chain` exits 0.
+3. `audit_events` table has rows for every state-mutating action in a representative test scenario; `agentpack audit verify --org <slug> --chain` exits 0.
 4. WorkOS SAML against a test Okta tenant signs a user in successfully.
 5. Org owner can quarantine a pack version from the UI; CLI install of that version refuses.
 
@@ -558,9 +561,7 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
     {
       "id": "context-bundle",
       "type": "context_pack",
-      "files": [
-        { "path": "context/notes.md", "content": "...", "sha256": "..." }
-      ]
+      "files": [{ "path": "context/notes.md", "content": "...", "sha256": "..." }]
     }
   ],
   "provenance": {
@@ -634,13 +635,13 @@ Composite score is computed nightly, cached on `packs.trust_score`. Algorithm: l
 
 ## Effort tier per phase
 
-| Phase | Tier | Wall-time estimate (solo, focused) | Why this tier |
-|-------|------|-----------------------------------|---------------|
-| Phase 3 | E5 | 3-5 weeks | Largest surface area — DB + auth + publish + storage + search + registry API + web UI extensions. Plus the migration story. |
-| Phase 4 | E4 | 1-2 weeks | Focused on one domain (signatures) but spans CLI + lockfile + registry. The cosign integration is the variable cost. |
-| Phase 5 | E3 | 1 week | Mostly plumbing existing Phase 2 primitives against Phase 3 endpoints. Smallest phase. |
-| Phase 6 | E5 | 4-6 weeks | Multi-tenant orgs + SSO + audit + policy. Enterprise-procurement risk multiplies the effort. |
-| Phase 7 | E5 | 3-5 weeks (depends on Workgraph product readiness) | Requires alignment with a separate product (Workgraph) — wall time is dominated by integration coordination, not code. |
+| Phase   | Tier | Wall-time estimate (solo, focused)                 | Why this tier                                                                                                               |
+| ------- | ---- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Phase 3 | E5   | 3-5 weeks                                          | Largest surface area — DB + auth + publish + storage + search + registry API + web UI extensions. Plus the migration story. |
+| Phase 4 | E4   | 1-2 weeks                                          | Focused on one domain (signatures) but spans CLI + lockfile + registry. The cosign integration is the variable cost.        |
+| Phase 5 | E3   | 1 week                                             | Mostly plumbing existing Phase 2 primitives against Phase 3 endpoints. Smallest phase.                                      |
+| Phase 6 | E5   | 4-6 weeks                                          | Multi-tenant orgs + SSO + audit + policy. Enterprise-procurement risk multiplies the effort.                                |
+| Phase 7 | E5   | 3-5 weeks (depends on Workgraph product readiness) | Requires alignment with a separate product (Workgraph) — wall time is dominated by integration coordination, not code.      |
 
 **Cumulative:** ~12-19 focused weeks solo for the full Phase 3-7 arc.
 
@@ -678,27 +679,27 @@ After these five, Phase 3 is materially done; pause to ship `v0.3.0`, then start
 
 For quick reference — the conditions under which the pinned decisions should be reconsidered:
 
-| Decision | Revisit trigger |
-|---|---|
-| D3.1 Neon | Cost >$200/mo at 10K packs, or pooling pinches publish |
-| D3.2 NextAuth | Non-GitHub IdP becomes important before Phase 6 |
+| Decision                  | Revisit trigger                                                |
+| ------------------------- | -------------------------------------------------------------- |
+| D3.1 Neon                 | Cost >$200/mo at 10K packs, or pooling pinches publish         |
+| D3.2 NextAuth             | Non-GitHub IdP becomes important before Phase 6                |
 | D3.3 Single Vercel deploy | Cold-start hurts publish, or background jobs outgrow functions |
-| D3.4 R2 | Region-specific storage required by enterprise customer |
-| D3.5 Postgres FTS | p95 >200ms, or typo-tolerance demanded |
-| D3.6 Two-phase publish | Multi-GB packs demand chunked uploads |
-| D3.7 Reviews deferred | Publisher demand for social-proof signal before Phase 5 |
-| D3.8 Seed one-shot | Demand for "publish without auth" via git |
-| D4.1 Sigstore keyless | Offline signing required (air-gapped) |
-| D4.3 verify --sig | Verification latency forces users to disable |
-| D4.4 Quarantine | Publishers demand `unpublish` semantics |
-| D5.1 Resolver | Cross-pack `dependencies` resolution required |
-| D5.2 Cache layout | Cross-platform symlink semantics break Windows |
-| D5.3 CLI auth | Multi-registry auth required |
-| D5.4 Policy file | Schema accretion forces split |
-| D6.1 SaaS-first | First sales conversation hinges on self-host |
-| D6.2 WorkOS | WorkOS pricing breaks at scale |
-| D6.3 Audit chain | Cross-org integrity story required |
-| D6.4 Policy JSON | Three customers want if/then policy logic |
-| D7.1 Workgraph import | Bidirectional becomes a requirement |
-| D7.2 Trust signals | Download-count gaming detected |
-| D7.3 Agent Commons | Agent Commons becomes dominant authoring surface |
+| D3.4 R2                   | Region-specific storage required by enterprise customer        |
+| D3.5 Postgres FTS         | p95 >200ms, or typo-tolerance demanded                         |
+| D3.6 Two-phase publish    | Multi-GB packs demand chunked uploads                          |
+| D3.7 Reviews deferred     | Publisher demand for social-proof signal before Phase 5        |
+| D3.8 Seed one-shot        | Demand for "publish without auth" via git                      |
+| D4.1 Sigstore keyless     | Offline signing required (air-gapped)                          |
+| D4.3 verify --sig         | Verification latency forces users to disable                   |
+| D4.4 Quarantine           | Publishers demand `unpublish` semantics                        |
+| D5.1 Resolver             | Cross-pack `dependencies` resolution required                  |
+| D5.2 Cache layout         | Cross-platform symlink semantics break Windows                 |
+| D5.3 CLI auth             | Multi-registry auth required                                   |
+| D5.4 Policy file          | Schema accretion forces split                                  |
+| D6.1 SaaS-first           | First sales conversation hinges on self-host                   |
+| D6.2 WorkOS               | WorkOS pricing breaks at scale                                 |
+| D6.3 Audit chain          | Cross-org integrity story required                             |
+| D6.4 Policy JSON          | Three customers want if/then policy logic                      |
+| D7.1 Workgraph import     | Bidirectional becomes a requirement                            |
+| D7.2 Trust signals        | Download-count gaming detected                                 |
+| D7.3 Agent Commons        | Agent Commons becomes dominant authoring surface               |

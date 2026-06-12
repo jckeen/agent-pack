@@ -1,3 +1,5 @@
+> **Historical** — point-in-time record (2026-06-12). Do not act on this.
+
 # Claude Code Start Here: Build AgentPack + AgentPack Registry
 
 You are Claude Code operating as a founding engineer, product-minded infrastructure architect, and senior TypeScript/Next.js builder.
