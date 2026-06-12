@@ -43,9 +43,9 @@ export function registerDoctor(program: Command): void {
 
       // Node
       const nodeVersion = process.version;
-      const nodeOk = Number(process.versions.node.split(".")[0]) >= 18;
+      const nodeOk = Number(process.versions.node.split(".")[0]) >= 22;
       checks.push({
-        label: "node ≥ 18",
+        label: "node ≥ 22",
         ok: nodeOk,
         detail: nodeVersion,
       });
@@ -94,9 +94,7 @@ export function registerDoctor(program: Command): void {
         console.log(pc.green("\nAll checks passed."));
       } else {
         console.log(
-          pc.yellow(
-            `\n${failed.length} check(s) reported a warning — review above.`,
-          ),
+          pc.yellow(`\n${failed.length} check(s) reported a warning — review above.`),
         );
       }
     });

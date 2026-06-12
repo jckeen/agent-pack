@@ -300,7 +300,9 @@ export function registerInstall(program: Command): void {
 
           if (options.dryRun) {
             if (options.json) {
-              console.log(JSON.stringify({ ...planJson(), dryRun: true }));
+              console.log(
+                JSON.stringify({ ...planJson(), installed: false, dryRun: true }),
+              );
             } else {
               console.log(pc.dim("\n(--dry-run) No files were written."));
             }

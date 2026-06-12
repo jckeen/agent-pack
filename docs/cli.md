@@ -113,6 +113,13 @@ Reads the install manifest at `.agentpack/installed/<packId>.json` and removes t
 
 Restores the project to the state before the named history entry (or to a target entry via `--to`). Refuses to roll back a superseded install unless `--cascade` is passed to make undoing the later installs explicit. `--pack` limits the rollback to one pack.
 
+**Re-installs.** When the entry being rolled back _re-installed_ a pack that an earlier (non-undone) install still owns, "the state before this entry" means the pack stays installed — a full uninstall would over-remove. So:
+
+- An **idempotent re-install** (same version + profile) is undone as a no-op: the pack remains installed at its identical prior state, reported as `Still installed (idempotent re-install undone, no file changes)`.
+- A **version/profile-changing re-install** is **refused** without `--cascade`, because local backups cannot reconstruct the prior version — re-install the version you want explicitly, or pass `--cascade` to remove the pack entirely.
+
+Rolling back when the most recent install was already uninstalled reports _nothing to roll back_ (rather than a missing-manifest error).
+
 ## Registry / publish commands (require login)
 
 ### `agentpack login [--registry <url>]`

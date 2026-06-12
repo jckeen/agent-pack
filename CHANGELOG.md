@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.4-dev — 2026-06-12 (rollback correctness for re-installs + QA polish sweep)
+
+Follow-up to the 0.6.3 review: fixed the one real correctness bug it left open (rollback of a re-install) and swept the cheap QA P2 inconsistencies.
+
+- **Rollback of a re-install no longer silently removes the pack (QA P1 / Codex P2).** `rollback` undid a commit by running a full `uninstall(packId)`; for a _re-install_ (a pack already installed by an earlier, non-undone commit) that over-removed — you asked to undo one step and lost the pack entirely. The manifest is keyed by packId (so #1's manifest is overwritten by #2) and backups carry forward to the user's _original_ pre-install content, so there is no stored snapshot to reconstruct the prior install from — a naive restore would be wrong for merged files. Fix, honoring the documented "restore to the state before this entry" contract: an **idempotent re-install** (same version + profile) is undone as a no-op (pack stays installed at its identical prior state, surfaced as `retainedPacks`); a **version/profile-changing re-install** is **refused** without `--cascade` with an actionable message; `--cascade` still does the full removal.
+- **Bare rollback after an uninstall (QA P2-5)** now reports "nothing to roll back: the most recent install was already uninstalled" instead of a confusing `No install manifest found`.
+- **Node version unified to 22 (QA P2-1).** `doctor` checked `≥18`, `package.json#engines` said `>=18.18.0`, but CI/`.nvmrc`/README all use 22. Aligned `doctor` and `engines` to `≥22` (the tested floor).
+- **Uninstall plan wording (QA P2-2).** Merged files (shared `CLAUDE.md`/`AGENTS.md`, JSON configs) are surgically un-merged, not backup-restored — they now show under their own `Unmerge (n)` line instead of inflating `Restore (n)` while the result says `0 restored`.
+- **Stale lockfile note (QA P2-4).** `uninstall` now states that `AGENTPACK.lock` is retained and still describes the (now-removed) pack, so committing it isn't mistaken for an active install.
+- **Install `--json` dry-run (QA P2-9)** now includes `installed: false` alongside `dryRun: true` so an agent can tell a preview from a real install by field, not by inference.
+
+Tests: 264 core (+4 rollback) · 40 cli (+1) — `pnpm verify` exit 0; registry 36 unchanged.
+
+Still open by design: the `unsupportedAtoms` bucket still lumps security-gate refusals with target-incompatibility (a `refusedAtoms` split would touch all five adapters — an enhancement, not a defect); GNU `sed`'s address-form `e` command remains a documented heuristic gap in the shell-escape gate; cosmetic nits (concurrent-install `EEXIST` phrasing, `inspect --profile <unknown>` exit-0 vs `plan` exit-2) left as-is.
+
+---
+
 ## 0.6.3-dev — 2026-06-11 (joint security + usability review: Claude + Codex + security/QA fleet)
 
 Three reviewers run in parallel against the whole repo — Codex hands-on CLI lifecycle + security probes, a security-reviewer tracing the pack/registry/git threat model end to end, and a qa-lead exercising operator + agent ergonomics. Every reported finding was re-verified against the code before fixing. Net: **1 P0, 1 P1, 2 P2 fixed with regression tests; full `pnpm verify` green (354 tests, +54).**
