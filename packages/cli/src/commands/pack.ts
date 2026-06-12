@@ -1,7 +1,12 @@
 import type { Command } from "commander";
 import pc from "picocolors";
 import ora from "ora";
-import { exportPack, type TargetPlatform } from "@agentpack/core";
+import {
+  exportPack,
+  exportPlugin,
+  type PortabilityCeiling,
+  type TargetPlatform,
+} from "@agentpack/core";
 import { renderInstallPlan } from "../lib/render.js";
 
 const VALID_TARGETS: TargetPlatform[] = [
@@ -60,7 +65,10 @@ export function registerPack(program: Command): void {
             outDir: options.out,
             strict: options.strict ?? true,
             allowMissingBodies: options.allowMissing ?? false,
-            onlyAtoms: options.only?.split(",").map((s) => s.trim()).filter(Boolean),
+            onlyAtoms: options.only
+              ?.split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
           });
           spinner.succeed(
             `Wrote ${result.writtenFiles.length} file(s) to ${pc.cyan(result.outDir)}`,
@@ -71,7 +79,104 @@ export function registerPack(program: Command): void {
           console.log(pc.dim(`outDir: ${result.outDir}`));
         } catch (err) {
           spinner.fail(`Export failed: ${(err as Error).message}`);
-          if ((process.env["AGENTPACK_DEBUG"] === "1" || process.env["WORKGRAPH_DEBUG"] === "1") && err instanceof Error) {
+          if (
+            (process.env["AGENTPACK_DEBUG"] === "1" ||
+              process.env["WORKGRAPH_DEBUG"] === "1") &&
+            err instanceof Error
+          ) {
+            console.error(pc.dim(err.stack ?? ""));
+          }
+          process.exit(1);
+        }
+      },
+    );
+
+  pack
+    .command("plugin [path]")
+    .description(
+      "Compile an AgentPack into a Claude Code plugin directory (installable via the Directory / `/plugin install`, reaching Code, Cowork, Desktop, and the web).",
+    )
+    .option("--profile <profile>", "install profile")
+    .option("--out <dir>", "output directory", "dist-plugin")
+    .option("--only <atomIds>", "comma-separated subset of atom ids to include")
+    .option("--no-strict", "do not abort on validation errors")
+    .option(
+      "--allow-missing",
+      "allow exporting even when atom body files are missing (default: refuse)",
+      false,
+    )
+    .option(
+      "--no-marketplace",
+      "do not emit .claude-plugin/marketplace.json (emit only the plugin)",
+    )
+    .action(
+      async (
+        path: string | undefined,
+        options: {
+          profile?: string;
+          out: string;
+          only?: string;
+          strict?: boolean;
+          allowMissing?: boolean;
+          marketplace?: boolean;
+        },
+      ) => {
+        const source = path ?? process.cwd();
+        const spinner = ora(`Compiling ${source} → Claude Code plugin`).start();
+        try {
+          const result = await exportPlugin({
+            source,
+            profile: options.profile,
+            outDir: options.out,
+            strict: options.strict ?? true,
+            allowMissingBodies: options.allowMissing ?? false,
+            marketplace: options.marketplace ?? true,
+            onlyAtoms: options.only
+              ?.split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          });
+          spinner.succeed(
+            `Wrote plugin \`${result.pluginName}\` — ${result.writtenFiles.length} file(s) to ${pc.cyan(result.outDir)}`,
+          );
+          console.log("");
+          const labels: Record<PortabilityCeiling, string> = {
+            universal: "reaches every Claude surface",
+            plugin: "reaches plugin surfaces (Code, Cowork, Desktop, web Directory)",
+            sdk: "Agent SDK / Managed Agents only",
+            terminal: "Claude Code only (no ambient home elsewhere)",
+          };
+          console.log(pc.bold("Portability of bundled atoms:"));
+          for (const ceiling of ["universal", "plugin", "sdk", "terminal"] as const) {
+            const types = result.portability.byCeiling[ceiling];
+            if (types.length > 0) {
+              const bullet = ceiling === "terminal" ? pc.yellow("•") : pc.green("•");
+              console.log(
+                `  ${bullet} ${ceiling} — ${labels[ceiling]}: ${types.join(", ")}`,
+              );
+            }
+          }
+          if (result.portability.byCeiling.terminal.length > 0) {
+            console.log(
+              pc.yellow(
+                `\n  ⚠ Hooks fire only in Claude Code; instruction/rule guidance is bundled as an on-invoke skill (not ambient) outside Code.`,
+              ),
+            );
+          }
+          console.log("");
+          console.log(
+            pc.dim(
+              `Install: \`/plugin marketplace add <this-repo>\` then \`/plugin install ${result.pluginName}@${result.pluginName}-marketplace\``,
+            ),
+          );
+          console.log(pc.dim(`outDir: ${result.outDir}`));
+        } catch (err) {
+          spinner.fail(`Plugin export failed: ${(err as Error).message}`);
+          if (
+            (process.env["AGENTPACK_DEBUG"] === "1" ||
+              process.env["WORKGRAPH_DEBUG"] === "1") &&
+            err instanceof Error
+          ) {
             console.error(pc.dim(err.stack ?? ""));
           }
           process.exit(1);
