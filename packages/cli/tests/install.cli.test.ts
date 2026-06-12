@@ -215,6 +215,33 @@ describe("agentpack install (CLI)", () => {
     expect(post.stderr).toMatch(/No install manifest/);
   });
 
+  it("rollback of an idempotent reinstall keeps the pack installed (QA P1)", async () => {
+    const dir = await freshProject("reinstall-rollback");
+    const args = [
+      "install",
+      EXAMPLE,
+      "--target",
+      "generic",
+      "--profile",
+      "safe",
+      "--project",
+      dir,
+      "--yes",
+    ];
+    expect((await run(args)).code).toBe(0);
+    expect((await run(args)).code).toBe(0); // idempotent reinstall
+
+    const rb = await run(["rollback", "--project", dir, "--yes"]);
+    expect(rb.code).toBe(0);
+    expect(rb.stdout).toMatch(/Still installed/i);
+
+    // The pack is still there and verifies clean — the reinstall undo did not
+    // remove it.
+    const verify = await run(["verify", "agentpack.pr-quality", "--project", dir]);
+    expect(verify.code).toBe(0);
+    expect(verify.stdout).toContain("clean");
+  });
+
   it("verify detects drift after manual edit", async () => {
     const dir = await freshProject("drift");
     await run([

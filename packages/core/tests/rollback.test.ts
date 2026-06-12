@@ -64,7 +64,116 @@ describe("rollback", () => {
     });
     await applyInstall({ plan: plan2 });
     // Try to roll back to BEFORE the first install.
-    await expect(rollback({ projectRoot: dir, to: first.commitEntry.previousEntryId })).rejects.toThrow(/superseded|already/i);
+    await expect(
+      rollback({ projectRoot: dir, to: first.commitEntry.previousEntryId }),
+    ).rejects.toThrow(/superseded|already/i);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("rolling back an idempotent reinstall leaves the pack installed (QA P1)", async () => {
+    const dir = await tempProject();
+    const mkPlan = () =>
+      planInstall({
+        source: EXAMPLE_PACK,
+        target: "generic",
+        profile: "safe",
+        projectRoot: dir,
+        generator: GEN,
+      });
+    const plan = await mkPlan();
+    await applyInstall({ plan });
+    // Reinstall the exact same version+profile (a no-op reinstall).
+    await applyInstall({ plan: await mkPlan() });
+
+    const r = await rollback({ projectRoot: dir });
+
+    // The pack must REMAIN installed — undoing the redundant reinstall does
+    // not remove a pack the user never asked to uninstall.
+    expect(r.uninstalledPacks).toEqual([]);
+    expect(r.retainedPacks).toContain(plan.packId);
+    const ws = await resolveAgentpackPaths(dir);
+    const installed = await fs.readdir(ws.installedDir).catch(() => []);
+    expect(installed.length).toBe(1);
+    // Project files are untouched and still verify clean.
+    const agents = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
+    expect(agents).toContain("AGENTPACK");
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses to roll back a reinstall that changed the profile without --cascade", async () => {
+    const dir = await tempProject();
+    await applyInstall({
+      plan: await planInstall({
+        source: EXAMPLE_PACK,
+        target: "generic",
+        profile: "safe",
+        projectRoot: dir,
+        generator: GEN,
+      }),
+    });
+    // Reinstall at a DIFFERENT profile — a meaningful change rollback can't
+    // reconstruct from local backups. (--force: re-installing changed content
+    // over the pack's own prior files.)
+    await applyInstall({
+      plan: await planInstall({
+        source: EXAMPLE_PACK,
+        target: "generic",
+        profile: "standard",
+        projectRoot: dir,
+        generator: GEN,
+      }),
+      force: true,
+    });
+    await expect(rollback({ projectRoot: dir })).rejects.toThrow(/reinstall|cascade/i);
+    // The pack is left installed after the refusal — no partial state.
+    const ws = await resolveAgentpackPaths(dir);
+    expect((await fs.readdir(ws.installedDir)).length).toBe(1);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("--cascade fully removes a reinstalled pack", async () => {
+    const dir = await tempProject();
+    const plan = await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    await applyInstall({ plan });
+    await applyInstall({
+      plan: await planInstall({
+        source: EXAMPLE_PACK,
+        target: "generic",
+        profile: "standard",
+        projectRoot: dir,
+        generator: GEN,
+      }),
+      force: true,
+    });
+    const r = await rollback({ projectRoot: dir, cascade: true });
+    expect(r.uninstalledPacks).toContain(plan.packId);
+    const ws = await resolveAgentpackPaths(dir);
+    expect(await fs.readdir(ws.installedDir).catch(() => [])).toEqual([]);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("bare rollback after an uninstall reports nothing to roll back (QA P2-5)", async () => {
+    const dir = await tempProject();
+    const plan = await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    await applyInstall({ plan });
+    await uninstall({ packId: plan.packId, projectRoot: dir });
+    // The most recent install was already removed — rollback should say so
+    // clearly, not throw a confusing "No install manifest found".
+    await expect(rollback({ projectRoot: dir })).rejects.toThrow(
+      /already uninstalled|nothing to roll back/i,
+    );
     await fs.rm(dir, { recursive: true, force: true });
   });
 

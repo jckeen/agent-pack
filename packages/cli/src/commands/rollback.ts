@@ -49,6 +49,16 @@ export function registerRollback(program: Command): void {
           for (const e of result.undone) {
             console.log(pc.dim(`  • ${e.packId}@${e.packVersion} ${e.id}`));
           }
+          if (result.uninstalledPacks.length > 0) {
+            console.log(pc.dim(`  − Removed: ${result.uninstalledPacks.join(", ")}`));
+          }
+          if (result.retainedPacks.length > 0) {
+            console.log(
+              pc.yellow(
+                `  ✓ Still installed (idempotent re-install undone, no file changes): ${result.retainedPacks.join(", ")}`,
+              ),
+            );
+          }
           if (result.rolledBackTo) {
             console.log(pc.dim(`  ↩ Anchor: ${result.rolledBackTo}`));
           }
@@ -58,4 +68,3 @@ export function registerRollback(program: Command): void {
       },
     );
 }
-

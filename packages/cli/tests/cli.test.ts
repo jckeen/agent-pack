@@ -60,14 +60,7 @@ describe("agentpack CLI — invocation", () => {
   it("--help lists every command", async () => {
     const r = await run(["--help"]);
     expect(r.code).toBe(0);
-    for (const cmd of [
-      "init",
-      "validate",
-      "inspect",
-      "plan",
-      "pack",
-      "doctor",
-    ]) {
+    for (const cmd of ["init", "validate", "inspect", "plan", "pack", "doctor"]) {
       expect(r.stdout).toContain(cmd);
     }
   });
@@ -85,7 +78,7 @@ describe("agentpack validate", () => {
     await fs.mkdir(broken, { recursive: true });
     await fs.writeFile(
       path.join(broken, "AGENTPACK.yaml"),
-      "agentpack: \"1.0\"\n# missing everything else\n",
+      'agentpack: "1.0"\n# missing everything else\n',
       "utf8",
     );
     const r = await run(["validate", broken]);
@@ -140,14 +133,7 @@ describe("agentpack plan", () => {
   });
 
   it("plan rejects an unknown --target with exit 2", async () => {
-    const r = await run([
-      "plan",
-      EXAMPLE,
-      "--target",
-      "neopets",
-      "--profile",
-      "safe",
-    ]);
+    const r = await run(["plan", EXAMPLE, "--target", "neopets", "--profile", "safe"]);
     expect(r.code).toBe(2);
     expect(r.stderr + r.stdout).toMatch(/Invalid --target/);
   });
@@ -223,15 +209,7 @@ describe("agentpack pack export", () => {
 
   it("rejects unknown --target with exit 2 and does not create outDir", async () => {
     const out = path.join(TMP_ROOT, "export-bad-target");
-    const r = await run([
-      "pack",
-      "export",
-      EXAMPLE,
-      "--target",
-      "neopets",
-      "--out",
-      out,
-    ]);
+    const r = await run(["pack", "export", EXAMPLE, "--target", "neopets", "--out", out]);
     expect(r.code).toBe(2);
     await expect(fs.access(out)).rejects.toThrow();
   });
@@ -244,13 +222,9 @@ describe("agentpack init", () => {
     const r = await run(["init"], { cwd });
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("AGENTPACK.yaml");
+    await expect(fs.access(path.join(cwd, "AGENTPACK.yaml"))).resolves.toBeUndefined();
     await expect(
-      fs.access(path.join(cwd, "AGENTPACK.yaml")),
-    ).resolves.toBeUndefined();
-    await expect(
-      fs.access(
-        path.join(cwd, "atoms/instructions/project-defaults.md"),
-      ),
+      fs.access(path.join(cwd, "atoms/instructions/project-defaults.md")),
     ).resolves.toBeUndefined();
     await expect(
       fs.access(path.join(cwd, "atoms/skills/example-skill/SKILL.md")),
@@ -260,11 +234,7 @@ describe("agentpack init", () => {
   it("does not overwrite an existing AGENTPACK.yaml without --force", async () => {
     const cwd = path.join(TMP_ROOT, "init-existing");
     await fs.mkdir(cwd, { recursive: true });
-    await fs.writeFile(
-      path.join(cwd, "AGENTPACK.yaml"),
-      "# existing\n",
-      "utf8",
-    );
+    await fs.writeFile(path.join(cwd, "AGENTPACK.yaml"), "# existing\n", "utf8");
     const r = await run(["init"], { cwd });
     expect(r.code).toBe(0);
     expect(r.stdout).toMatch(/skipping/i);
@@ -275,11 +245,7 @@ describe("agentpack init", () => {
   it("overwrites with --force", async () => {
     const cwd = path.join(TMP_ROOT, "init-force");
     await fs.mkdir(cwd, { recursive: true });
-    await fs.writeFile(
-      path.join(cwd, "AGENTPACK.yaml"),
-      "# existing\n",
-      "utf8",
-    );
+    await fs.writeFile(path.join(cwd, "AGENTPACK.yaml"), "# existing\n", "utf8");
     const r = await run(["init", "--force"], { cwd });
     expect(r.code).toBe(0);
     const body = await fs.readFile(path.join(cwd, "AGENTPACK.yaml"), "utf8");
@@ -291,7 +257,7 @@ describe("agentpack doctor", () => {
   it("reports node, pnpm, npm, git availability", async () => {
     const r = await run(["doctor"]);
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(/node ≥ 18/);
+    expect(r.stdout).toMatch(/node ≥ 22/);
     expect(r.stdout).toMatch(/pnpm available/);
     expect(r.stdout).toMatch(/npm available/);
     expect(r.stdout).toMatch(/git available/);
