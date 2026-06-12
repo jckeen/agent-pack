@@ -58,6 +58,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 ## Criteria
 
 ### Build & install
+
 - [x] ISC-1: `pnpm install` exits 0 at repo root
 - [x] ISC-2: `pnpm -r build` exits 0 (core, cli, registry)
 - [x] ISC-3: `pnpm -r test` exits 0 with all vitest suites passing
@@ -66,6 +67,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-6: TypeScript `strict: true` everywhere; `pnpm -r typecheck` clean
 
 ### Schema & validation
+
 - [x] ISC-7: Zod schema accepts the bundled example manifest verbatim
 - [x] ISC-8: Manifest with duplicate atom IDs fails validation with a clear error
 - [x] ISC-9: Manifest with profile referencing missing atom ID fails validation
@@ -74,6 +76,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-12: Atom type outside the 12-type enum fails validation
 
 ### Permissions & risk
+
 - [x] ISC-13: `summarizePermissions` returns categorized list with descriptions
 - [x] ISC-14: `computeRisk` returns "high" when any included atom has `risk_level: high`
 - [x] ISC-15: Hook atom is classified `high`
@@ -84,6 +87,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-20: Permission summary names `secrets.env`+`network.access`+`external_api.access` for GitHub MCP
 
 ### CLI behavior
+
 - [x] ISC-21: `agentpack validate examples/pr-quality` exits 0 with success message
 - [x] ISC-22: `agentpack inspect examples/pr-quality` prints name, version, publisher, compatibility, profiles, atoms, risk, permissions
 - [x] ISC-23: `agentpack plan examples/pr-quality --target claude-code --profile safe` prints LOW risk
@@ -96,6 +100,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-30: CLI exits non-zero on validation failure
 
 ### Adapter outputs (deterministic)
+
 - [x] ISC-31: `pack export --target claude-code` writes `CLAUDE.md`
 - [x] ISC-32: `pack export --target claude-code` writes `.claude/skills/code-review/SKILL.md`
 - [x] ISC-33: `pack export --target claude-code --profile standard` writes `.claude/agents/security-reviewer.md`
@@ -117,6 +122,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-49: Re-running the same export twice produces byte-identical output
 
 ### Registry web app
+
 - [x] ISC-50: `/` homepage renders product positioning and CTA
 - [x] ISC-51: `/packs` lists all 10 seed packs from `seed/seed-packs.json`
 - [x] ISC-52: `/packs` supports tag and risk filtering client-side
@@ -131,10 +137,12 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-61: `/docs` renders standard, security, adapters, CLI overview
 
 ### Documentation
+
 - [x] ISC-62: Root `README.md` explains standard, CLI, security model, adapters, limitations
 - [x] ISC-63: `docs/agentpack-standard.md`, `docs/security.md`, `docs/adapters.md`, `docs/cli.md` all populated
 
 ### Anti-criteria & antecedents
+
 - [x] ISC-64: Anti: CLI never writes outside `--out` directory during `pack export`
 - [x] ISC-65: Anti: ChatGPT adapter never claims automatic installation
 - [x] ISC-66: Anti: No adapter silently drops dangerous atoms — they appear in `warnings[]` or `unsupportedAtoms[]`
@@ -142,6 +150,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-68: Antecedent: User has node ≥18 and pnpm ≥9 (doctor command verifies)
 
 ### Phase 2 — Install engine (core)
+
 - [x] ISC-69: `planInstall(options)` returns `InstallPlanV2` with `created[]`, `modified[]`, `unchanged[]`, `conflicts[]`
 - [x] ISC-70: `planInstall` reads existing files at target paths to compute diff (not just naive overwrite)
 - [x] ISC-71: `applyInstall` writes only files whose target path is inside `projectRoot` (realpath check)
@@ -165,6 +174,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-89: Lockfile schema is zod-validated and exported from `@agentpack/core`
 
 ### Phase 2 — CLI surface
+
 - [x] ISC-90: `agentpack install <pack> --target X --profile Y --project .` prints diff and prompts for `[y/N]`
 - [x] ISC-91: `agentpack install ... --yes` skips the prompt
 - [x] ISC-92: `agentpack install ... --dry-run` prints diff and exits 0 without writing
@@ -175,15 +185,17 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-97: `agentpack history --pack <id>` filters by pack
 - [x] ISC-98: `agentpack rollback <history-id> --yes` restores
 - [x] ISC-99: `agentpack verify <packId>` exits 0 if clean, 2 if drift, 1 on usage error
-- [x] ISC-100: `agentpack install` colored, profile risk surfaced *before* the prompt (consistent with `plan` UX)
+- [x] ISC-100: `agentpack install` colored, profile risk surfaced _before_ the prompt (consistent with `plan` UX)
 - [x] ISC-101: All Phase-2 commands appear in `agentpack --help`
 
 ### Phase 2 — Registry web app
+
 - [x] ISC-102: `InstallCommandBox` shows `npx agentpack install <pack> --target <t> --profile <p>` alongside the existing `pack export` line
 - [x] ISC-103: Pack detail page includes a "Lockfile preview" section showing the synthesized lockfile shape for the active profile/target
 - [x] ISC-104: `/docs/install` route renders install/uninstall/rollback/verify reference
 
 ### Phase 2 — Tests
+
 - [x] ISC-105: `vitest` suite `install.test.ts` — happy path: install into temp dir writes expected files + manifest + lockfile + history
 - [x] ISC-106: `install.test.ts` — refuses to write outside projectRoot (symlink escape attempt)
 - [x] ISC-107: `install.test.ts` — determinism: two installs into separate clean dirs → identical lockfile contents (ignoring `installedAt`)
@@ -203,6 +215,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-121: Coverage threshold preserved: lines ≥85%, functions ≥85%, statements ≥85%, branches ≥75% post-Phase-2
 
 ### Phase 2 — Documentation & release
+
 - [x] ISC-122: `docs/install.md` written: install/uninstall/diff/verify/rollback reference
 - [x] ISC-123: `README.md` quickstart section gains `agentpack install examples/pr-quality --target claude-code --profile safe --dry-run` line
 - [x] ISC-124: `CHANGELOG.md` gains `## 0.2.0 — 2026-05-18` entry covering Phase 2 additions
@@ -210,6 +223,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-126: `STATUS.md` written at repo root reflecting Phase 2 shipped + Phase 3+ deferred
 
 ### Phase 2 — Anti-criteria & antecedents
+
 - [x] ISC-127: Anti: `agentpack install` never writes outside `projectRoot` (verified by symlink-escape test)
 - [x] ISC-128: Anti: `agentpack install` never writes a hook atom under `safe` profile
 - [x] ISC-129: Anti: `uninstall` never deletes a file it did not create (compared against `created[]`)
@@ -223,6 +237,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-137: Antecedent: User can opt into `.agentpack/` committed for reproducibility (lockfile is meant to be committed)
 
 ### Phase 2 — CI & integration
+
 - [x] ISC-138: `.github/workflows/ci.yml` smoke step `agentpack install examples/pr-quality --target generic --profile safe --project /tmp/agentpack-smoke --yes` exits 0
 - [x] ISC-139: CI smoke `agentpack verify` after install exits 0
 - [x] ISC-140: CI smoke `agentpack uninstall examples/pr-quality --yes --project /tmp/agentpack-smoke` exits 0
@@ -232,6 +247,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 ### Iteration-4 / Phase 3 + Phase 5 scaffold (this session)
 
 #### Phase 3.A — `packages/db` Drizzle schema
+
 - [x] ISC-151: `packages/db/package.json` declares `@agentpack/db` workspace package
 - [x] ISC-152: `packages/db/drizzle.config.ts` configures Drizzle migrations (`out: ./migrations`)
 - [x] ISC-153: `users` table schema: `id`, `github_id`, `username`, `email`, `avatar_url`, `created_at`
@@ -263,6 +279,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-1- [x] ISC-179: `pnpm --filter @agentpack/db build` exits 0
 
 #### Phase 3.B — Registry auth + tokens
+
 - [x] ISC-1- [x] ISC-180: `apps/registry/lib/auth.ts` exports NextAuth v5 config with GitHub OAuth provider
 - [x] ISC-1- [x] ISC-181: NextAuth session callback enriches session with `user.id` + `user.publisherSlugs`
 - [x] ISC-1- [x] ISC-182: `apps/registry/app/api/auth/[...nextauth]/route.ts` exposes NextAuth handler
@@ -278,6 +295,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-1- [x] ISC-192: Unit test: `sha256(token)` is lowercase hex, 64 chars
 
 #### Phase 3.C — Publish API (two-phase)
+
 - [x] ISC-1- [x] ISC-193: `apps/registry/app/api/publish/init/route.ts` POST validates body via zod
 - [x] ISC-1- [x] ISC-194: `/api/publish/init` returns 401 without valid bearer token
 - [x] ISC-1- [x] ISC-195: `/api/publish/init` returns 403 if token publisher scope mismatches body publisher
@@ -294,6 +312,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-206: Unit test: publish flow rejects duplicate-version 409
 
 #### Phase 3.D — Read API
+
 - [x] ISC-207: `apps/registry/app/api/packs/route.ts` GET lists packs with paging + tag + risk filter
 - [x] ISC-208: `apps/registry/app/api/packs/[publisher]/[pack]/route.ts` GET returns pack + version list
 - [x] ISC-209: `apps/registry/app/api/packs/[publisher]/[pack]/versions/[version]/route.ts` GET returns version metadata
@@ -305,6 +324,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-215: Quarantined version's manifest.yaml route returns 451 with quarantine reason
 
 #### Phase 3.E — Seed import + UI refactor
+
 - [x] ISC-216: `scripts/seed-import.ts` exists and reads `seed/seed-packs.json`
 - [x] ISC-217: `seed-import` is idempotent: second run logs `"0 inserted, N skipped"`
 - [x] ISC-218: `pnpm seed:import` script wired in root `package.json`
@@ -315,6 +335,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-223: Anti: Removing `DATABASE_URL` falls back to JSON without throwing
 
 #### Phase 3.F — CLI publish/login/whoami/tokens
+
 - [x] ISC-224: `packages/cli/src/commands/login.ts` opens browser to `<registry>/cli/auth` with device code
 - [x] ISC-225: `login` polls `/api/cli/auth/poll` until token returned, writes `~/.agentpack/credentials.json`
 - [x] ISC-226: `~/.agentpack/credentials.json` has `0o600` perms on POSIX
@@ -327,6 +348,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-233: CLI publish/login/whoami/tokens registered in `packages/cli/src/index.ts`
 
 #### Phase 5.A — Remote install resolver
+
 - [x] ISC-234: `packages/cli/src/commands/install.ts` accepts `<publisher>/<pack>[@<version>]` identity
 - [x] ISC-235: `RegistryClient` class in `packages/core/src/registry-client/` fetches manifest+atoms
 - [x] ISC-236: Resolver picks latest non-prerelease non-yanked version on missing `@version`
@@ -336,6 +358,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-240: `--registry <url>` flag overrides default `https://registry.agentpack.dev`
 
 #### Phase 5.B — Local cache
+
 - [x] ISC-241: `packages/core/src/cache/` blob store at `~/.agentpack/cache/blobs/<sha[0..2]>/<sha>`
 - [x] ISC-242: Cache lookup runs before network fetch; cache miss → fetch + write + return
 - [x] ISC-243: `agentpack cache size` prints total bytes + entry count
@@ -344,6 +367,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-246: Anti: `cache prune` never deletes outside `~/.agentpack/cache/blobs/`
 
 #### Phase 5.C — Policy enforcement
+
 - [x] ISC-247: `packages/core/src/policy/schema.ts` zod schema for `agentpack.policy.json` per D5.4
 - [x] ISC-248: `loadPolicy(projectRoot)` reads file, validates, returns typed policy or null
 - [x] ISC-249: `enforcePolicy(policy, installPlan, registryUrl)` returns `{ ok: true } | { ok: false, violations: [...] }`
@@ -354,6 +378,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-254: `registries.allowed` rejects `--registry` outside allowlist
 
 #### Phase 3 + 5 — Tests + docs + anti-criteria
+
 - [x] ISC-255: New vitest files: `db/schema.test.ts`, `cli/publish.test.ts`, `cli/install-remote.test.ts`, `core/policy.test.ts`, `core/registry-client.test.ts`
 - [x] ISC-256: `pnpm -r test` exits 0 after iteration-4 additions
 - [x] ISC-257: `pnpm -r typecheck` exits 0
@@ -369,6 +394,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 - [x] ISC-267: Anti: Manifest.yaml route streams from R2 (never echoes client-supplied bytes)
 
 ### Phase 2 — WAL + chain integrity (advisor-driven)
+
 - [x] ISC-143: `install` writes `install_begin` history entry with `plannedFiles[]` BEFORE writing any project files
 - [x] ISC-144: `install` writes `install_commit` history entry as its LAST action; absence of commit = crash signal
 - [x] ISC-145: Recovery path: dangling `install_begin` (no matching `install_commit`) detected by `recoverIncomplete()` at next CLI invocation
@@ -380,55 +406,55 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 
 ## Test Strategy
 
-| isc | type | check | threshold | tool |
-|-----|------|-------|-----------|------|
-| ISC-1..6 | build | exit code | 0 | `pnpm` via Bash |
-| ISC-7..12 | schema | zod parse outcome | true/false | `vitest` |
-| ISC-13..20 | logic | function return | exact match | `vitest` |
-| ISC-21..30 | cli | stdout grep + exit | substring match | `Bash` |
-| ISC-31..47 | files | `Read` after export | file exists + content | `Bash` + `Read` |
-| ISC-48..49 | determinism | diff between two runs | empty diff | `Bash diff` |
-| ISC-50..61 | ui | route loads + text present | HTTP 200 + grep | `curl` to dev server |
-| ISC-62..63 | docs | files present + sections | grep section headers | `Bash` |
-| ISC-64..68 | anti | negative probe | property not present | mixed |
-| ISC-69..89 | logic | core install/uninstall/verify return shape | exact match | `vitest` |
-| ISC-90..101 | cli | stdout + filesystem state post-command | exit code + file existence | `Bash` subprocess |
-| ISC-102..104 | ui | rendered HTML contains expected install string | grep | `curl` to dev server |
-| ISC-105..120 | tests | vitest case count + pass | all green | `vitest` |
-| ISC-121 | coverage | vitest --coverage thresholds | ≥85%/85%/85%/75% | `vitest` |
-| ISC-122..126 | docs/release | files present + version strings | grep | `Bash` |
-| ISC-127..137 | anti | negative probe (escape, no-cross-pack, no-secrets) | refused/missing | mixed |
-| ISC-138..142 | ci | github workflow step exit | 0 | `Bash` simulating CI step |
-| ISC-143..150 | wal/chain | begin/commit ordering + lock + canonical hash + supersession refuse | exact behavior | `vitest` + concurrency probe |
+| isc          | type         | check                                                               | threshold                  | tool                         |
+| ------------ | ------------ | ------------------------------------------------------------------- | -------------------------- | ---------------------------- |
+| ISC-1..6     | build        | exit code                                                           | 0                          | `pnpm` via Bash              |
+| ISC-7..12    | schema       | zod parse outcome                                                   | true/false                 | `vitest`                     |
+| ISC-13..20   | logic        | function return                                                     | exact match                | `vitest`                     |
+| ISC-21..30   | cli          | stdout grep + exit                                                  | substring match            | `Bash`                       |
+| ISC-31..47   | files        | `Read` after export                                                 | file exists + content      | `Bash` + `Read`              |
+| ISC-48..49   | determinism  | diff between two runs                                               | empty diff                 | `Bash diff`                  |
+| ISC-50..61   | ui           | route loads + text present                                          | HTTP 200 + grep            | `curl` to dev server         |
+| ISC-62..63   | docs         | files present + sections                                            | grep section headers       | `Bash`                       |
+| ISC-64..68   | anti         | negative probe                                                      | property not present       | mixed                        |
+| ISC-69..89   | logic        | core install/uninstall/verify return shape                          | exact match                | `vitest`                     |
+| ISC-90..101  | cli          | stdout + filesystem state post-command                              | exit code + file existence | `Bash` subprocess            |
+| ISC-102..104 | ui           | rendered HTML contains expected install string                      | grep                       | `curl` to dev server         |
+| ISC-105..120 | tests        | vitest case count + pass                                            | all green                  | `vitest`                     |
+| ISC-121      | coverage     | vitest --coverage thresholds                                        | ≥85%/85%/85%/75%           | `vitest`                     |
+| ISC-122..126 | docs/release | files present + version strings                                     | grep                       | `Bash`                       |
+| ISC-127..137 | anti         | negative probe (escape, no-cross-pack, no-secrets)                  | refused/missing            | mixed                        |
+| ISC-138..142 | ci           | github workflow step exit                                           | 0                          | `Bash` simulating CI step    |
+| ISC-143..150 | wal/chain    | begin/commit ordering + lock + canonical hash + supersession refuse | exact behavior             | `vitest` + concurrency probe |
 
 ## Features
 
-| name | satisfies | depends_on | parallelizable |
-|------|-----------|------------|----------------|
-| monorepo-skeleton | ISC-1, ISC-2 | — | no |
-| core-schema | ISC-7..12 | monorepo-skeleton | no |
-| core-permissions-risk | ISC-13..20 | core-schema | no |
-| core-planner | ISC-21..30 (planner half) | core-permissions-risk | no |
-| adapter-claude-code | ISC-31..34 | core-planner | yes |
-| adapter-codex | ISC-35..38 | core-planner | yes |
-| adapter-cursor | ISC-39..41 | core-planner | yes |
-| adapter-chatgpt | ISC-42..44 | core-planner | yes |
-| adapter-generic | ISC-45..47 | core-planner | yes |
-| determinism-marker | ISC-48..49 | all adapters | no |
-| cli-commands | ISC-21..30 | core-planner | no |
-| registry-app | ISC-50..61 | core (typed seed import) | partial-parallel |
-| test-suite | ISC-3, ISC-7..49 | all above | partial-parallel |
-| docs | ISC-62..63 | all above | yes |
-| anti-criteria-audit | ISC-64..68 | all above | no |
-| **iteration-3 / Phase 2 starts here** | | | |
-| install-engine-core | ISC-69..89 | core-planner, all adapters | no (touches one module) |
-| install-cli-surface | ISC-90..101 | install-engine-core | yes (per-command files) |
-| install-registry-ui | ISC-102..104 | install-engine-core (lockfile shape) | yes |
-| install-tests | ISC-105..120 | install-engine-core, install-cli-surface | partial-parallel |
-| install-coverage | ISC-121 | install-tests | no (whole-suite metric) |
-| install-docs-release | ISC-122..126 | all above | yes |
-| install-anti-audit | ISC-127..137 | install-engine-core, install-cli-surface | no |
-| install-ci | ISC-138..142 | install-cli-surface | no |
+| name                                  | satisfies                 | depends_on                               | parallelizable          |
+| ------------------------------------- | ------------------------- | ---------------------------------------- | ----------------------- |
+| monorepo-skeleton                     | ISC-1, ISC-2              | —                                        | no                      |
+| core-schema                           | ISC-7..12                 | monorepo-skeleton                        | no                      |
+| core-permissions-risk                 | ISC-13..20                | core-schema                              | no                      |
+| core-planner                          | ISC-21..30 (planner half) | core-permissions-risk                    | no                      |
+| adapter-claude-code                   | ISC-31..34                | core-planner                             | yes                     |
+| adapter-codex                         | ISC-35..38                | core-planner                             | yes                     |
+| adapter-cursor                        | ISC-39..41                | core-planner                             | yes                     |
+| adapter-chatgpt                       | ISC-42..44                | core-planner                             | yes                     |
+| adapter-generic                       | ISC-45..47                | core-planner                             | yes                     |
+| determinism-marker                    | ISC-48..49                | all adapters                             | no                      |
+| cli-commands                          | ISC-21..30                | core-planner                             | no                      |
+| registry-app                          | ISC-50..61                | core (typed seed import)                 | partial-parallel        |
+| test-suite                            | ISC-3, ISC-7..49          | all above                                | partial-parallel        |
+| docs                                  | ISC-62..63                | all above                                | yes                     |
+| anti-criteria-audit                   | ISC-64..68                | all above                                | no                      |
+| **iteration-3 / Phase 2 starts here** |                           |                                          |                         |
+| install-engine-core                   | ISC-69..89                | core-planner, all adapters               | no (touches one module) |
+| install-cli-surface                   | ISC-90..101               | install-engine-core                      | yes (per-command files) |
+| install-registry-ui                   | ISC-102..104              | install-engine-core (lockfile shape)     | yes                     |
+| install-tests                         | ISC-105..120              | install-engine-core, install-cli-surface | partial-parallel        |
+| install-coverage                      | ISC-121                   | install-tests                            | no (whole-suite metric) |
+| install-docs-release                  | ISC-122..126              | all above                                | yes                     |
+| install-anti-audit                    | ISC-127..137              | install-engine-core, install-cli-surface | no                      |
+| install-ci                            | ISC-138..142              | install-cli-surface                      | no                      |
 
 ## Decisions
 
@@ -445,13 +471,14 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 
 - **2026-05-18 (OBSERVE iteration-3) — show-your-math, delegation floor (E5 soft ≥4):** Selecting 5 delegation capabilities (Forge for parallel adapter-symmetric install logic; security-reviewer subagent for install I/O; test-writer subagent for coverage build-out; schema-reviewer subagent for lockfile schema; Cato mandatory at E5 VERIFY; /simplify post-build). Above floor. Anvil deliberately omitted — Phase 2 is a single-package addition (core/install + cli/commands) whose surface stays inside the file boundary; Forge with focused scope is faster than Anvil whole-project review. Background research agent omitted — install/lockfile primitives are well-established (npm, pnpm, cargo) and the spec is precise; live research would duplicate `spec/02_AGENTPACK_STANDARD.md` § Lockfile / § Install manifest.
 
-- **2026-05-18 (OBSERVE iteration-3):** Lockfile is committed-by-default by convention (matches npm/pnpm/cargo); `.agentpack/installed/`, `.agentpack/backups/`, `.agentpack/history.jsonl` are *not* — they're per-machine state. Install must NOT auto-mutate `.gitignore` (Anti-criterion ISC-136); the install summary prints an advisory snippet the user can copy.
+- **2026-05-18 (OBSERVE iteration-3):** Lockfile is committed-by-default by convention (matches npm/pnpm/cargo); `.agentpack/installed/`, `.agentpack/backups/`, `.agentpack/history.jsonl` are _not_ — they're per-machine state. Install must NOT auto-mutate `.gitignore` (Anti-criterion ISC-136); the install summary prints an advisory snippet the user can copy.
 
 - **2026-05-18 (OBSERVE iteration-3):** Atom checksum canonicalization — for instruction/skill atoms with body files, checksum the rendered adapter output (deterministic), not the source. For atoms without bodies (rule, hook, mcp_server, plugin), checksum the canonical JSON of the resolved atom record. Rationale: a lockfile pinned to "what was actually written" tracks the user's reality; a lockfile pinned to upstream source breaks when source mutates while the local install remains intact.
 
 - **2026-05-18 (OBSERVE iteration-3) — ID stability:** Iteration-3 ISCs start at ISC-69 and never re-use 1..68. No drops, no merges, no renumbers of Phase 1 IDs. ISC-1..68 retain their original `[x]` status from iteration-2 verification.
 
 - **2026-05-18 (THINK iteration-3) — Risks captured:**
+
   - **Interrupted-write:** mitigation = files-first, manifest-last commit ordering. Manifest presence is the only signal that an install completed. Uninstall refuses without manifest.
   - **Symlink-escape:** mitigation = `realpath` projectRoot once, then every target path's `realpath` must start with that prefix. Symlinks at the exact target path are refused.
   - **Pre-existing user content:** mitigation = diff classifies `conflicts[]` (path exists, no AgentPack marker, content differs from our output). CLI refuses without `--force`; with `--force`, backs up first.
@@ -461,14 +488,16 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
   - **Drift false-positive on line endings:** Phase-1 already normalizes trailing newline. Document Windows untested.
 
 - **2026-05-18 (THINK iteration-3) — Install state machine (SystemsThinking):**
+
   - States: `pristine` ↔ `installed(pack, ver, target, profile)`.
   - Edges: `install`, `uninstall`, `rollback`. `verify` reads state; doesn't transition.
-  - Commit marker: existence of `.agentpack/installed/<packId>.json` defines "installed". Lockfile alone is *advisory*; manifest is *authoritative* for uninstall.
+  - Commit marker: existence of `.agentpack/installed/<packId>.json` defines "installed". Lockfile alone is _advisory_; manifest is _authoritative_ for uninstall.
   - Feedback loop: lockfile checksum at install time → on-disk recompute at verify time → drift surface. Closes the loop.
 
 - **2026-05-18 (THINK iteration-3) — Euphoric surprise:** the click is "AI tooling now has npm-grade discipline — diff before write, marker-bounded ownership, lockfile for reproducibility, verify for drift detection, full uninstall reversal." 8/10 (ceiling). Would reach 9-10 only if paired with Phase-4 signature verification.
 
 - **2026-05-18 (THINK iteration-3) — schema-reviewer findings adopted:**
+
   1. `LockfileV1.installedAt` **removed** — non-determinism source. `installedAt` lives in `InstallManifestV1` only.
   2. `LockfileV1.atoms[].outputs: Array<{path, sha256, bytes}>` added — per-file hash list (cosign signs digests, not logical atoms; Phase 4 ready).
   3. `LockfileV1.atoms[].sourceChecksum` added — registry can verify pack provenance independent of adapter changes (Phase 3 ready).
@@ -485,9 +514,11 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
   14. `HistoryEntryV1.actor: {type: "cli"|"ci"|"agent", id?}` added.
   15. `HistoryEntryV1.result: "success"|"partial"|"failed"` + `error?` for failed-install audit.
   16. `HistoryEntryV1.previousEntryId` + `entryChecksum` form a hash chain (tamper detection, Phase 3-ready, costs ~30 LOC).
+
   - Phase-2 surface absorbs every change without growing the ISC count (refining shapes, not behaviors).
 
 - **2026-05-18 (PLAN iteration-3) — Advisor findings adopted (commitment boundary, Rule 2):**
+
   1. **history.jsonl as Write-Ahead Log.** `install_begin` written FIRST with `plannedFiles[]`; install does files; `install_commit` written LAST. Recovery on startup (or next CLI run): scan for `begin` without `commit`; if all staged files present + their checksums match `plannedChecksums`, roll forward (write commit); else roll back (delete staged files). Install manifest write happens between begin and commit (still committable but no longer the only truth signal).
   2. **File lock on history append.** Use `proper-lockfile` (mature npm package, mtime-based) wrapping every `appendHistoryEntry` call. Single-writer guarantee for hash chain integrity. Verified by concurrency test (new ISC).
   3. **Canonical hash input.** `entryChecksum = sha256(canonicalJson(entry minus entryChecksum field))` where `canonicalJson` = `JSON.stringify` with recursively sorted keys, no whitespace. Algorithm name (`sha256`) and hex encoding (lowercased) pinned in code comments and docs.
@@ -504,6 +535,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
   Adding ISC-143..ISC-150 below for WAL semantics, lock, supersession, chain canonicalization. ID-stable; no renumbers.
 
 - **2026-05-18 (VERIFY iteration-3) — security-reviewer findings (2 CRITICAL + 3 HIGH + 1 MEDIUM) addressed before ship:**
+
   1. **CRITICAL #1 — TOCTOU symlink-swap between `realpathContained` and `fs.rename`.** Fix: `apply.ts` re-calls `realpathContained` AFTER the write (catches a parent-dir symlink swap that beat the initial check) and uses O_EXCL (`flag: "wx"`) for create-items so a file planted between plan and apply surfaces as `EEXIST` rather than silent overwrite.
   2. **CRITICAL #2 — `fromRelative` accepted Windows drive letters on POSIX.** Fix: `paths.ts` `fromRelative` now rejects `/^[A-Za-z]:[\\/]/` and `\\\\` UNC prefixes. A manifest authored on Windows can no longer smuggle absolute paths past POSIX containment.
   3. **HIGH #3 — `recoverIncomplete` deletes by attacker-controlled `plannedFiles[]`.** Fix: every recovery path (read AND unlink) now runs through `realpathContained`. A forged `install_begin` entry can no longer escape the project root via attacker-chosen paths.
@@ -542,7 +574,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 
 - **Conjecture (OBSERVE):** Pack-level `permissions:` block can be surfaced unconditionally as the registry's compatibility view.
   **Refuted by:** First plan smoke on `safe` profile showed CRITICAL risk because the unconditional surface dragged `shell + secrets + network + filesystem.write` through and triggered the combo rule. The user-facing answer was actively wrong.
-  **Learned:** Pack-level `permissions:` is the *possible* surface; the **active** surface must be driven by the resolved atom subset. The combo rule must compose over active categories, never declared-but-unused categories.
+  **Learned:** Pack-level `permissions:` is the _possible_ surface; the **active** surface must be driven by the resolved atom subset. The combo rule must compose over active categories, never declared-but-unused categories.
   **Criterion now:** `summarizePermissions` only adds a category when an included atom backs it (atom permissions array, or implicit per-atom-type escalation for `hook` / `mcp_server`). Pack-level network domains/shell commands only surface when at least one atom needs them.
 
 - **Conjecture (BUILD):** TypeScript project references would let `packages/cli` see `packages/core` types without composite mode.
@@ -556,7 +588,7 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
   **Criterion now:** ISC-143..145 (begin-before-write, commit-last, recovery sweep on next CLI invocation).
 
 - **Conjecture (BUILD iteration-3):** Per-atom checksum in the lockfile is sufficient for Phase 4 signature verification.
-  **Refuted by:** schema-reviewer pointed out cosign/Sigstore sign file *digests*, not logical groupings. An atom that emits multiple files (skill + readme) can't be signed under one hash; the registry can't verify provenance without per-file granularity.
+  **Refuted by:** schema-reviewer pointed out cosign/Sigstore sign file _digests_, not logical groupings. An atom that emits multiple files (skill + readme) can't be signed under one hash; the registry can't verify provenance without per-file granularity.
   **Learned:** Per-atom AND per-file checksums are necessary; per-file is the substrate-independent unit for the signature ecosystem. Cost is small (10 LOC), payoff is Phase-4-ready.
   **Criterion now:** `LockfileAtomEntry.outputs: Array<{path, sha256, bytes, action}>` shipped in iteration-3. Phase 4 will sign over the `outputs` array.
 
@@ -621,6 +653,7 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 ### Iteration-5 ISCs
 
 #### Live-probe verification (re-running shipped claims)
+
 - [x] ISC-268: `pnpm verify` (typecheck + lint + test + build) exit 0 from a cache-cleared state (deleted all `tsconfig.tsbuildinfo` + `.next` before run).
 - [x] ISC-269: 269 tests pass across 24 files: 189 core + 19 db + 35 cli + 26 registry. Matches STATUS.md claim verbatim.
 - [x] ISC-270: All 5 adapter targets (`claude-code`, `codex`, `cursor`, `chatgpt`, `generic`) produce output deterministically — two consecutive `pack export` runs into separate dirs produce byte-identical diff.
@@ -629,15 +662,18 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 - [x] ISC-273: CI on `master` is green at HEAD (`gh run list --limit 1` → conclusion success on `31c5d35`).
 
 #### CVE patches (CRITICAL launch blockers found and fixed)
+
 - [x] ISC-274: `next@15.1.3 → 15.5.18` — patches 2 CRITICAL (Middleware Auth Bypass GHSA-f82v-jwr5-mffw + RCE in React flight protocol GHSA-3h52-269p-cp9r) plus 8 HIGH (DoS, SSRF, request smuggling) per `pnpm audit`.
 - [x] ISC-275: `vitest@2.1.8 → 2.1.9` + `@vitest/coverage-v8@2.1.8 → 2.1.9` — patches 1 CRITICAL (CVE-2025-24964, dev-server RCE).
 - [x] ISC-276: Post-bump `pnpm audit --prod` reports 0 critical, 0 high, 7 moderate (all Next.js Image-Optimizer variants — JSON-fallback registry not exposed), 2 low.
 
 #### Bug fixes from QA-lead live findings
+
 - [x] ISC-277: `agentpack install --force` over an existing install no longer orphans unchanged files on uninstall. Fix at `packages/core/src/install/apply.ts` records `plan.unchanged[]` paths in the new manifest's `created[]` so uninstall takes full ownership. Live-probed: install → tamper → install --force → uninstall now removes all 4 files (was leaving 3 orphans).
 - [x] ISC-278: Atom-id missing `:` separator produces a friendly zod error instead of a `"Cannot read properties of undefined"` runtime panic. Fix at `packages/core/src/schema/agentpack.schema.ts:210`.
 
 #### Docs accuracy (P0 from content-reviewer + launch-operator findings)
+
 - [x] ISC-279: `CONTRIBUTING.md` rewritten — was stuck at v0.1 / "67 tests" / "no published npm artifact" (contradicted v0.5 reality). New version documents `pnpm verify`, the 5-package layout, the per-add-a-target / per-add-a-command checklist, release process.
 - [x] ISC-280: `docs/cli.md` rewritten — was Phase-1 era, missing 11+ commands. New version covers all 19 commands (`init`, `validate`, `inspect`, `plan`, `diff`, `verify`, `history`, `whoami`, `doctor`, `cache size|prune|clear`, `pack export`, `install`, `uninstall`, `rollback`, `login`, `publish`, `tokens list|create|revoke`) plus the ROADMAP exit-code taxonomy.
 - [x] ISC-281: Registry URL standardized to `registry.agentpack.dev` everywhere — was `agentpack.dev` in `docs/signatures.md` and `apps/registry/.env.example`.
@@ -648,10 +684,12 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 - [x] ISC-286: `CHANGELOG.md` duplicate v0.4.0-dev entry disambiguated (older one re-titled "pre-public").
 
 #### Test surface for the new fixes
+
 - [x] ISC-287: ISC-277 fix landed; full `pnpm verify` still exit 0 (269/269 tests still pass — no regression).
 - [x] ISC-288: ISC-278 fix landed; live-probe — a manifest with `id: "no-colon-here"` now prints the friendly "Atom id must be `<type>:<slug>`" error instead of crashing.
 
 #### Deferred to v0.5.1 (documented, not auto-fixed)
+
 - [ ] ISC-289 [DEFERRED-VERIFY]: Sigstore identity-mismatch enforcement — `verifyManifestSignature` accepts any valid Sigstore signature when no `expectedSAN` is passed. Fix: make `expectedSAN` (or registry-side per-publisher SAN-allowlist) required on `--require-sig` and registry publish-side call sites. Follow-up issue: TBD.
 - [ ] ISC-290 [DEFERRED-VERIFY]: Audit-events race — concurrent `appendAuditEvent` calls can fork the hash chain. Fix: wrap in `db.transaction()` + `SELECT … FOR UPDATE` on the head row, or add `UNIQUE(org_id, previous_entry_id)` partial index. Lives at `apps/registry/lib/audit.ts:54-90`.
 - [ ] ISC-291 [DEFERRED-VERIFY]: Admin status POST route missing Origin/CSRF check. Fix at `apps/registry/app/api/admin/.../status/route.ts`. Lower priority — registry not yet live.
@@ -662,6 +700,7 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 - [ ] ISC-296 [DEFERRED-VERIFY]: Windows reserved filename validation absent in atom paths (CON, PRN, AUX, NUL, COM1-9, LPT1-9). Fix: `.refine` rejecting basenames matching `/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i`.
 
 #### Anti-criteria
+
 - [x] ISC-297: Anti: No CRITICAL or HIGH advisories in `pnpm audit --prod` post-iteration-5 (was 2 CRITICAL + 8 HIGH before bumps).
 - [x] ISC-298: Anti: No `.env*` files committed (only `apps/registry/.env.example` template).
 - [x] ISC-299: Anti: STATUS.md no longer claims "Repo visibility: PUBLIC" when the visibility flip hasn't actually landed — operator must run the explicit `gh repo edit … --visibility public` step.
@@ -701,6 +740,7 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 ### Iteration-5 Verification
 
 **ISC-268..273 (re-probed shipped claims):**
+
 - `pnpm verify` — exit 0 from cache-cleared state. 269/269 tests passing across 24 files (189 core + 19 db + 35 cli + 26 registry).
 - Live install round-trip in `/tmp/agentpack-clean-*` — install wrote 5 files, verify clean, drift detected on tamper, uninstall removed all 4 created files + restored backup.
 - 5 adapter targets exported successfully; `diff -r /tmp/det-a /tmp/det-b` reports empty (byte-identical).
@@ -708,18 +748,22 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 - `gh run list --limit 1` → conclusion success on `31c5d35`.
 
 **ISC-274..276 (CVE patches):**
+
 - Before: `pnpm audit --prod` → 2 critical, 8 high, 13 moderate, 5 low.
 - After: 0 critical, 0 high, 7 moderate, 2 low.
 - Bumped: `next@15.1.3 → 15.5.18`, `vitest@2.1.8 → 2.1.9`, `@vitest/coverage-v8@2.1.8 → 2.1.9` (in 4 package.json files).
 
 **ISC-277 (orphan fix):**
+
 - Live probe: `install /tmp/agentpack-force-bug-* → tamper CLAUDE.md → install --force → uninstall` now removes 3 + restores 1 (was: removes 0 + restores 1 + leaves 3 orphans).
 - Test suite still passes (269/269) — no regression.
 
 **ISC-278 (atom-id crash fix):**
-- Live probe: `validate` against a manifest with `id: "no-colon-here"` now reports `schema.invalid_string at atoms.0.id: Atom id must be \`<type>:<slug>\``  (was: `schema.unknown at (root): Cannot read properties of undefined (reading 'split')`).
+
+- Live probe: `validate` against a manifest with `id: "no-colon-here"` now reports `schema.invalid_string at atoms.0.id: Atom id must be \`<type>:<slug>\`` (was:`schema.unknown at (root): Cannot read properties of undefined (reading 'split')`).
 
 **ISC-279..286 (doc rewrites):**
+
 - `CONTRIBUTING.md` — fully rewritten.
 - `docs/cli.md` — fully rewritten with all 19 commands + exit-code taxonomy.
 - `docs/signatures.md` + `apps/registry/.env.example` — `agentpack.dev → registry.agentpack.dev`.
@@ -730,10 +774,12 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 - `CHANGELOG.md` — duplicate v0.4.0-dev disambiguated.
 
 **ISC-287..288 (post-fix verify):**
+
 - `pnpm verify` exit 0 with all changes applied.
 - All 269 tests continue to pass.
 
 **ISC-297..300 (anti-criteria probes):**
+
 - `pnpm audit --prod` confirms 0 critical / 0 high.
 - `git log --all -p | grep` regex sweep for secret patterns returns no real matches (only documented placeholder strings).
 - STATUS.md visibility statement now honest about the un-flipped state.
@@ -742,6 +788,7 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 **ISC-289..296 (deferred):** documented as follow-ups; no live verification this session.
 
 **Cross-vendor audit (Cato, Rule 2a, E5 MANDATORY) — DOCTRINE DEVIATION LOGGED:**
+
 - Canary passed (50-LOC `ls`, exit 0, `CANARY OK` within seconds, ~10s wall clock).
 - Full audit dispatched via `codex exec --sandbox read-only` with a structured JSON prompt (~2,000 words, targeted at 5 specific files in 8 attack categories).
 - **Stalled silently for >12 minutes with 0 bytes of stdout.** Same failure mode as iter-3 + iter-4. The canary-then-full-audit pattern from `feedback_forge_canary` doesn't catch this — the canary's tiny context didn't trigger the context-starvation behavior, but the full audit's ~2,000-word prompt + first repo-read tool calls did.
@@ -785,3 +832,29 @@ Full external review (Codex deep pass + security-reviewer + qa-lead fleet) again
 - **Multi-target install per project deferred** (refused with guidance) rather than keying manifests by packId+target — revisit when a real consumer asks.
 - **`fetchManifestExtra` hard-errors** instead of writing empty buffers — registry non-atom file fetch is a gap, not a silent corruption.
 - Cross-vendor review pattern worked this iteration: Codex (via codex-rescue agent) returned a structured P0/P1/P2 list in ~4 min with zero stalls — the iter-3/4/5 stall pattern did not recur under the new agent harness.
+
+## Iteration-7 — cross-surface reach + hardening sweep (2026-06-12)
+
+A joint Claude + Codex security/usability review, then a build-out that takes a pack beyond the terminal to Claude's other surfaces — with honest portability ceilings rather than fidelity-theater.
+
+### Iteration-7 ISCs (all verified by tests + live probes)
+
+- [x] ISC-301: Registry token-scope self-grant closed — `POST /api/tokens` refuses `admin:registry` outright and requires live publisher membership for every `@<slug>` scope at creation; `requireScope` re-checks membership on the scoped-token path.
+- [x] ISC-302: MCP shell-escape gate, permission summarizer, and risk engine share one predicate (`commandGate.isShellEscape`) covering `awk`/`php -r`/`lua -e`/`Rscript -e`/`osascript -e`/`sed s///e` in addition to the prior shells/interpreters.
+- [x] ISC-303: `wrapInstructionBlock` defangs `BEGIN/END AGENTPACK:` markers in pack-controlled body text — a pack can't forge another pack's span or truncate its own at uninstall.
+- [x] ISC-304: Rollback of an idempotent re-install is a no-op (pack stays installed, `retainedPacks`); a version/profile-changing re-install is refused without `--cascade`; bare rollback after an uninstall reports "nothing to roll back" instead of a missing-manifest error.
+- [x] ISC-305: `install --fail-on-unsupported` exits 2 when a selected atom is dropped; `--json` emits structured `{installed:false,error}` for `critical_risk_refused` and `unsupported_atoms`; dropped atoms shown in the success summary.
+- [x] ISC-306: Node floor unified to ≥22 across `doctor`, `package.json#engines`, CI, and README; uninstall splits surgically-unmerged files into an `Unmerge (n)` line; stale `AGENTPACK.lock` noted on uninstall.
+- [x] ISC-307: `agentpack pack plugin` emits a Claude Code plugin — `.claude-plugin/plugin.json` (+ `marketplace.json`) with `skills/`/`commands/`/`agents/`/`hooks/hooks.json`/`.mcp.json` at plugin root; verified against the live plugin/marketplace schemas; installable via the Directory.
+- [x] ISC-308: Instruction/rule atoms (no ambient home outside Code) are bundled into an on-invoke `<slug>-guidance` skill in the plugin output.
+- [x] ISC-309: Per-atom **portability ceiling** (`universal`/`plugin`/`sdk`/`terminal`) computed from atom type; `inspect` and `pack plugin` print the breakdown and the overall reach (least-portable atom wins).
+- [x] ISC-310: `@agentpack/connector` — a remote MCP server exposing a pack's skill/command/instruction/rule/subagent atoms as MCP prompts + resources over Streamable HTTP; `hook`/`mcp_server` atoms excluded with a stated reason. Live-verified: `/healthz` + MCP `initialize` round-trip.
+- [x] ISC-311: Registry pre-launch hardening — publish-finalize wrapped in one transaction; in-memory rate limiter on search/device-code/publish-init; device user-code entropy 32→64 bits; `GET /api/packs` returns a real `count(*)`.
+- [x] ISC-312: `pnpm verify` green — 378 tests (272 core + 40 cli + 19 db + 4 connector + 43 registry), typecheck, lint, build (connector added to the build + coverage pipeline).
+
+### Iteration-7 decisions
+
+- **Honesty over reach-theater**: no vehicle can make hooks or an ambient `CLAUDE.md` work on claude.ai/Cowork (no hook engine, no CLAUDE.md loader). Instructions are bridged as on-invoke skills and labeled as such; the portability ceiling is shown, not hidden.
+- **Plugin via relocation, not a new adapter**: the plugin emitter reuses the `claude-code` adapter output and moves it into plugin layout — one source of truth for rendering.
+- **Connector is a prototype with deferred hosting**: code + tests landed; bearer-auth, DNS-rebinding protection, and recurring hosted infra are documented in the package README, not provisioned (cost policy).
+- **Reposition to governance + reach**: README/STATUS now lead with the durable moat (policy/lockfile/risk/provenance) and treat cross-platform compile as supporting — the compile layer is the most platform-absorbable part.
