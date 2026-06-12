@@ -9,9 +9,15 @@ import {
   readAtomFile,
   stableJsonStringify,
   wrapInstructionBlock,
+  yamlFrontmatter,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
 import { isShellEscape } from "./commandGate.js";
+import {
+  conformSkillMd,
+  normalizeSkillSlug,
+  renderSkillMd,
+} from "../skills/agentskills.js";
 
 function slugFor(atom: Atom): string {
   // The atom-id regex guarantees a single `:`-separated slug component with
@@ -116,9 +122,11 @@ export const claudeCodeAdapter = defineAdapter({
     });
 
     // ---------- Skills ----------
+    // Emitted skill folders conform to the Agent Skills spec (agentskills.io):
+    // slug-normalized directory names, name = directory, YAML-safe frontmatter.
     const skillAtoms = byType.get("skill") ?? [];
     for (const atom of skillAtoms) {
-      const slug = slugFor(atom);
+      const slug = normalizeSkillSlug(slugFor(atom));
       const entries = await readAtomDirectory(packRoot, atom);
       if (entries.length === 0) {
         warnings.push(
@@ -126,16 +134,39 @@ export const claudeCodeAdapter = defineAdapter({
         );
         files.push({
           path: `.claude/skills/${slug}/SKILL.md`,
-          content: `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n# ${atom.name}\n\n${atom.description}\n`,
+          content: renderSkillMd(
+            { name: slug, description: atom.description },
+            `# ${atom.name}\n\n${atom.description}`,
+          ),
           action: "create",
         });
       } else {
+        // `skill.md` (lowercase, spec-accepted) is conformed to canonical
+        // SKILL.md only when no SKILL.md exists — emitting both to the same
+        // path would trip applyInstall's create-only write.
+        const hasCanonical = entries.some((e) => e.relPath === "SKILL.md");
         for (const entry of entries) {
-          files.push({
-            path: `.claude/skills/${slug}/${entry.relPath}`,
-            content: entry.content,
-            action: "create",
-          });
+          if (
+            entry.relPath === "SKILL.md" ||
+            (entry.relPath === "skill.md" && !hasCanonical)
+          ) {
+            const conformed = conformSkillMd(entry.content, slug, {
+              name: slug,
+              description: atom.description,
+            });
+            warnings.push(...conformed.warnings.map((w) => `Skill \`${atom.id}\`: ${w}`));
+            files.push({
+              path: `.claude/skills/${slug}/SKILL.md`,
+              content: conformed.content,
+              action: "create",
+            });
+          } else {
+            files.push({
+              path: `.claude/skills/${slug}/${entry.relPath}`,
+              content: entry.content,
+              action: "create",
+            });
+          }
         }
       }
     }
@@ -158,11 +189,11 @@ export const claudeCodeAdapter = defineAdapter({
         | undefined;
       const argHint =
         args && args.length > 0
-          ? `argument-hint: ${args.map((a) => `[${a.name ?? "arg"}]`).join(" ")}\n`
-          : "";
+          ? args.map((a) => `[${a.name ?? "arg"}]`).join(" ")
+          : undefined;
       files.push({
         path: `.claude/commands/${slug}.md`,
-        content: `---\ndescription: ${atom.description}\n${argHint}---\n\n${body ?? `# ${atom.name}\n\n${atom.description}`}\n`,
+        content: `${yamlFrontmatter({ description: atom.description, "argument-hint": argHint })}\n${body ?? `# ${atom.name}\n\n${atom.description}`}\n`,
         action: "create",
       });
     }
@@ -180,7 +211,7 @@ export const claudeCodeAdapter = defineAdapter({
       // (name, description) — provenance and risk live in the lockfile.
       files.push({
         path: `.claude/agents/${slug}.md`,
-        content: `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n# ${atom.name}\n\n${instructions}\n`,
+        content: `${yamlFrontmatter({ name: slug, description: atom.description })}\n# ${atom.name}\n\n${instructions}\n`,
         action: "create",
       });
     }

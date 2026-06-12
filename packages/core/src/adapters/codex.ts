@@ -10,6 +10,11 @@ import {
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
 import { isShellEscape } from "./commandGate.js";
+import {
+  conformSkillMd,
+  normalizeSkillSlug,
+  renderSkillMd,
+} from "../skills/agentskills.js";
 
 function tomlEscape(value: string): string {
   return value
@@ -94,15 +99,36 @@ export const codexAdapter = defineAdapter({
     // Codex (verified against 0.128.0) reads repo-root AGENTS.md but does NOT
     // read project-level `.codex/skills/` — so the skills must be reachable
     // FROM AGENTS.md or the agent never sees them.
-    const skillAtomsForIndex = byType.get("skill") ?? [];
-    const commandAtomsForIndex = byType.get("command") ?? [];
-    if (skillAtomsForIndex.length + commandAtomsForIndex.length > 0) {
+    //
+    // Slugs are computed ONCE here — Agent Skills spec-normalized, with
+    // command/skill collisions resolved — and reused by both this index and
+    // the emission loops below, so the index never points at a path that the
+    // collision rename moved.
+    const skillAtomsAll = byType.get("skill") ?? [];
+    const commandAtomsAll = byType.get("command") ?? [];
+    const emittedSkillSlug = new Map<string, string>();
+    const skillSlugs = new Set<string>();
+    for (const atom of skillAtomsAll) {
+      const slug = normalizeSkillSlug(slugFor(atom));
+      emittedSkillSlug.set(atom.id, slug);
+      skillSlugs.add(slug);
+    }
+    const collidedCommands = new Set<string>();
+    for (const atom of commandAtomsAll) {
+      let slug = normalizeSkillSlug(slugFor(atom));
+      if (skillSlugs.has(slug)) {
+        collidedCommands.add(atom.id);
+        slug = `${slug}-command`;
+      }
+      emittedSkillSlug.set(atom.id, slug);
+    }
+    if (skillAtomsAll.length + commandAtomsAll.length > 0) {
       sections.push(`## Skills\n`);
       sections.push(
         `The following reusable procedures ship with this pack under \`.codex/skills/\`. Read the referenced SKILL.md when a task matches.\n`,
       );
-      for (const atom of [...skillAtomsForIndex, ...commandAtomsForIndex]) {
-        const slug = slugFor(atom);
+      for (const atom of [...skillAtomsAll, ...commandAtomsAll]) {
+        const slug = emittedSkillSlug.get(atom.id) ?? normalizeSkillSlug(slugFor(atom));
         sections.push(
           `- **${atom.name}** (\`.codex/skills/${slug}/SKILL.md\`) — ${atom.description}`,
         );
@@ -232,10 +258,9 @@ export const codexAdapter = defineAdapter({
     }
 
     // ---------- .codex/skills ----------
-    const skillSlugs = new Set<string>();
-    for (const atom of byType.get("skill") ?? []) {
-      const slug = slugFor(atom);
-      skillSlugs.add(slug);
+    // Emitted skill folders conform to the Agent Skills spec (agentskills.io).
+    for (const atom of skillAtomsAll) {
+      const slug = emittedSkillSlug.get(atom.id) ?? normalizeSkillSlug(slugFor(atom));
       const entries = await readAtomDirectory(packRoot, atom);
       if (entries.length === 0) {
         warnings.push(
@@ -243,32 +268,55 @@ export const codexAdapter = defineAdapter({
         );
         files.push({
           path: `.codex/skills/${slug}/SKILL.md`,
-          content: `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n# ${atom.name}\n\n${atom.description}\n`,
+          content: renderSkillMd(
+            { name: slug, description: atom.description },
+            `# ${atom.name}\n\n${atom.description}`,
+          ),
           action: "create",
         });
       } else {
+        // `skill.md` (lowercase, spec-accepted) is conformed to canonical
+        // SKILL.md only when no SKILL.md exists — emitting both to the same
+        // path would trip applyInstall's create-only write.
+        const hasCanonical = entries.some((e) => e.relPath === "SKILL.md");
         for (const entry of entries) {
-          files.push({
-            path: `.codex/skills/${slug}/${entry.relPath}`,
-            content: entry.content,
-            action: "create",
-          });
+          if (
+            entry.relPath === "SKILL.md" ||
+            (entry.relPath === "skill.md" && !hasCanonical)
+          ) {
+            const conformed = conformSkillMd(entry.content, slug, {
+              name: slug,
+              description: atom.description,
+            });
+            warnings.push(...conformed.warnings.map((w) => `Skill \`${atom.id}\`: ${w}`));
+            files.push({
+              path: `.codex/skills/${slug}/SKILL.md`,
+              content: conformed.content,
+              action: "create",
+            });
+          } else {
+            files.push({
+              path: `.codex/skills/${slug}/${entry.relPath}`,
+              content: entry.content,
+              action: "create",
+            });
+          }
         }
       }
     }
 
     // ---------- .codex/skills (commands) ----------
-    for (const atom of byType.get("command") ?? []) {
+    for (const atom of commandAtomsAll) {
       // A command whose slug collides with a skill would emit the same
       // SKILL.md path twice — applyInstall's create-only (`wx`) write then
       // throws on the duplicate and rolls the install back (codex re-review
-      // P1-3). Namespace the colliding command instead.
-      let slug = slugFor(atom);
-      if (skillSlugs.has(slug)) {
+      // P1-3). The colliding command was namespaced `<slug>-command` when the
+      // slug map was built above.
+      const slug = emittedSkillSlug.get(atom.id) ?? normalizeSkillSlug(slugFor(atom));
+      if (collidedCommands.has(atom.id)) {
         warnings.push(
-          `Command \`${atom.id}\` slug collides with a skill of the same name; emitting it as \`.codex/skills/${slug}-command/\`.`,
+          `Command \`${atom.id}\` slug collides with a skill of the same name; emitting it as \`.codex/skills/${slug}/\`.`,
         );
-        slug = `${slug}-command`;
       }
       const parsed = await parseAtomYaml(packRoot, atom);
       let body: string | null = null;
@@ -278,7 +326,10 @@ export const codexAdapter = defineAdapter({
       }
       files.push({
         path: `.codex/skills/${slug}/SKILL.md`,
-        content: `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n# ${atom.name}\n\n${body ?? atom.description}\n`,
+        content: renderSkillMd(
+          { name: slug, description: atom.description },
+          `# ${atom.name}\n\n${body ?? atom.description}`,
+        ),
         action: "create",
       });
     }

@@ -6,6 +6,7 @@ import {
   readAtomFile,
   stableJsonStringify,
   wrapInstructionBlock,
+  yamlFrontmatter,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
 import { isShellEscape } from "./commandGate.js";
@@ -13,15 +14,7 @@ import { isShellEscape } from "./commandGate.js";
 function renderRuleMdc(atom: Atom, body: string): string {
   const scope = (atom as { scope?: { file_globs?: string[] } }).scope;
   const globs = scope?.file_globs ?? ["**/*"];
-  const globsBlock = globs.map((g) => `  - "${g}"`).join("\n");
-  return (
-    `---\n` +
-    `description: ${atom.description}\n` +
-    `globs:\n${globsBlock}\n` +
-    `alwaysApply: false\n` +
-    `---\n\n` +
-    `# ${atom.name}\n\n${body}\n`
-  );
+  return `${yamlFrontmatter({ description: atom.description, globs, alwaysApply: false })}\n# ${atom.name}\n\n${body}\n`;
 }
 
 export const cursorAdapter = defineAdapter({
