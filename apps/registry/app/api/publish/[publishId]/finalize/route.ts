@@ -20,7 +20,7 @@ import { requireScope, verifyBearer } from "@/lib/tokens";
 
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ publishId: string }> }
+  { params }: { params: Promise<{ publishId: string }> },
 ): Promise<Response> {
   const verified = await verifyBearer(req);
   if (!verified) {
@@ -58,16 +58,10 @@ export async function POST(
   }
 
   if (pub.status !== "pending") {
-    return NextResponse.json(
-      { error: "already_finalized" },
-      { status: 409 }
-    );
+    return NextResponse.json({ error: "already_finalized" }, { status: 409 });
   }
   if (pub.expiresAt < new Date()) {
-    return NextResponse.json(
-      { error: "publish_expired", publishId },
-      { status: 410 }
-    );
+    return NextResponse.json({ error: "publish_expired", publishId }, { status: 410 });
   }
 
   // Optional signature in the body. If present, parse + verify server-side
@@ -82,14 +76,14 @@ export async function POST(
         if (!parsed.success) {
           return NextResponse.json(
             { error: "invalid_signature_envelope", issues: parsed.error.issues },
-            { status: 422 }
+            { status: 422 },
           );
         }
         parsedSignature = parsed.data;
         // Cryptographically verify against the manifest hash the publisher
         // declared at init time. If they disagree, refuse before persistence.
         const manifestFileForSig = pub.presignedFiles.find(
-          (f) => f.path === "AGENTPACK.yaml"
+          (f) => f.path === "AGENTPACK.yaml",
         );
         const expectedChecksum = manifestFileForSig?.sha256 ?? "";
         const result = await signing.verifyManifestSignature({
@@ -103,7 +97,7 @@ export async function POST(
               reason: result.reason,
               detail: result.detail,
             },
-            { status: 422 }
+            { status: 422 },
           );
         }
       }
@@ -136,10 +130,7 @@ export async function POST(
   }
 
   if (mismatched.length > 0) {
-    return NextResponse.json(
-      { error: "size_mismatch", mismatched },
-      { status: 422 }
-    );
+    return NextResponse.json({ error: "size_mismatch", mismatched }, { status: 422 });
   }
 
   // Resolve publisher. We require an existing row — auto-create was a
@@ -155,120 +146,145 @@ export async function POST(
   if (!existingPub[0]) {
     return NextResponse.json(
       { error: "publisher_not_found", publisher: pub.publisherSlug },
-      { status: 404 }
+      { status: 404 },
     );
   }
   const pubsId = existingPub[0].id;
 
-  // Find or create pack.
-  let pkId: string;
-  const existingPk = await db
-    .select()
-    .from(packs)
-    .where(and(eq(packs.publisherId, pubsId), eq(packs.slug, pub.packSlug)))
-    .limit(1);
-  if (existingPk[0]) {
-    pkId = existingPk[0].id;
-  } else {
-    const inserted = await db
-      .insert(packs)
-      .values({
-        publisherId: pubsId,
-        slug: pub.packSlug,
-        name: pub.packSlug,
-        description: "",
-        tags: [],
-      })
-      .returning({ id: packs.id });
-    if (!inserted[0]) {
-      return NextResponse.json({ error: "pack_insert_failed" }, { status: 500 });
-    }
-    pkId = inserted[0].id;
-  }
-
-  // Insert pack version row.
   const manifestFile = pub.presignedFiles.find((f) => f.path === "AGENTPACK.yaml");
-  const insertedVersion = await db
-    .insert(packVersions)
-    .values({
-      packId: pkId,
-      version: pub.version,
-      status: "published",
-      manifestSha256: manifestFile?.sha256 ?? "",
-      manifestR2Key: manifestFile?.r2Key ?? "",
-      publishedBy: verified.userId,
-    })
-    .returning({ id: packVersions.id });
-  const versionId = insertedVersion[0]?.id;
-  if (!versionId) {
-    return NextResponse.json({ error: "version_insert_failed" }, { status: 500 });
-  }
+  // Distinct atom IDs across the presigned files (computed once; used for the
+  // placeholder atom rows below). Pure derivation from `pub` — safe to compute
+  // before the transaction.
+  const atomIds = [
+    ...new Set(pub.presignedFiles.flatMap((f) => (f.atomId ? [f.atomId] : []))),
+  ];
 
-  // Insert pack_files.
-  if (pub.presignedFiles.length > 0) {
-    await db.insert(packFiles).values(
-      pub.presignedFiles.map((f) => ({
-        packVersionId: versionId,
-        atomId: f.atomId ?? null,
-        path: f.path,
-        sha256: f.sha256,
-        bytes: f.bytes,
-        r2Key: f.r2Key,
-      }))
-    );
-  }
+  // ALL of the publish writes run in ONE transaction. Previously these were
+  // ~8 unwrapped statements: a crash or constraint failure after the version
+  // insert left a half-published version (a pack_versions row with missing or
+  // partial pack_files, and `latest_version_id` possibly pointing at it) that
+  // the installer would then resolve to broken bytes. Wrapping them also makes
+  // the DEFERRABLE INITIALLY DEFERRED `packs.latest_version_id` FK meaningful —
+  // it only defers within a transaction. (backend-architect CRITICAL #1, #6.)
+  let pkId: string;
+  let versionId: string;
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Find or create pack.
+      let packId: string;
+      const existingPk = await tx
+        .select()
+        .from(packs)
+        .where(and(eq(packs.publisherId, pubsId), eq(packs.slug, pub.packSlug)))
+        .limit(1);
+      if (existingPk[0]) {
+        packId = existingPk[0].id;
+      } else {
+        const inserted = await tx
+          .insert(packs)
+          .values({
+            publisherId: pubsId,
+            slug: pub.packSlug,
+            name: pub.packSlug,
+            description: "",
+            tags: [],
+          })
+          .returning({ id: packs.id });
+        if (!inserted[0]) throw new Error("pack_insert_failed");
+        packId = inserted[0].id;
+      }
 
-  // Insert signature row if the publisher signed. This is the canonical
-  // storage location — the registry will surface it via /signatures + on
-  // the pack detail page and CLI `verify --sig` will fetch it from here.
-  if (parsedSignature) {
-    await db.insert(packSignatures).values({
-      packVersionId: versionId,
-      bundleB64: parsedSignature.bundleB64,
-      signerSan: parsedSignature.metadata.identity.san,
-      signerIssuer: parsedSignature.metadata.identity.issuer,
-      rekorLogIndex: parsedSignature.metadata.rekorLogIndex,
-      rekorLogId: parsedSignature.metadata.rekorLogId,
-      rekorLogUrl: parsedSignature.metadata.rekorLogUrl,
-      manifestSha256: parsedSignature.manifestChecksum,
-      envelopeVersion: parsedSignature.envelopeVersion,
-      signedAt: new Date(parsedSignature.metadata.signedAt),
+      // Insert pack version row.
+      const insertedVersion = await tx
+        .insert(packVersions)
+        .values({
+          packId,
+          version: pub.version,
+          status: "published",
+          manifestSha256: manifestFile?.sha256 ?? "",
+          manifestR2Key: manifestFile?.r2Key ?? "",
+          publishedBy: verified.userId,
+        })
+        .returning({ id: packVersions.id });
+      const vId = insertedVersion[0]?.id;
+      if (!vId) throw new Error("version_insert_failed");
+
+      // Insert pack_files.
+      if (pub.presignedFiles.length > 0) {
+        await tx.insert(packFiles).values(
+          pub.presignedFiles.map((f) => ({
+            packVersionId: vId,
+            atomId: f.atomId ?? null,
+            path: f.path,
+            sha256: f.sha256,
+            bytes: f.bytes,
+            r2Key: f.r2Key,
+          })),
+        );
+      }
+
+      // Insert signature row if the publisher signed. This is the canonical
+      // storage location — the registry surfaces it via /signatures + on the
+      // pack detail page, and CLI `verify --sig` fetches it from here.
+      if (parsedSignature) {
+        await tx.insert(packSignatures).values({
+          packVersionId: vId,
+          bundleB64: parsedSignature.bundleB64,
+          signerSan: parsedSignature.metadata.identity.san,
+          signerIssuer: parsedSignature.metadata.identity.issuer,
+          rekorLogIndex: parsedSignature.metadata.rekorLogIndex,
+          rekorLogId: parsedSignature.metadata.rekorLogId,
+          rekorLogUrl: parsedSignature.metadata.rekorLogUrl,
+          manifestSha256: parsedSignature.manifestChecksum,
+          envelopeVersion: parsedSignature.envelopeVersion,
+          signedAt: new Date(parsedSignature.metadata.signedAt),
+        });
+      }
+
+      // Insert atoms placeholder rows from the presigned-files atom IDs. Real
+      // atom metadata (type, risk_level) lives in the AGENTPACK.yaml — a
+      // background worker can backfill richer data later. v0.3 captures IDs.
+      if (atomIds.length > 0) {
+        await tx.insert(atoms).values(
+          atomIds.map((atomId) => ({
+            packVersionId: vId,
+            atomId,
+            type: "unknown",
+            riskLevel: "low",
+            metadata: {},
+          })),
+        );
+      }
+
+      // Mark publish completed.
+      await tx
+        .update(publishes)
+        .set({ status: "completed", packId })
+        .where(eq(publishes.id, publishId));
+
+      // Update latest_version_id (simple: latest by published_at wins).
+      await tx.update(packs).set({ latestVersionId: vId }).where(eq(packs.id, packId));
+
+      return { packId, versionId: vId };
     });
+    pkId = result.packId;
+    versionId = result.versionId;
+  } catch (err) {
+    // The whole publish rolled back atomically — no half-published version.
+    const reason =
+      err instanceof Error &&
+      (err.message === "pack_insert_failed" || err.message === "version_insert_failed")
+        ? err.message
+        : "finalize_failed";
+    return NextResponse.json({ error: reason }, { status: 500 });
   }
-
-  // Insert atoms placeholder rows from the presigned-files atom IDs. Real atom
-  // metadata (type, risk_level) lives in the AGENTPACK.yaml — a background
-  // worker can backfill richer data later. v0.3 captures the IDs only.
-  const atomIds = [...new Set(pub.presignedFiles.flatMap((f) => (f.atomId ? [f.atomId] : [])))];
-  if (atomIds.length > 0) {
-    await db.insert(atoms).values(
-      atomIds.map((atomId) => ({
-        packVersionId: versionId,
-        atomId,
-        type: "unknown",
-        riskLevel: "low",
-        metadata: {},
-      }))
-    );
-  }
-
-  // Mark publish completed.
-  await db
-    .update(publishes)
-    .set({ status: "completed", packId: pkId })
-    .where(eq(publishes.id, publishId));
-
-  // Update latest_version_id (simple: latest by published_at wins).
-  await db
-    .update(packs)
-    .set({ latestVersionId: versionId })
-    .where(eq(packs.id, pkId));
 
   // No compatibilities in this MVP — populate when the manifest YAML is
   // parsed server-side by a background worker.
   void compatibilities;
 
-  const baseUrl = process.env["NEXT_PUBLIC_REGISTRY_URL"] ?? "https://registry.agentpack.dev";
+  const baseUrl =
+    process.env["NEXT_PUBLIC_REGISTRY_URL"] ?? "https://registry.agentpack.dev";
   const response: PublishFinalizeResponse = {
     packId: pkId,
     versionId,
