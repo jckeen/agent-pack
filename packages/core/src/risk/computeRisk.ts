@@ -5,6 +5,7 @@ import type {
   RiskLevel,
   RiskSummary,
 } from "../schema/types.js";
+import { isShellEscape } from "../adapters/commandGate.js";
 
 const RISK_ORDER: Record<RiskLevel, number> = {
   low: 0,
@@ -52,13 +53,6 @@ const ATOM_TYPE_RISK_FLOORS: Record<string, RiskLevel> = {
   mcp_server: "high",
   plugin: "medium",
 };
-
-/**
- * Patterns whose presence in an MCP server `command` / `args` indicate the
- * server is just a shell escape — these are treated as `critical`.
- */
-const MCP_SHELL_SHAPES = /^(sh|bash|zsh|dash|fish|node|python(?:3)?|ruby|perl|deno|bun)$/i;
-const MCP_SHELL_FLAGS = /^-c$|^-e$|^--eval$|^--command$/i;
 
 /**
  * Compute the overall risk level for an installed pack profile.
@@ -130,13 +124,13 @@ export function computeRisk(
         );
         level = maxRisk(level, "high");
       }
-      // mcp_server invoking a generic shell with -c / -e is a shell escape.
-      const cmdBase = (a.command ?? "").split(/[\\/]/).pop() ?? "";
-      const looksShell = MCP_SHELL_SHAPES.test(cmdBase);
-      const hasEvalFlag = (a.args ?? []).some((arg) => MCP_SHELL_FLAGS.test(arg));
-      if (looksShell && hasEvalFlag) {
+      // mcp_server invoking a shell/interpreter with an inline-eval flag is a
+      // shell escape — shares the canonical gate predicate so scoring, the
+      // consent summary, and the emission gate can never disagree.
+      if (a.command && isShellEscape(a.command, a.args ?? [])) {
+        const cmdBase = a.command.split(/[\\/]/).pop() ?? a.command;
         reasons.push(
-          `MCP server \`${r.atom.id}\` invokes \`${cmdBase}\` with an eval flag — treated as shell escape (critical)`,
+          `MCP server \`${r.atom.id}\` invokes \`${cmdBase}\` as an inline-eval shell escape (critical)`,
         );
         level = maxRisk(level, "critical");
       }

@@ -102,6 +102,77 @@ describe("agentpack install (CLI)", () => {
     expect(r.stdout).toContain("npm run format");
   });
 
+  it("critical-risk refusal emits structured JSON with --json (codex P2)", async () => {
+    const dir = await freshProject("critical-json");
+    const r = await run([
+      "install",
+      EXAMPLE,
+      "--target",
+      "claude-code",
+      "--profile",
+      "full",
+      "--project",
+      dir,
+      "--yes",
+      "--json",
+    ]);
+    expect(r.code).toBe(6);
+    const parsed = JSON.parse(r.stdout.trim());
+    expect(parsed.installed).toBe(false);
+    expect(parsed.error).toBe("critical_risk_refused");
+    expect(parsed.riskLevel).toBe("critical");
+    // Nothing was written.
+    const lock = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
+    expect(lock).toBeNull();
+  });
+
+  it("--fail-on-unsupported aborts when a selected atom is dropped (codex P1)", async () => {
+    const dir = await freshProject("fail-unsupported");
+    // cursor/full drops `hook:post-edit-format` (target-incompatible). With the
+    // strict flag the install must refuse rather than silently exit 0.
+    const r = await run([
+      "install",
+      EXAMPLE,
+      "--target",
+      "cursor",
+      "--profile",
+      "full",
+      "--project",
+      dir,
+      "--yes",
+      "--allow-critical",
+      "--fail-on-unsupported",
+      "--json",
+    ]);
+    expect(r.code).toBe(2);
+    const parsed = JSON.parse(r.stdout.trim());
+    expect(parsed.installed).toBe(false);
+    expect(parsed.error).toBe("unsupported_atoms");
+    expect(parsed.unsupportedAtoms).toContain("hook:post-edit-format");
+    const lock = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
+    expect(lock).toBeNull();
+  });
+
+  it("default install surfaces dropped atoms but still succeeds", async () => {
+    const dir = await freshProject("drop-warn");
+    const r = await run([
+      "install",
+      EXAMPLE,
+      "--target",
+      "cursor",
+      "--profile",
+      "full",
+      "--project",
+      dir,
+      "--yes",
+      "--allow-critical",
+    ]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Installed");
+    expect(r.stdout).toMatch(/NOT installed/);
+    expect(r.stdout).toContain("hook:post-edit-format");
+  });
+
   it("install + verify + uninstall happy path", async () => {
     const dir = await freshProject("happy-path");
     const install = await run([

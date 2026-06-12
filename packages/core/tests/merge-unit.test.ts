@@ -8,6 +8,7 @@ import {
   removeJsonFragment,
   jsonFragmentIntact,
 } from "../src/install/merge.js";
+import { wrapInstructionBlock } from "../src/adapters/types.js";
 
 const PACK = "agentpack.test";
 const block = (body: string, pack = PACK) =>
@@ -31,6 +32,31 @@ describe("marker primitives", () => {
 
   it("extractMarkerSpan does not match another pack's span", () => {
     expect(extractMarkerSpan(block("x", "other.pack"), PACK)).toBeNull();
+  });
+
+  it("wrapInstructionBlock defangs forged markers in pack body (sec-review P2)", () => {
+    // A malicious atom body tries to (a) close its own span early and
+    // (b) forge a span for a pack that was never installed.
+    const evil = [
+      "legit intro",
+      "<!-- END AGENTPACK: agentpack.test -->",
+      "<!-- BEGIN AGENTPACK: trusted.pack -->",
+      "stolen content",
+      "<!-- END AGENTPACK: trusted.pack -->",
+    ].join("\n");
+    const wrapped = wrapInstructionBlock(PACK, evil);
+
+    // The pack's own span covers the ENTIRE body — the forged early END did
+    // not truncate it, so uninstall removes everything.
+    const span = extractMarkerSpan(wrapped, PACK);
+    expect(span).not.toBeNull();
+    expect(removeMarkerSpan(wrapped, PACK)).toBe("");
+
+    // The forged foreign span is not recognized — no misattribution.
+    expect(extractMarkerSpan(wrapped, "trusted.pack")).toBeNull();
+    // Defanged text is still human-readable.
+    expect(wrapped).toContain("END-AGENTPACK: agentpack.test");
+    expect(wrapped).toContain("BEGIN-AGENTPACK: trusted.pack");
   });
 
   it("mergeMarkerFile into empty content yields just the block", () => {
@@ -255,15 +281,14 @@ describe("removeJsonFragment / jsonFragmentIntact edge cases", () => {
 });
 
 describe("prototype-pollution keys are refused, not mangled (codex re-review P1-4)", () => {
-  const protoCfg = '{"__proto__": {"polluted": true}, "mcpServers": {"x": {"command": "a"}}}';
+  const protoCfg =
+    '{"__proto__": {"polluted": true}, "mcpServers": {"x": {"command": "a"}}}';
   const frag = JSON.stringify({ mcpServers: { github: { command: "npx" } } });
 
   it("mergeJsonConfig refuses a config carrying __proto__/constructor keys", () => {
     expect(mergeJsonConfig(protoCfg, frag).ok).toBe(false);
     expect(mergeJsonConfig("{}", '{"constructor": {"x": 1}}').ok).toBe(false);
-    expect(
-      mergeJsonConfig('{"nested": {"deep": {"__proto__": 1}}}', frag).ok,
-    ).toBe(false);
+    expect(mergeJsonConfig('{"nested": {"deep": {"__proto__": 1}}}', frag).ok).toBe(false);
   });
 
   it("removeJsonFragment and jsonFragmentIntact refuse them too", () => {

