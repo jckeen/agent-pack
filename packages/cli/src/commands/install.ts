@@ -67,6 +67,11 @@ export function registerInstall(program: Command): void {
       "permit installing a pack whose computed risk level is critical (otherwise refused even with --yes)",
       false,
     )
+    .option(
+      "--fail-on-unsupported",
+      "exit non-zero instead of installing when any selected atom is dropped (target-incompatible or refused by a security gate)",
+      false,
+    )
     .action(
       async (
         pack: string | undefined,
@@ -82,6 +87,7 @@ export function registerInstall(program: Command): void {
           json: boolean;
           expectedSigner?: string;
           allowCritical: boolean;
+          failOnUnsupported: boolean;
         },
       ) => {
         try {
@@ -233,7 +239,9 @@ export function registerInstall(program: Command): void {
                 // Without --expected-signer ANY valid Sigstore identity passes
                 // (trust-on-first-use). Never imply the publisher signed it.
                 console.log(
-                  pc.green(`  ✓ signature cryptographically valid — signer: ${sigCheck.san}`),
+                  pc.green(
+                    `  ✓ signature cryptographically valid — signer: ${sigCheck.san}`,
+                  ),
                 );
                 console.log(
                   pc.yellow(
@@ -316,12 +324,49 @@ export function registerInstall(program: Command): void {
           // single -y in a script (the documented CI path) must not be able
           // to cross it — the opt-in is explicit and greppable.
           if (plan.riskLevel === "critical" && !options.allowCritical) {
-            console.error(
-              pc.red(
-                `\n✗ Computed risk level is CRITICAL. Re-run with --allow-critical to proceed (this flag is intentionally separate from --yes).`,
-              ),
-            );
+            if (options.json) {
+              console.log(
+                JSON.stringify({
+                  ...planJson(),
+                  installed: false,
+                  error: "critical_risk_refused",
+                  hint: "re-run with --allow-critical (intentionally separate from --yes)",
+                }),
+              );
+            } else {
+              console.error(
+                pc.red(
+                  `\n✗ Computed risk level is CRITICAL. Re-run with --allow-critical to proceed (this flag is intentionally separate from --yes).`,
+                ),
+              );
+            }
             process.exit(ExitCode.PolicyViolation);
+          }
+
+          // Strict mode: a dropped atom (target-incompatible OR refused by a
+          // security gate, e.g. a shell-escape MCP command) is collapsed into
+          // `unsupportedAtoms`. Default install still succeeds — those atoms
+          // simply don't apply to this target — but an agent that requires the
+          // full requested surface can opt into treating any drop as failure.
+          if (options.failOnUnsupported && plan.unsupportedAtoms.length > 0) {
+            if (options.json) {
+              console.log(
+                JSON.stringify({
+                  ...planJson(),
+                  installed: false,
+                  error: "unsupported_atoms",
+                }),
+              );
+            } else {
+              console.error(
+                pc.red(
+                  `\n✗ ${plan.unsupportedAtoms.length} selected atom(s) were not installed (${plan.unsupportedAtoms.join(", ")}). Aborting because --fail-on-unsupported was set.`,
+                ),
+              );
+            }
+            // Exit 2: same "won't proceed as requested" family as conflicts
+            // and dry-run conflicts.
+            process.exit(2);
           }
 
           if (!options.yes) {
@@ -355,6 +400,13 @@ export function registerInstall(program: Command): void {
             ),
           );
           console.log(pc.dim(`  • ${result.written.length} files written.`));
+          if (plan.unsupportedAtoms.length > 0) {
+            console.log(
+              pc.yellow(
+                `  ⚠ ${plan.unsupportedAtoms.length} atom(s) NOT installed (target-incompatible or refused by a security gate): ${plan.unsupportedAtoms.join(", ")}. See warnings above; re-run with --fail-on-unsupported to treat this as an error.`,
+              ),
+            );
+          }
           console.log(
             pc.dim(`  • Manifest: ${result.manifestPath.replace(plan.projectRoot, ".")}`),
           );
@@ -455,7 +507,11 @@ async function fetchRemotePack(params: {
   // checksum (security-reviewer MEDIUM-1).
   const actualManifestSha = createHash("sha256").update(manifestBytes).digest("hex");
   if (actualManifestSha !== versionMeta.manifestSha256) {
-    throw new IntegrityError(versionMeta.manifestSha256, actualManifestSha, "AGENTPACK.yaml");
+    throw new IntegrityError(
+      versionMeta.manifestSha256,
+      actualManifestSha,
+      "AGENTPACK.yaml",
+    );
   }
   await fs.writeFile(path.join(tmpRoot, "AGENTPACK.yaml"), manifestBytes);
 

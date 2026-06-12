@@ -38,6 +38,42 @@ export interface VerifiedToken {
   scopes: string[];
 }
 
+export type UngrantableScope = {
+  scope: string;
+  reason: "admin_scope_not_self_grantable" | "not_publisher_member";
+};
+
+/**
+ * Gate at token-CREATION time: a user may only mint scopes they are entitled to.
+ *
+ *  - `admin:registry` is never user-mintable (would grant registry-wide takeover).
+ *  - A publisher-scoped grant (`publish:packs@<slug>`, `read:private@<slug>`) is
+ *    only mintable if the user is a current member of `<slug>`.
+ *
+ * The `tokenScopeSchema` only checks scope *syntax*; without this check any
+ * logged-in user could self-grant `admin:registry` or publish into any
+ * publisher's namespace (CWE-862 / supply-chain injection). Returns the first
+ * offending scope, or null if every scope is grantable.
+ */
+export function findUngrantableScope(
+  scopes: readonly string[],
+  memberPublisherSlugs: readonly string[],
+): UngrantableScope | null {
+  for (const scope of scopes) {
+    if (scope === "admin:registry") {
+      return { scope, reason: "admin_scope_not_self_grantable" };
+    }
+    const at = scope.indexOf("@");
+    if (at !== -1) {
+      const slug = scope.slice(at + 1);
+      if (!memberPublisherSlugs.includes(slug)) {
+        return { scope, reason: "not_publisher_member" };
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Resolve a Bearer-token-bearing request to a verified token, or null.
  *
@@ -53,8 +89,7 @@ export interface VerifiedToken {
  * can be enforced cleanly downstream.
  */
 export async function verifyBearer(req: Request): Promise<VerifiedToken | null> {
-  const header =
-    req.headers.get("authorization") ?? req.headers.get("Authorization");
+  const header = req.headers.get("authorization") ?? req.headers.get("Authorization");
   if (!header) return null;
   if (!header.startsWith("Bearer ")) return null;
   const raw = header.slice("Bearer ".length).trim();
@@ -114,7 +149,7 @@ export async function verifyBearer(req: Request): Promise<VerifiedToken | null> 
 export function requireScope(
   verified: VerifiedToken,
   scope: string,
-  publisherSlug?: string
+  publisherSlug?: string,
 ): void {
   if (verified.scopes.includes("admin:registry")) return;
   if (verified.scopes.includes(scope)) {
@@ -128,13 +163,13 @@ export function requireScope(
     }
   }
   if (publisherSlug && verified.scopes.includes(`${scope}@${publisherSlug}`)) {
-    return;
+    // Defense-in-depth: a scoped token only authorizes a publisher the user is
+    // still a member of. Membership is resolved live in verifyBearer, so this
+    // also revokes access the moment a user is removed from the publisher.
+    if (verified.publisherSlugs.includes(publisherSlug)) return;
   }
-  throw new Response(
-    JSON.stringify({ error: "forbidden", reason: "scope_mismatch" }),
-    {
-      status: 403,
-      headers: { "content-type": "application/json" },
-    }
-  );
+  throw new Response(JSON.stringify({ error: "forbidden", reason: "scope_mismatch" }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
 }

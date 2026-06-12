@@ -13,16 +13,36 @@ import type {
 export type { AgentPackAdapter, AdapterExportOptions, AdapterResult };
 
 /**
+ * Defang AgentPack marker tokens that appear in pack-controlled body text.
+ *
+ * The span matcher (`install/merge.ts`) keys on the literal `BEGIN AGENTPACK:`
+ * / `END AGENTPACK:`. Without this, a malicious atom body could embed its own
+ * early `END AGENTPACK: <self>` (so surgical uninstall strips only part of the
+ * block, leaving attacker content behind) or a forged `BEGIN/END AGENTPACK:
+ * <other-pack>` span (spoofing that a never-installed pack is present). We
+ * break the inner space with a hyphen — the matcher no longer recognizes it
+ * while the text stays readable in CLAUDE.md/AGENTS.md.
+ */
+function neutralizeMarkers(body: string): string {
+  return body
+    .replace(/BEGIN AGENTPACK:/g, "BEGIN-AGENTPACK:")
+    .replace(/END AGENTPACK:/g, "END-AGENTPACK:");
+}
+
+/**
  * Wrap content in the AgentPack BEGIN/END markers used by all instruction
  * outputs (CLAUDE.md, AGENTS.md, etc.). The packId is rendered in both
  * markers so multiple AgentPacks can coexist in one file.
  */
 export function wrapInstructionBlock(packId: string, body: string): string {
-  return `<!-- BEGIN AGENTPACK: ${packId} -->\n${body.trimEnd()}\n<!-- END AGENTPACK: ${packId} -->\n`;
+  return `<!-- BEGIN AGENTPACK: ${packId} -->\n${neutralizeMarkers(body.trimEnd())}\n<!-- END AGENTPACK: ${packId} -->\n`;
 }
 
 export class AtomPathEscapeError extends Error {
-  constructor(public readonly atomId: string, public readonly atomPath: string) {
+  constructor(
+    public readonly atomId: string,
+    public readonly atomPath: string,
+  ) {
     super(
       `Atom \`${atomId}\` path \`${atomPath}\` escapes the pack root. Atom paths must be relative paths inside the pack directory and must not be symlinks pointing outside the pack.`,
     );
@@ -34,11 +54,7 @@ export class AtomReadError extends Error {
   public readonly atomId: string;
   public readonly atomPath: string;
   public override readonly cause: NodeJS.ErrnoException;
-  constructor(
-    atomId: string,
-    atomPath: string,
-    cause: NodeJS.ErrnoException,
-  ) {
+  constructor(atomId: string, atomPath: string, cause: NodeJS.ErrnoException) {
     super(
       `Failed to read atom \`${atomId}\` at \`${atomPath}\` (${cause.code ?? "ERR"}: ${cause.message})`,
     );
@@ -117,10 +133,7 @@ async function resolveInsidePack(
  * to `null` for permission/IO errors would let exports look complete while
  * shipping degenerate output.
  */
-export async function readAtomFile(
-  packRoot: string,
-  atom: Atom,
-): Promise<string | null> {
+export async function readAtomFile(packRoot: string, atom: Atom): Promise<string | null> {
   const { target, lstat } = await resolveInsidePack(packRoot, atom);
   if (lstat === null) return null;
   // Refuse symlinks at the atom path itself. resolveInsidePack already
@@ -166,11 +179,7 @@ export async function readAtomDirectory(
         const content = await fs.readFile(root, "utf8");
         return [{ relPath: path.basename(root), content }];
       } catch (err) {
-        throw new AtomReadError(
-          atom.id,
-          atom.path,
-          err as NodeJS.ErrnoException,
-        );
+        throw new AtomReadError(atom.id, atom.path, err as NodeJS.ErrnoException);
       }
     }
     return [];
@@ -178,7 +187,12 @@ export async function readAtomDirectory(
   const realPack = await fs.realpath(packRoot);
   const results: Array<{ relPath: string; content: string }> = [];
   async function walk(dir: string, rel: string): Promise<void> {
-    let entries: Array<{ name: string; isDir: boolean; isFile: boolean; isSymlink: boolean }>;
+    let entries: Array<{
+      name: string;
+      isDir: boolean;
+      isFile: boolean;
+      isSymlink: boolean;
+    }>;
     try {
       const raw = await fs.readdir(dir, { withFileTypes: true });
       raw.sort((a, b) => a.name.localeCompare(b.name));
@@ -209,11 +223,7 @@ export async function readAtomDirectory(
           const content = await fs.readFile(abs, "utf8");
           results.push({ relPath: next, content });
         } catch (err) {
-          throw new AtomReadError(
-            atom.id,
-            atom.path,
-            err as NodeJS.ErrnoException,
-          );
+          throw new AtomReadError(atom.id, atom.path, err as NodeJS.ErrnoException);
         }
       }
     }
@@ -247,9 +257,7 @@ export function defineAdapter(init: AdapterBaseInit): AgentPackAdapter {
     async export(options) {
       const result = await init.build(options);
       // Sort files by path for deterministic output.
-      const files = result.files
-        .slice()
-        .sort((a, b) => a.path.localeCompare(b.path));
+      const files = result.files.slice().sort((a, b) => a.path.localeCompare(b.path));
       // Backstop: two atoms emitting the same output path would make the
       // installer attempt a duplicate create and roll the install back.
       // Keep the first, drop the rest, and say so.
@@ -284,8 +292,8 @@ export function stableJsonStringify(value: unknown): string {
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(
-      ([a], [b]) => a.localeCompare(b),
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a.localeCompare(b),
     );
     const out: Record<string, unknown> = Object.create(null);
     for (const [k, v] of entries) {

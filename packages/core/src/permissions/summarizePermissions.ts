@@ -6,6 +6,7 @@ import type {
   ResolvedAtom,
   RiskLevel,
 } from "../schema/types.js";
+import { isShellEscape } from "../adapters/commandGate.js";
 
 const PERMISSION_DESCRIPTIONS: Record<string, { label: string; risk: RiskLevel }> = {
   "filesystem.read": { label: "Read files in the project", risk: "low" },
@@ -24,11 +25,9 @@ const PERMISSION_DESCRIPTIONS: Record<string, { label: string; risk: RiskLevel }
   "model_provider_key.access": { label: "Use model provider API keys", risk: "critical" },
 };
 
-export const KNOWN_PERMISSION_CATEGORIES: ReadonlyArray<string> =
-  Object.freeze(Object.keys(PERMISSION_DESCRIPTIONS));
-
-const MCP_SHELL_SHAPES = /^(sh|bash|zsh|dash|fish|node|python(?:3)?|ruby|perl|deno|bun)$/i;
-const MCP_SHELL_FLAGS = /^-c$|^-e$|^--eval$|^--command$/i;
+export const KNOWN_PERMISSION_CATEGORIES: ReadonlyArray<string> = Object.freeze(
+  Object.keys(PERMISSION_DESCRIPTIONS),
+);
 
 function describe(category: string): { label: string; risk: RiskLevel } {
   return (
@@ -101,14 +100,8 @@ export function summarizePermissions(
       if (a.env && Object.keys(a.env).length > 0) {
         ensure("secrets.env", r.atom.id);
       }
-      const cmdBase = (a.command ?? "").split(/[\\/]/).pop() ?? "";
-      if (MCP_SHELL_SHAPES.test(cmdBase)) {
-        const hasEvalFlag = (a.args ?? []).some((arg) =>
-          MCP_SHELL_FLAGS.test(arg),
-        );
-        if (hasEvalFlag) {
-          ensure("shell.execution", r.atom.id);
-        }
+      if (a.command && isShellEscape(a.command, a.args ?? [])) {
+        ensure("shell.execution", r.atom.id);
       }
     }
     if (
@@ -130,8 +123,8 @@ export function summarizePermissions(
         (p) => p === "network.access" || p === "external_api.access",
       ) || r.atom.type === "mcp_server",
   );
-  const domains = networkConsumers.length > 0 ? perms.network?.domains ?? [] : [];
-  const externalApis = networkConsumers.length > 0 ? perms.external_apis ?? [] : [];
+  const domains = networkConsumers.length > 0 ? (perms.network?.domains ?? []) : [];
+  const externalApis = networkConsumers.length > 0 ? (perms.external_apis ?? []) : [];
   if (networkConsumers.length > 0) {
     if (domains.length > 0 || perms.network?.access === "required") {
       ensure("network.access");
@@ -140,17 +133,13 @@ export function summarizePermissions(
   }
 
   const hasShellAtom = resolved.some(
-    (r) =>
-      r.atom.type === "hook" ||
-      (r.atom.permissions ?? []).includes("shell.execution"),
+    (r) => r.atom.type === "hook" || (r.atom.permissions ?? []).includes("shell.execution"),
   );
-  const shellCommands = hasShellAtom ? perms.shell?.commands ?? [] : [];
+  const shellCommands = hasShellAtom ? (perms.shell?.commands ?? []) : [];
 
   if (
     perms.repo_modification &&
-    resolved.some((r) =>
-      (r.atom.permissions ?? []).includes("repo.modification"),
-    )
+    resolved.some((r) => (r.atom.permissions ?? []).includes("repo.modification"))
   ) {
     ensure("repo.modification");
   }
@@ -165,21 +154,13 @@ export function summarizePermissions(
   if (perms.private_context_access) ensure("private_context.access");
   if (perms.browser_access) ensure("browser.access");
   if (perms.git_operations?.length) {
-    if (
-      resolved.some((r) =>
-        (r.atom.permissions ?? []).includes("git.operations"),
-      )
-    ) {
+    if (resolved.some((r) => (r.atom.permissions ?? []).includes("git.operations"))) {
       ensure("git.operations");
     }
   }
 
   if (perms.filesystem?.read?.length) {
-    if (
-      resolved.some((r) =>
-        (r.atom.permissions ?? []).includes("filesystem.read"),
-      )
-    ) {
+    if (resolved.some((r) => (r.atom.permissions ?? []).includes("filesystem.read"))) {
       ensure("filesystem.read");
     }
   }
@@ -211,9 +192,7 @@ export function summarizePermissions(
 
   return {
     byCategory,
-    flat: Object.values(byCategory).sort((a, b) =>
-      a.category.localeCompare(b.category),
-    ),
+    flat: Object.values(byCategory).sort((a, b) => a.category.localeCompare(b.category)),
     secrets,
     domains,
     shellCommands,

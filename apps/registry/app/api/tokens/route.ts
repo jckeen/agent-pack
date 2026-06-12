@@ -6,7 +6,7 @@ import { tokenScopeSchema } from "@agentpack/core";
 
 import { auth } from "@/lib/auth";
 import { apiTokens, getDb, publishers } from "@/lib/db";
-import { generateToken } from "@/lib/tokens";
+import { findUngrantableScope, generateToken } from "@/lib/tokens";
 
 const createTokenSchema = z.object({
   name: z.string().min(1).max(120),
@@ -38,9 +38,7 @@ export async function GET(): Promise<NextResponse> {
       revoked_at: apiTokens.revokedAt,
     })
     .from(apiTokens)
-    .where(
-      and(eq(apiTokens.userId, session.user.id), isNull(apiTokens.revokedAt))
-    )
+    .where(and(eq(apiTokens.userId, session.user.id), isNull(apiTokens.revokedAt)))
     .orderBy(desc(apiTokens.createdAt));
   return NextResponse.json({ tokens: rows });
 }
@@ -57,17 +55,29 @@ export async function POST(req: Request): Promise<NextResponse> {
   } catch {
     return NextResponse.json(
       { error: "validation", issues: [{ message: "invalid JSON" }] },
-      { status: 422 }
+      { status: 422 },
     );
   }
   const parsed = createTokenSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "validation", issues: parsed.error.issues },
-      { status: 422 }
+      { status: 422 },
     );
   }
   const { name, scopes, publisherSlug } = parsed.data;
+
+  // Gate the requested scopes against the caller's entitlements. The schema
+  // only validates scope *syntax*; without this, any logged-in user could
+  // self-grant `admin:registry` or `publish:packs@<any-publisher>` and inject
+  // into a trusted namespace (CWE-862).
+  const ungrantable = findUngrantableScope(scopes, session.publisherSlugs ?? []);
+  if (ungrantable) {
+    return NextResponse.json(
+      { error: "forbidden", reason: ungrantable.reason, scope: ungrantable.scope },
+      { status: 403 },
+    );
+  }
 
   // If publisherSlug is supplied, the user must be a member.
   let publisherId: string | null = null;
@@ -81,14 +91,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (!pub) {
       return NextResponse.json(
         { error: "validation", issues: [{ message: "unknown publisher" }] },
-        { status: 422 }
+        { status: 422 },
       );
     }
     publisherId = pub.id;
     if (!session.publisherSlugs?.includes(publisherSlug)) {
       return NextResponse.json(
         { error: "forbidden", reason: "not_publisher_member" },
-        { status: 403 }
+        { status: 403 },
       );
     }
   }
