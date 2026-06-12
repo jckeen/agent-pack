@@ -1,6 +1,6 @@
 # `agentpack` CLI
 
-The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`validate`, `inspect`, `plan`, `diff`, `verify`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
+The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`validate`, `inspect`, `plan`, `diff`, `verify`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `pack plugin`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
 
 > AgentPack isn't on npm yet (planned for v0.3.0 promotion). Until then, build the CLI locally:
 >
@@ -79,6 +79,18 @@ agentpack pack export [path] [--target <target>] [--profile <profile>] [--out <d
 ```
 
 The same engine as `plan`, but writes the planned files to `--out`. `--no-strict` writes even when the manifest has validation errors (useful for partial-export debugging). Refuses to write outside `--out` (path-containment check in the exporter). Output is deterministic — two runs produce byte-identical files.
+
+### `agentpack pack plugin [path]`
+
+```
+agentpack pack plugin [path] [--profile <profile>] [--out <dir>] [--only <ids>] [--no-strict] [--no-marketplace]
+```
+
+Compiles a pack into a **Claude Code plugin** directory — `.claude-plugin/plugin.json` (+ `marketplace.json` unless `--no-marketplace`) with `skills/`, `commands/`, `agents/`, `hooks/hooks.json`, and `.mcp.json` at the plugin root. The directory is installable via the unified Directory or `/plugin marketplace add <repo>` then `/plugin install <name>@<name>-marketplace`, so one install reaches **Claude Code, Cowork, Desktop, and the web Directory** — not just the terminal.
+
+It reuses the `claude-code` adapter and relocates its output into plugin layout. Because instruction/rule atoms have no ambient home outside Claude Code, their content is bundled into an on-invoke `<slug>-guidance` skill — available everywhere the plugin installs, but explicitly **not ambient** the way `CLAUDE.md` is in Code. Hooks are emitted, but fire **only in Claude Code** (inert on Cowork/web/Desktop). The command prints a **portability** breakdown of the bundled atoms (see `inspect`).
+
+**Portability ceilings** (shown by `inspect` and `pack plugin`): `universal` (skills, MCP — reach every surface), `plugin` (commands, subagents — plugin-aware surfaces), `sdk` (workflows — Agent SDK/Managed Agents only), `terminal` (hooks, instructions, rules — Claude Code only). A pack's overall reach is bounded by its least-portable atom.
 
 ## Install commands (write to `--project`)
 

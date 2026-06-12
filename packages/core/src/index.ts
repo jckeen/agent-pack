@@ -57,6 +57,14 @@ export { summarizePermissions } from "./permissions/summarizePermissions.js";
 export { computeRisk } from "./risk/computeRisk.js";
 export { createInstallPlan } from "./planner/createInstallPlan.js";
 export { exportPack } from "./exports/exportPack.js";
+export { exportPlugin } from "./exports/exportPlugin.js";
+export type { ExportPluginOptions, ExportPluginResult } from "./exports/exportPlugin.js";
+export { portabilityFor, summarizePortability } from "./portability.js";
+export type {
+  PortabilityCeiling,
+  PortabilityInfo,
+  PortabilitySummary,
+} from "./portability.js";
 export {
   adapters,
   getAdapter,
