@@ -12,7 +12,12 @@ interface DeviceCodeEntry {
   deviceCode: string;
   userCode: string;
   expiresAt: number;
-  approvedTokenForUser?: { token: string; userId: string; username: string; publisherSlugs: string[] };
+  approvedTokenForUser?: {
+    token: string;
+    userId: string;
+    username: string;
+    publisherSlugs: string[];
+  };
 }
 
 const byDeviceCode = new Map<string, DeviceCodeEntry>();
@@ -31,7 +36,13 @@ function gc(): void {
 export function createDeviceCode(): DeviceCodeEntry {
   gc();
   const deviceCode = randomBytes(16).toString("hex");
-  const userCode = randomBytes(4).toString("hex").toUpperCase();
+  // 64 bits of entropy (was 32). The device-code approve endpoint binds the
+  // APPROVER's identity to whoever holds the matching userCode, so a guessable
+  // code lets an attacker fixate a victim's CLI session onto the attacker's
+  // token. Entropy + the approve-route rate limiter together make enumeration
+  // infeasible (backend-architect HIGH #3). Grouped for human readability.
+  const raw = randomBytes(8).toString("hex").toUpperCase();
+  const userCode = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
   const entry: DeviceCodeEntry = {
     deviceCode,
     userCode,
@@ -45,7 +56,7 @@ export function createDeviceCode(): DeviceCodeEntry {
 export function approveUserCode(
   userCode: string,
   token: string,
-  user: { userId: string; username: string; publisherSlugs: string[] }
+  user: { userId: string; username: string; publisherSlugs: string[] },
 ): DeviceCodeEntry | null {
   gc();
   const deviceCode = byUserCode.get(userCode);

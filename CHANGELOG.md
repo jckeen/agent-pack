@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.5-dev — 2026-06-12 (registry pre-launch hardening)
+
+Fixes the backend-architect review findings in the (not-yet-live) registry write path.
+
+- **Publish-finalize is now atomic (CRITICAL).** The finalize handler did ~8 dependent writes (find-or-create pack → version → files → signature → atoms → mark-completed → latest_version_id) with no transaction; a crash or constraint failure mid-way left a half-published version the installer would resolve to broken bytes. Wrapped in one `db.transaction` (matching the `audit.ts` pattern), which also makes the `DEFERRABLE INITIALLY DEFERRED` `packs.latest_version_id` FK meaningful.
+- **Rate limiting added** (was: none anywhere). A small in-memory fixed-window limiter (`lib/rate-limit.ts`, documented Redis-swap seam) now guards the abusable surfaces: unauthenticated FTS `search` (per IP), device-code `init` (per IP) and `approve` (per user), and `publish/init` (per token).
+- **Device user-code entropy 32 → 64 bits** + grouped formatting. The approve endpoint binds the approver's identity to whoever holds the matching code, so a guessable code allowed CLI-session fixation; entropy + the approve limiter close enumeration.
+- **`GET /api/packs` pagination fixed** — reported `total = page size`; now runs a real `count(*)` so clients can detect a next page.
+
+Deferred (need a live Postgres to do safely, documented not fabricated): regenerate migrations via `db:generate` to close the `0000→0002` numbering gap and verify an empty diff; add a serving route + index for pack-level (`atom_id IS NULL`) files. Registry remains pre-launch (never round-tripped), so none of the above is live exposure.
+
+Tests: registry 43 (+7 rate-limiter); `pnpm verify` exit 0.
+
+---
+
 ## 0.6.4-dev — 2026-06-12 (rollback correctness for re-installs + QA polish sweep)
 
 Follow-up to the 0.6.3 review: fixed the one real correctness bug it left open (rollback of a re-install) and swept the cheap QA P2 inconsistencies.

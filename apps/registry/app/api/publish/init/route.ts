@@ -2,26 +2,22 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { ZodError } from "zod";
 
-import {
-  publishInitRequestSchema,
-  type PublishInitResponse,
-} from "@agentpack/core";
+import { publishInitRequestSchema, type PublishInitResponse } from "@agentpack/core";
 
-import {
-  getDb,
-  packs,
-  packVersions,
-  publishes,
-  publishers,
-} from "@/lib/db";
+import { getDb, packs, packVersions, publishes, publishers } from "@/lib/db";
 import { presignPutUrl, R2NotConfiguredError } from "@/lib/r2";
 import { requireScope, verifyBearer } from "@/lib/tokens";
+import { hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request): Promise<Response> {
   const verified = await verifyBearer(req);
   if (!verified) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  // Each init presigns N R2 PUT URLs and writes a 24h-lived publishes row —
+  // throttle per token so a single principal can't flood pending publishes.
+  const rl = hit(`publish-init:${verified.tokenId}`, 30, 60_000);
+  if (!rl.allowed) return tooManyRequests(rl);
   let body: unknown;
   try {
     body = await req.json();
@@ -35,7 +31,7 @@ export async function POST(req: Request): Promise<Response> {
     if (err instanceof ZodError) {
       return NextResponse.json(
         { error: "validation", issues: err.issues },
-        { status: 422 }
+        { status: 422 },
       );
     }
     throw err;
@@ -72,10 +68,7 @@ export async function POST(req: Request): Promise<Response> {
         .select()
         .from(packVersions)
         .where(
-          and(
-            eq(packVersions.packId, pk.id),
-            eq(packVersions.version, parsed.version)
-          )
+          and(eq(packVersions.packId, pk.id), eq(packVersions.version, parsed.version)),
         )
         .limit(1);
       if (versionRow.length > 0) {
@@ -86,7 +79,7 @@ export async function POST(req: Request): Promise<Response> {
               publishedAt: versionRow[0]?.publishedAt?.toISOString() ?? "",
             },
           },
-          { status: 409 }
+          { status: 409 },
         );
       }
     }
@@ -119,7 +112,7 @@ export async function POST(req: Request): Promise<Response> {
           presignedUrl: presign.url,
           presignedHeaders: presign.headers,
         };
-      })
+      }),
     );
   } catch (err) {
     if (err instanceof R2NotConfiguredError) {

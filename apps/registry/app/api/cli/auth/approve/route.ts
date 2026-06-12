@@ -2,24 +2,21 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
 import { approveUserCode } from "@/lib/cli-auth-store";
-import {
-  apiTokens,
-  getDb,
-  publisherMembers,
-  publishers,
-  users,
-} from "@/lib/db";
+import { apiTokens, getDb, publisherMembers, publishers, users } from "@/lib/db";
 import { generateToken } from "@/lib/tokens";
 import { auth } from "@/lib/auth";
+import { hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request): Promise<Response> {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const body = (await req.json().catch(() => null)) as
-    | { userCode?: string }
-    | null;
+  // Throttle approve attempts per user — a guessed userCode lets an attacker
+  // bind their token to a victim's CLI session, so cap enumeration velocity.
+  const rl = hit(`approve:${session.user.id}`, 10, 60_000);
+  if (!rl.allowed) return tooManyRequests(rl);
+  const body = (await req.json().catch(() => null)) as { userCode?: string } | null;
   if (!body?.userCode) {
     return NextResponse.json({ error: "missing_user_code" }, { status: 400 });
   }
@@ -38,11 +35,7 @@ export async function POST(req: Request): Promise<Response> {
     scopes: ["read:packs", "publish:packs"],
   });
 
-  const u = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, session.user.id))
-    .limit(1);
+  const u = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   const memberships = await db
     .select({ slug: publishers.slug })
     .from(publisherMembers)
