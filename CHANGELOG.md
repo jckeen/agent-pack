@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.7-dev — 2026-06-12 (remote MCP connector prototype — cross-surface reach)
+
+New `@agentpack/connector` package: a thin **remote MCP server** that exposes a pack's portable guidance to **every** Claude surface at once — claude.ai web, Desktop, Cowork, and mobile/Dispatch — including the pure-chat/mobile surfaces a plugin can't reach. This is the second half of the cross-surface story: the plugin (`pack plugin`) covers plugin-aware surfaces; the connector covers the long tail.
+
+- **`catalog.ts`** (pure, tested): reshapes `skill`/`command`/`instruction`/`rule`/`subagent` atoms into MCP **prompts** (invokable) + **resources** (readable). `hook` and `mcp_server` atoms are explicitly NOT carried (no MCP equivalent / already their own server), each with a stated reason. MCP cannot make anything _ambient_ the way `CLAUDE.md` is in Code — prompts are invoked, not auto-loaded. Honest by construction.
+- **`server.ts`**: an `McpServer` (current `registerPrompt`/`registerResource`/`registerTool` API, verified against `@modelcontextprotocol/sdk@1.29.0`) served over Hono + Web Standard Streamable HTTP (stateless), plus a `pack_info` tool and a `/healthz` probe.
+- **`agentpack-connector <pack>`** launcher. Live-verified: `/healthz` + an MCP `initialize` round-trip (advertises prompts/resources/tools capabilities); 5 prompts / 6 resources from `examples/pr-quality`.
+- New `@agentpack/core` exports: `readAtomFile`, `readAtomDirectory`.
+
+**Prototype, no auth.** The README documents the bearer-auth (MCP resource-server pattern), DNS-rebinding protection, and hosting steps required before public exposure. Recurring hosted infra is **deferred** per cost policy — the deploy path is documented, not provisioned.
+
+Tests: connector 4; `pnpm verify` exit 0 (connector now in the build + coverage pipeline).
+
+---
+
 ## 0.6.6-dev — 2026-06-12 (Directory-plugin emit path + portability ceilings)
 
 Lets a pack escape the terminal and reach Claude's other surfaces, with honesty about how far each atom travels. Grounded in cross-surface research (June 2026): Skills and remote-MCP connectors are account-level and reach every Claude surface; commands/subagents ride inside a plugin on plugin-aware surfaces (Code, Cowork, Desktop, the web Directory); hooks and ambient CLAUDE.md instructions are structurally Claude-Code-only.
