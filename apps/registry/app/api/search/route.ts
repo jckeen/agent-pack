@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 
 import { getDb, packs, publishers } from "@/lib/db";
+import { clientKey, hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function GET(req: Request): Promise<Response> {
+  // Unauthenticated FTS runs a ts_rank_cd scan per request — throttle per IP.
+  const rl = hit(clientKey(req, "search"), 30, 60_000);
+  if (!rl.allowed) return tooManyRequests(rl);
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim() ?? "";
   if (!q) {
