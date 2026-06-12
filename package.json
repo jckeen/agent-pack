@@ -10,7 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm --filter @agentpack/cli build && pnpm --filter @agentpack/registry build",
+    "build": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm --filter @agentpack/connector build && pnpm --filter @agentpack/cli build && pnpm --filter @agentpack/registry build",
     "dev": "pnpm --filter @agentpack/registry dev",
     "test": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" test",
     "test:coverage": "pnpm -r --filter \"./packages/*\" test:coverage",
