@@ -5,8 +5,10 @@ import {
   loadManifest,
   resolveAtoms,
   summarizePermissions,
+  summarizePortability,
   validateManifest,
   type CompatibilityStatus,
+  type PortabilityCeiling,
   type TargetPlatform,
 } from "@agentpack/core";
 import { header, renderPermissionSummary, riskBadge } from "../lib/render.js";
@@ -38,7 +40,9 @@ function statusGlyph(status: CompatibilityStatus | undefined): string {
 export function registerInspect(program: Command): void {
   program
     .command("inspect [path]")
-    .description("Print metadata, compatibility, profiles, atoms, risk, and permissions for a pack.")
+    .description(
+      "Print metadata, compatibility, profiles, atoms, risk, and permissions for a pack.",
+    )
     .option("--profile <name>", "profile to use for risk and permission preview", "safe")
     .action(async (target: string | undefined, options: { profile: string }) => {
       const source = target ?? process.cwd();
@@ -108,6 +112,33 @@ export function registerInspect(program: Command): void {
               ` — risk ${riskBadge(risk.level)}, ${resolved.length} atoms`,
           );
           console.log(renderPermissionSummary(perms));
+
+          // Portability: how far this profile's atoms travel beyond the terminal.
+          const portability = summarizePortability(resolved.map((r) => r.atom.type));
+          const reach: Record<PortabilityCeiling, string> = {
+            universal: "every Claude surface",
+            plugin: "plugin surfaces (Code, Cowork, Desktop, web Directory)",
+            sdk: "Agent SDK / Managed Agents",
+            terminal: "Claude Code only",
+          };
+          console.log(
+            "\n" +
+              pc.bold("Portability") +
+              ` — overall reach: ${portability.overall === "terminal" ? pc.yellow(reach[portability.overall]) : pc.green(reach[portability.overall])}`,
+          );
+          for (const ceiling of ["universal", "plugin", "sdk", "terminal"] as const) {
+            const types = portability.byCeiling[ceiling];
+            if (types.length > 0) {
+              console.log(
+                `  ${ceiling.padEnd(9)} → ${reach[ceiling]}: ${pc.dim(types.join(", "))}`,
+              );
+            }
+          }
+          console.log(
+            pc.dim(
+              "  Run `agentpack pack plugin` to compile a Directory-installable plugin.",
+            ),
+          );
         }
         console.log("");
 
