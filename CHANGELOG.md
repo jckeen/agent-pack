@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.6.7-dev — 2026-06-12 (remote MCP connector prototype — cross-surface reach)
+## 0.6.8-dev — 2026-06-12 (reposition to governance + reach; ISA iteration-7)
+
+Docs-only. Repositions the project from "write once, install anywhere" to **the compiler and governance layer for agent configuration**, and documents the now-shipped cross-surface story honestly.
+
+- **README** leads with the two real problems (no discipline / no reach) and the durable moat (policy + lockfile + risk + provenance), with portability as supporting. New **"Where a pack runs — across Claude's surfaces"** section: the local-install / plugin / connector vehicle table + the per-atom portability-ceiling table, and the blunt truth that hooks and ambient `CLAUDE.md` are terminal-only. Adds `pack plugin` and the connector to the quickstart, CLI highlights, and repo layout; status line refreshed to 2026-06-12.
+- **STATUS.md** gains an Iteration-7 highlights section and a refreshed header.
+- **ISA.md** adds the **Iteration-7** section (ISC-301..312) recording the cross-surface emit + connector + portability work and the security/usability/registry hardening, plus the iteration decisions (honesty over reach-theater; plugin via relocation; connector hosting deferred; reposition rationale).
+
+No code change; `pnpm verify` unaffected (378 tests green as of 0.6.7).
 
 New `@agentpack/connector` package: a thin **remote MCP server** that exposes a pack's portable guidance to **every** Claude surface at once — claude.ai web, Desktop, Cowork, and mobile/Dispatch — including the pure-chat/mobile surfaces a plugin can't reach. This is the second half of the cross-surface story: the plugin (`pack plugin`) covers plugin-aware surfaces; the connector covers the long tail.
 

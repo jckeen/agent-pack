@@ -1,23 +1,34 @@
 # AgentPack
 
-**Atomic packages for AI workflows. Write once. Install anywhere agents work.**
+**The compiler and governance layer for agent configuration. Write once, install with a lockfile, govern what agents can do — and carry it to every Claude surface.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node ≥22](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)](./.nvmrc)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-orange)](https://pnpm.io)
 [![CI](https://github.com/jckeen/agent-pack/actions/workflows/ci.yml/badge.svg)](https://github.com/jckeen/agent-pack/actions/workflows/ci.yml)
 
-One `AGENTPACK.yaml` compiles to **Claude Code**, **Codex**, **Cursor**, **ChatGPT Apps**, and a generic AGENTS.md target — with permissions, risk, and platform compatibility visible *before* anything writes to disk. AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, and the adapters are all in this repo and stay free forever.
+One `AGENTPACK.yaml` describes a bundle of agent configuration — skills, rules, hooks, slash commands, subagents, MCP servers — and AgentPack does three things a hand-rolled `.claude/` directory can't:
 
-> **Status — 2026-05-19:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Phase 3 (registry backend) and Phase 5 (remote install + cache + policy) landed as `v0.3.0-rc.1`; Phase 4 (Sigstore cosign keyless signing + admin quarantine UI) landed on top; v0.5 git-source install path landed 2026-05-19. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). See [`STATUS.md`](./STATUS.md) and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
+1. **Governs it.** Permissions, risk level, and the exact file plan are shown _before_ anything writes to disk; a `agentpack.policy.json` can refuse installs that exceed a risk ceiling or pull from un-allowlisted sources.
+2. **Installs it safely.** A content-addressed engine produces a lockfile, hash-chained history, drift detection, and atomic rollback — npm-grade discipline for agent config, with surgical merge into your existing `CLAUDE.md`.
+3. **Carries it across surfaces.** Compile to a Claude Code **plugin** (reaches Code, Cowork, Desktop, and the web Directory) or run a remote **MCP connector** (reaches _every_ surface, including claude.ai chat and mobile) — with honest per-atom **portability ceilings** so you know what travels and what's terminal-only.
+
+It also compiles to **Codex**, **Cursor**, **ChatGPT Apps**, and a generic `AGENTS.md` target. AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, the connector, and the adapters are all in this repo and stay free forever.
+
+> **Status — 2026-06-12:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Cross-surface reach landed 2026-06-12: `agentpack pack plugin` emits a Claude Code plugin (Directory-installable), and `@agentpack/connector` is a remote-MCP prototype that reaches every surface. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). See [`STATUS.md`](./STATUS.md) and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
 
 ---
 
 ## Why AgentPack
 
-AI tooling fragments across Claude Code, Codex, Cursor, ChatGPT, and every MCP-compatible host. Each platform has its own surface for instructions, rules, skills, hooks, slash commands, subagents, MCP servers, and plugins. Authors duplicate work. Users have no way to see what a configuration bundle will actually do to their machine before they install it.
+Two real problems, one tool:
 
-AgentPack fixes that with a single portable manifest, a permissioned planner that runs *before* any export, deterministic compilation to every supported host, and a content-addressed install engine that produces a lockfile, history, drift detection, and atomic rollback. Phase 4 adds cosign keyless signatures + a transparency-log inclusion proof so users can verify a pack came from its claimed publisher before it touches their project.
+- **No discipline.** A shared `.claude/` directory committed to git has no lockfile, no drift detection, no clean uninstall, and clobbers whatever was already in your `CLAUDE.md`. Nobody can see what a configuration bundle will _do_ to their machine before installing it — and an org has no way to refuse a pack that ships a `bash -c` hook from an un-allowlisted source.
+- **No reach.** What you carefully set up in the terminal (Claude Code) doesn't follow you to claude.ai, Desktop, Cowork, or mobile. Each surface is an island.
+
+AgentPack answers the first with a permissioned planner that runs _before_ any export, a content-addressed install engine (lockfile + hash-chained history + drift detection + atomic rollback + surgical merge into your existing `CLAUDE.md`), an `agentpack.policy.json` enforcer, and cosign keyless signatures with a transparency-log inclusion proof. It answers the second by compiling the same pack to a Claude Code **plugin** and a remote **MCP connector** — honestly labeling, per atom, how far each piece travels (skills + MCP reach everywhere; hooks and ambient `CLAUDE.md` are Claude-Code-only).
+
+The governance is the durable part — the thing the platforms are slowest to build. Portability is real but increasingly absorbed natively (account-level Skills, the Directory, account connectors); AgentPack rides those rails rather than fighting them.
 
 ---
 
@@ -88,7 +99,7 @@ agentpack verify agentpack.pr-quality --project /tmp/my-claude-project --sig --s
 
 ### Hosted registry (optional)
 
-You don't *need* a hosted registry to use AgentPack — git is the default distribution. The registry exists as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the eventual enterprise self-host path. See [`docs/registry.md`](./docs/registry.md) for when it earns its keep.
+You don't _need_ a hosted registry to use AgentPack — git is the default distribution. The registry exists as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the eventual enterprise self-host path. See [`docs/registry.md`](./docs/registry.md) for when it earns its keep.
 
 To browse the registry web app locally (boots in JSON-fallback mode without any env vars):
 
@@ -103,22 +114,57 @@ pnpm dev
 
 The manifest is `AGENTPACK.yaml`. Each pack is composed of **atoms** — the smallest installable unit:
 
-| Atom type      | Compiles to (examples)                                                            |
-|----------------|-----------------------------------------------------------------------------------|
-| `instruction`  | `CLAUDE.md`, `AGENTS.md`, `project-instructions.md`, generic instruction docs     |
-| `rule`         | `.cursor/rules/*.mdc`, scoped sections in `CLAUDE.md` / `AGENTS.md`               |
+| Atom type      | Compiles to (examples)                                                             |
+| -------------- | ---------------------------------------------------------------------------------- |
+| `instruction`  | `CLAUDE.md`, `AGENTS.md`, `project-instructions.md`, generic instruction docs      |
+| `rule`         | `.cursor/rules/*.mdc`, scoped sections in `CLAUDE.md` / `AGENTS.md`                |
 | `skill`        | `.claude/skills/<name>/`, `.codex/skills/<name>/`, `skills/<name>/` (Agent Skills) |
-| `hook`         | `.claude/settings.json` hooks, `.codex/hooks.json` (high risk by policy)          |
-| `command`      | `.claude/commands/*.md` slash commands, skill folders, MCP tool stubs             |
-| `subagent`     | `.claude/agents/*.md`, `.codex/agents/*.toml`                                     |
-| `mcp_server`   | `.claude/settings.json#mcpServers`, `.codex/config.toml`, `.cursor/mcp.json`      |
-| `plugin`       | ChatGPT Apps SDK skeleton, editor plugin metadata                                 |
-| `workflow`     | section in `CLAUDE.md` / `AGENTS.md`                                              |
-| `context_pack` | exported context bundle (sensitivity declared)                                    |
-| `template`     | starter docs / configs / checklists                                               |
-| `eval`         | regression prompts, behavioral checks                                             |
+| `hook`         | `.claude/settings.json` hooks, `.codex/hooks.json` (high risk by policy)           |
+| `command`      | `.claude/commands/*.md` slash commands, skill folders, MCP tool stubs              |
+| `subagent`     | `.claude/agents/*.md`, `.codex/agents/*.toml`                                      |
+| `mcp_server`   | `.claude/settings.json#mcpServers`, `.codex/config.toml`, `.cursor/mcp.json`       |
+| `plugin`       | ChatGPT Apps SDK skeleton, editor plugin metadata                                  |
+| `workflow`     | section in `CLAUDE.md` / `AGENTS.md`                                               |
+| `context_pack` | exported context bundle (sensitivity declared)                                     |
+| `template`     | starter docs / configs / checklists                                                |
+| `eval`         | regression prompts, behavioral checks                                              |
 
 Install profiles (**safe → standard → full → enterprise**) let you opt into risk explicitly. The CLI shows risk, permissions, secrets, and the exact file plan before any export touches disk.
+
+---
+
+## Where a pack runs — across Claude's surfaces
+
+The thing you configure in the terminal mostly doesn't follow you to claude.ai, Desktop, Cowork, or mobile — each surface is its own island. AgentPack bridges what's bridgeable through three vehicles, and is honest about the rest:
+
+| Vehicle           | Command                 | Carries                                             | Reaches                                            |
+| ----------------- | ----------------------- | --------------------------------------------------- | -------------------------------------------------- |
+| **Local install** | `agentpack install`     | everything, incl. hooks + ambient `CLAUDE.md`       | Claude Code only                                   |
+| **Plugin**        | `agentpack pack plugin` | skills, commands, subagents, MCP, hooks\*           | Code, Cowork, Desktop, the web **Directory**       |
+| **MCP connector** | `@agentpack/connector`  | skills/commands/instructions as prompts + resources | **every** surface, incl. claude.ai chat and mobile |
+
+\* Hooks are emitted into the plugin but fire **only in Claude Code** — inert on Cowork/web/Desktop.
+
+Every atom type has a **portability ceiling** that `inspect` and `pack plugin` print:
+
+| Ceiling     | Atom types                                                        | Meaning                                       |
+| ----------- | ----------------------------------------------------------------- | --------------------------------------------- |
+| `universal` | `skill`, `mcp_server`                                             | account-level — reaches every Claude surface  |
+| `plugin`    | `command`, `subagent`, `plugin`                                   | reaches plugin-aware surfaces inside a plugin |
+| `sdk`       | `workflow`                                                        | Agent SDK / Managed Agents only               |
+| `terminal`  | `hook`, `instruction`, `rule`, `context_pack`, `template`, `eval` | Claude Code only — no ambient home elsewhere  |
+
+A pack's overall reach is bounded by its least-portable atom. Instruction/rule content (terminal-only as _ambient_ behavior) is bundled into an on-invoke `*-guidance` skill so the guidance still travels — just not ambiently. This is deliberate honesty: no vehicle can make hooks or an ambient `CLAUDE.md` work on claude.ai or Cowork, because those surfaces have no hook engine and no `CLAUDE.md` loader.
+
+```bash
+# Compile to a Directory-installable Claude Code plugin
+agentpack pack plugin examples/pr-quality --profile full --out dist-plugin
+#   → /plugin marketplace add <repo> ; /plugin install pr-quality@pr-quality-marketplace
+
+# Run a remote MCP connector that reaches every surface (prototype; local, no auth)
+node packages/connector/dist/serve.js examples/pr-quality
+#   → add the /mcp URL as a Custom Connector in claude.ai or Desktop
+```
 
 ---
 
@@ -127,8 +173,9 @@ Install profiles (**safe → standard → full → enterprise**) let you opt int
 ```text
 agent-pack/
 ├── packages/
-│   ├── core/                 # @agentpack/core: schema + parser + risk + permissions + planner + adapters + signing
+│   ├── core/                 # @agentpack/core: schema + parser + risk + permissions + planner + adapters + signing + portability + plugin emit
 │   ├── cli/                  # @agentpack/cli: agentpack CLI binary
+│   ├── connector/            # @agentpack/connector: remote MCP connector (prototype) — cross-surface reach
 │   └── db/                   # @agentpack/db: Drizzle schema, queries, migrations
 ├── apps/
 │   └── registry/             # @agentpack/registry: Next.js 15 App Router registry app
@@ -161,6 +208,8 @@ agentpack plan [path] \
   --target claude-code --profile safe       # plan + risk + permission summary
 agentpack pack export [path] \
   --target codex --profile full --out dist/ # write platform-native files
+agentpack pack plugin [path] \
+  --profile full --out dist-plugin          # compile a Directory-installable Claude Code plugin
 agentpack install [pack] \
   --target claude-code --profile safe \
   --project ./my-project --yes              # WAL-protected local install
@@ -180,13 +229,13 @@ Full reference: [`docs/cli.md`](./docs/cli.md).
 
 ## Adapters
 
-| Target        | Output surface |
-|---------------|----------------|
+| Target          | Output surface                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | **claude-code** | `CLAUDE.md`, `.claude/skills/*`, `.claude/commands/*`, `.claude/agents/*`, `.claude/settings.json` (hooks), `.mcp.json` (MCP servers) |
-| **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/*`, `.codex/agents/*.toml` |
-| **cursor**      | `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
-| **chatgpt**     | `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only) |
-| **generic**     | `AGENTS.md`, `skills/*`, `README-agent.md`, `agentpack.json` |
+| **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/*`, `.codex/agents/*.toml`                                     |
+| **cursor**      | `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json`                                                                                |
+| **chatgpt**     | `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only)                                                  |
+| **generic**     | `AGENTS.md`, `skills/*`, `README-agent.md`, `agentpack.json`                                                                          |
 
 Every adapter:
 
@@ -226,15 +275,15 @@ Full details: [`docs/security.md`](./docs/security.md) and [`docs/signatures.md`
 
 ## Roadmap (live)
 
-| Phase | Version | Status |
-|------|---------|--------|
-| 1 | v0.1.x | ✅ shipped — standard + CLI + 5 adapters + registry |
-| 2 | v0.2.0 | ✅ shipped — local install + verify + rollback + history |
-| 3 | v0.3.0-rc.1 | ✅ shipped (code) — registry backend (Drizzle schema + auth + publish + read API + search); v0.3.0 promotion held on live smoke |
-| 4 | v0.4.0-dev | ✅ shipped (code) — Sigstore keyless signing + verification + admin quarantine UI |
-| 5 | v0.5.0 | ✅ shipped (scaffold) — remote install, content-addressed cache, policy file |
-| 6 | v0.6.0 | 🔒 **gated** — see [`Plans/PHASE-6-GATE.md`](./Plans/PHASE-6-GATE.md) |
-| 7 | v0.7.0 → v1.0.0 | 📋 planned — AgentPack integration, trust graph, Agent Commons bridge |
+| Phase | Version         | Status                                                                                                                          |
+| ----- | --------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | v0.1.x          | ✅ shipped — standard + CLI + 5 adapters + registry                                                                             |
+| 2     | v0.2.0          | ✅ shipped — local install + verify + rollback + history                                                                        |
+| 3     | v0.3.0-rc.1     | ✅ shipped (code) — registry backend (Drizzle schema + auth + publish + read API + search); v0.3.0 promotion held on live smoke |
+| 4     | v0.4.0-dev      | ✅ shipped (code) — Sigstore keyless signing + verification + admin quarantine UI                                               |
+| 5     | v0.5.0          | ✅ shipped (scaffold) — remote install, content-addressed cache, policy file                                                    |
+| 6     | v0.6.0          | 🔒 **gated** — see [`Plans/PHASE-6-GATE.md`](./Plans/PHASE-6-GATE.md)                                                           |
+| 7     | v0.7.0 → v1.0.0 | 📋 planned — AgentPack integration, trust graph, Agent Commons bridge                                                           |
 
 Decisions, rationale, and revisit triggers are pinned in [`Plans/ROADMAP.md`](./Plans/ROADMAP.md). The wire contract that Phase 3+ honors is pinned in [`Plans/PROTOCOL.md`](./Plans/PROTOCOL.md).
 

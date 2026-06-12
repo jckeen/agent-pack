@@ -1,12 +1,19 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-10 (iteration-6 agent-consumer readiness — merge semantics, adapter fidelity, git-source rewrite, security hardening; see CHANGELOG 0.6.0-dev)
+Last updated: 2026-06-12 (cross-surface reach — plugin emit + MCP connector + portability ceilings; plus rollback-reinstall fix, joint security review, registry hardening; see CHANGELOG 0.6.3→0.6.7)
 
 ## Where we are
 
-**AgentPack is OPEN SOURCE.** Standard, registry, CLI, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
+**AgentPack is OPEN SOURCE.** Standard, registry, CLI, connector, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
-**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) fixed 4 P0s and landed shared-file merge semantics — see CHANGELOG 0.6.0-dev; v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+
+## Iteration-7 highlights (2026-06-12)
+
+- **Cross-surface reach**: `agentpack pack plugin` compiles a pack into a Claude Code **plugin** (Directory-installable — Code, Cowork, Desktop, web); `@agentpack/connector` is a remote-MCP prototype reaching every surface incl. claude.ai chat and mobile. Per-atom **portability ceilings** (universal/plugin/sdk/terminal) surfaced in `inspect`, with instruction/rule content bundled as an on-invoke guidance skill (honest: hooks + ambient CLAUDE.md stay terminal-only).
+- **Security + usability sweep** (joint Claude + Codex review): registry token-scope self-grant P0 fixed; MCP shell-escape gate extended to inline-eval interpreters; marker-forgery defang; rollback-of-reinstall correctness; QA polish (Node ≥22 unified, uninstall wording, `--fail-on-unsupported`).
+- **Registry pre-launch hardening**: atomic publish-finalize transaction, rate limiting, device-code entropy 32→64 bits, pagination count. Registry still pre-launch.
+- **Tests**: `pnpm verify` exit 0 — core 272 + cli 40 + db 19 + connector 4 + registry 43.
 
 ## Iteration-6 highlights (2026-06-10)
 
