@@ -858,3 +858,21 @@ A joint Claude + Codex security/usability review, then a build-out that takes a 
 - **Plugin via relocation, not a new adapter**: the plugin emitter reuses the `claude-code` adapter output and moves it into plugin layout — one source of truth for rendering.
 - **Connector is a prototype with deferred hosting**: code + tests landed; bearer-auth, DNS-rebinding protection, and recurring hosted infra are documented in the package README, not provisioned (cost policy).
 - **Reposition to governance + reach**: README/STATUS now lead with the durable moat (policy/lockfile/risk/provenance) and treat cross-platform compile as supporting — the compile layer is the most platform-absorbable part.
+
+## Iteration-8 — Agent Skills spec conformance (2026-06-12)
+
+Aligns AgentPack with the Anthropic **Agent Skills** specification (agentskills.io; spec text in agentskills/agentskills `docs/specification.mdx`, audited at commit 5d4c1fd). Strategy: ride the rail — packs are an explicit superset of Agent Skills. The spec covers a single skill folder; AgentPack operates a layer above it (multi-atom packs, install discipline, governance) and now provably emits and consumes spec-conformant skill folders.
+
+### Iteration-8 ISCs (all verified by tests + the official skills-ref validator)
+
+- [x] ISC-313: Conformance audit — every emitted skill folder (claude-code/codex/generic exports + plugin layout, example pack AND an adversarial fixture) passes the official reference validator (`skills-ref validate`, run via uvx from the spec repo). Pre-fix gaps found and fixed: YAML breakage on `: ` in synthesized descriptions, unknown top-level frontmatter fields passed through (spec hard error), name↔directory mismatch on pass-through skills, and atom-id slugs with uppercase/`.`/`_` (legal in atom ids, illegal in skill names) surviving into directory names.
+- [x] ISC-314: One spec module — `packages/core/src/skills/agentskills.ts` is the single source of truth: `validateSkillMdContent` (TS port of the skills-ref rules), `normalizeSkillSlug`, `renderSkillMd` (YAML-safe synthesis), `conformSkillMd` (pass-through normalization: name rewritten to the emitted directory, non-spec top-level fields relocated under the spec's `metadata` passthrough, over-limit fields clamped — every change surfaced as a warning, never silent). Already-conformant sources pass through **byte-identical**.
+- [x] ISC-315: YAML-injection sweep — all emitted frontmatter (skills, `.claude/commands/*.md`, `.claude/agents/*.md`, `.cursor/rules/*.mdc`) serializes values through the YAML library via `yamlFrontmatter`/`renderSkillMd`; no `description: ${…}` string interpolation remains in any adapter.
+- [x] ISC-316: Ingestion — a `skill` atom pointing at any spec-conformant skill folder (all optional fields: `license`, `compatibility`, `allowed-tools`, `metadata`) round-trips byte-identical through export; `agentpack validate` runs `validateSkillAtoms` and reports non-conformant skill sources as warnings (emit auto-conforms, so they are author hygiene, not blockers).
+- [x] ISC-317: CI conformance gate — `packages/core/tests/agentskills-conformance.test.ts` (32 tests) validates every emitted SKILL.md against the spec rules on every test run; codex AGENTS.md skill-index/collision-rename consistency fixed as part of centralizing slug computation. `pnpm verify` exit 0 — 367 workspace tests (304 core + 40 cli + 19 db + 4 connector) + 43 registry in CI.
+
+### Iteration-8 decisions
+
+- **Ride the rail, claim conformance — not certification.** Docs say "conformant/validated against the reference validator"; there is no certification program to claim.
+- **TS port over Python-in-CI**: the conformance gate re-implements the six skills-ref rules in TypeScript rather than wiring a Python toolchain into CI; the tradeoff and the manual cross-check command are recorded in the test file header.
+- **Conform, don't reject**: non-conformant skill sources are auto-conformed at emit with warnings (and flagged at `agentpack validate`), preserving install flow while guaranteeing conformant output. Spec-extra fields travel under the spec's `metadata` passthrough, never as ad-hoc top-level frontmatter.

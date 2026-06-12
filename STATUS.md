@@ -1,12 +1,18 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-12 (cross-surface reach — plugin emit + MCP connector + portability ceilings; plus rollback-reinstall fix, joint security review, registry hardening; see CHANGELOG 0.6.3→0.6.7)
+Last updated: 2026-06-12 (Agent Skills spec conformance — emit + ingest + CI gate; see CHANGELOG 0.6.9. Prior same-day: cross-surface reach — plugin emit + MCP connector + portability ceilings; see CHANGELOG 0.6.3→0.6.7)
 
 ## Where we are
 
 **AgentPack is OPEN SOURCE.** Standard, registry, CLI, connector, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
-**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; iteration-8 (2026-06-12) landed Agent Skills spec conformance (emit + ingest + CI gate, CHANGELOG 0.6.9); v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+
+## Iteration-8 highlights (2026-06-12)
+
+- **Agent Skills spec conformance** (agentskills.io): every emitted skill folder passes the official `skills-ref` reference validator — the audit found and fixed YAML breakage on `: ` in descriptions, non-spec frontmatter passed through, name↔directory mismatches, and illegal characters in skill directory names. New `packages/core/src/skills/agentskills.ts` is the single spec module (validate/normalize/render/conform); spec-extra fields travel under the spec's `metadata` passthrough.
+- **Ingestion**: a `skill` atom can wrap any spec-conformant skill folder (round-trips byte-identical); `agentpack validate` flags non-conformant skill sources as warnings.
+- **CI gate**: `agentskills-conformance.test.ts` (32 tests incl. adversarial fixtures) blocks regression. Tests: core 272 → 304; `pnpm verify` exit 0.
 
 ## Iteration-7 highlights (2026-06-12)
 

@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { stringify as stringifyYaml } from "yaml";
 import type {
   AdapterExportOptions,
   AdapterOutputFile,
@@ -36,6 +37,21 @@ function neutralizeMarkers(body: string): string {
  */
 export function wrapInstructionBlock(packId: string, body: string): string {
   return `<!-- BEGIN AGENTPACK: ${packId} -->\n${neutralizeMarkers(body.trimEnd())}\n<!-- END AGENTPACK: ${packId} -->\n`;
+}
+
+/**
+ * Render a `---`-delimited YAML frontmatter block for emitted .md files
+ * (commands, subagents). Values are serialized through the YAML library —
+ * never string-interpolated — so an atom description containing `: `,
+ * quotes, or flow characters cannot break the frontmatter of the file it
+ * lands in. `undefined` values are omitted.
+ */
+export function yamlFrontmatter(fields: Record<string, unknown>): string {
+  const present: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (v !== undefined) present[k] = v;
+  }
+  return `---\n${stringifyYaml(present, { lineWidth: 0 })}---\n`;
 }
 
 export class AtomPathEscapeError extends Error {

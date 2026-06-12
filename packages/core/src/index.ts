@@ -82,6 +82,20 @@ export {
   AtomReadError,
 } from "./adapters/types.js";
 export { KNOWN_PERMISSION_CATEGORIES } from "./permissions/summarizePermissions.js";
+// Agent Skills spec (agentskills.io) — validation, synthesis, conformance.
+export {
+  AGENT_SKILLS_ALLOWED_FIELDS,
+  SKILL_NAME_MAX_LENGTH,
+  SKILL_DESCRIPTION_MAX_LENGTH,
+  SKILL_COMPATIBILITY_MAX_LENGTH,
+  conformSkillMd,
+  normalizeSkillSlug,
+  renderSkillMd,
+  validateSkillAtoms,
+  validateSkillMdContent,
+  type AgentSkillFrontmatter,
+  type ConformSkillMdResult,
+} from "./skills/agentskills.js";
 export {
   SEED_PACKS,
   getSeedPackById,

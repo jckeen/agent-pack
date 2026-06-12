@@ -8,6 +8,11 @@ import {
   wrapInstructionBlock,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
+import {
+  conformSkillMd,
+  normalizeSkillSlug,
+  renderSkillMd,
+} from "../skills/agentskills.js";
 
 export const genericAdapter = defineAdapter({
   target: "generic",
@@ -39,22 +44,46 @@ export const genericAdapter = defineAdapter({
     });
 
     // ---------- skills/ ----------
+    // Emitted skill folders conform to the Agent Skills spec (agentskills.io).
     for (const atom of byType.get("skill") ?? []) {
-      const slug = atom.id.split(":")[1] ?? atom.name;
+      const slug = normalizeSkillSlug(atom.id.split(":")[1] ?? atom.name);
       const entries = await readAtomDirectory(packRoot, atom);
       if (entries.length === 0) {
         files.push({
           path: `skills/${slug}/SKILL.md`,
-          content: `---\nname: ${slug}\ndescription: ${atom.description}\n---\n\n# ${atom.name}\n\n${atom.description}\n`,
+          content: renderSkillMd(
+            { name: slug, description: atom.description },
+            `# ${atom.name}\n\n${atom.description}`,
+          ),
           action: "create",
         });
       } else {
+        // `skill.md` (lowercase, spec-accepted) is conformed to canonical
+        // SKILL.md only when no SKILL.md exists — emitting both to the same
+        // path would trip applyInstall's create-only write.
+        const hasCanonical = entries.some((e) => e.relPath === "SKILL.md");
         for (const entry of entries) {
-          files.push({
-            path: `skills/${slug}/${entry.relPath}`,
-            content: entry.content,
-            action: "create",
-          });
+          if (
+            entry.relPath === "SKILL.md" ||
+            (entry.relPath === "skill.md" && !hasCanonical)
+          ) {
+            const conformed = conformSkillMd(entry.content, slug, {
+              name: slug,
+              description: atom.description,
+            });
+            warnings.push(...conformed.warnings.map((w) => `Skill \`${atom.id}\`: ${w}`));
+            files.push({
+              path: `skills/${slug}/SKILL.md`,
+              content: conformed.content,
+              action: "create",
+            });
+          } else {
+            files.push({
+              path: `skills/${slug}/${entry.relPath}`,
+              content: entry.content,
+              action: "create",
+            });
+          }
         }
       }
     }

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.9-dev — 2026-06-12 (Agent Skills spec conformance; ISA iteration-8)
+
+AgentPack now provably **emits and consumes [Agent Skills](https://agentskills.io) spec-conformant skill folders** and positions itself a layer above the spec (multi-atom packs, install discipline, governance). Audited against the live spec (agentskills/agentskills `docs/specification.mdx` + `skills-ref` reference validator, commit 5d4c1fd); every emitted skill folder — example pack and an adversarial fixture, across claude-code/codex/generic exports and plugin layout — passes `skills-ref validate`.
+
+- **Audit findings fixed** (all three skill-emitting adapters + plugin guidance skill): `: ` in a synthesized description broke the YAML frontmatter; unknown top-level frontmatter fields passed through (a spec hard error); pass-through skills could mismatch name↔directory; atom-id slugs with uppercase/`.`/`_` survived into skill directory names.
+- **New spec module** `packages/core/src/skills/agentskills.ts` (exported from core): `validateSkillMdContent` (TS port of the skills-ref rules), `normalizeSkillSlug`, `renderSkillMd` (YAML-safe synthesis), `conformSkillMd` (rewrites `name` to the emitted directory, relocates non-spec fields under the spec's `metadata` passthrough, clamps over-limit fields — each change warned, never silent; conformant sources pass through byte-identical), `validateSkillAtoms` (ingestion-side check).
+- **YAML-injection sweep**: new `yamlFrontmatter` helper; `.claude/commands/*.md`, `.claude/agents/*.md`, and `.cursor/rules/*.mdc` frontmatter now serialize through the YAML library instead of string interpolation.
+- **Ingestion**: a `skill` atom can wrap any spec-conformant skill folder and it round-trips byte-identical; `agentpack validate` now reports non-conformant skill sources as `skills.spec` warnings.
+- **Codex fix**: AGENTS.md skill index and the command/skill collision rename now share one slug computation — the index can no longer point at a pre-rename path.
+- **CI conformance gate**: `packages/core/tests/agentskills-conformance.test.ts` (32 tests, incl. adversarial fixtures) validates every emitted SKILL.md against the spec rules on each run (TS re-implementation; tradeoff vs the Python validator noted in the test header).
+
+Tests: core 272 → 304; `pnpm verify` exit 0.
+
 ## 0.6.8-dev — 2026-06-12 (reposition to governance + reach; ISA iteration-7)
 
 Docs-only. Repositions the project from "write once, install anywhere" to **the compiler and governance layer for agent configuration**, and documents the now-shipped cross-surface story honestly.

@@ -242,6 +242,11 @@ Every adapter:
 - Is **deterministic** — two runs produce byte-identical output.
 - Wraps instruction content in `<!-- BEGIN AGENTPACK: <id> --> … <!-- END AGENTPACK: <id> -->` markers — and the install engine honors them: packs coexist with each other AND with the user's own `CLAUDE.md`/`AGENTS.md` content (merge on install, surgical span removal on uninstall, fragment-level drift detection).
 - Returns warnings for atoms it cannot map to its platform — never silently drops dangerous capability.
+- Emits **[Agent Skills](https://agentskills.io) spec-conformant** skill folders (see below).
+
+### Agent Skills conformance
+
+AgentPack emits and consumes skills in the open [Agent Skills](https://agentskills.io) format and operates a layer **above** the spec: the spec defines a single skill folder (`SKILL.md` frontmatter + optional `scripts/`/`references/`/`assets/`); AgentPack adds what the spec deliberately leaves out — multi-atom packs, install discipline (lockfile, drift detection, rollback), and governance (policy enforcement, permission planning, risk gating). Every emitted skill folder is conformant: directory names are spec-normalized, `name` always matches the directory, frontmatter is YAML-safe, and AgentPack-specific extras travel under the spec's `metadata` passthrough — non-conformant sources are auto-conformed with a warning, never silently. On the way in, a `skill` atom can point at any spec-conformant skill folder (e.g. one authored against the spec directly) and it passes through byte-identical; `agentpack validate` checks skill sources against the spec rules. Output is validated against the reference `skills-ref` validator and gated by a conformance test in CI ("conformant/validated", not "certified" — there is no certification program).
 
 Details: [`docs/adapters.md`](./docs/adapters.md).
 

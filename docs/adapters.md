@@ -12,21 +12,22 @@ Every adapter MUST:
 4. Avoid false claims about platform support. When the platform's surface is unstable or undocumented, mark output conservatively.
 5. Preserve `<!-- BEGIN AGENTPACK: <id> --> … <!-- END AGENTPACK: <id> -->` markers in generated instruction files so multiple packs can coexist.
 6. Keep output **deterministic**: two consecutive exports of the same manifest + profile produce byte-identical files. Adapters sort files by path, sort JSON object keys, and emit trailing newlines consistently.
+7. Emit **[Agent Skills](https://agentskills.io) spec-conformant** skill folders. The spec rules live in one module (`packages/core/src/skills/agentskills.ts`, a TS port of the reference `skills-ref` validator): emitted skill directory names are spec-normalized (lowercase/digits/hyphens, ≤64 chars), the frontmatter `name` always equals the directory name, frontmatter values are YAML-serialized (never string-interpolated), and non-spec frontmatter fields are relocated under the spec's `metadata` passthrough. An already-conformant source skill folder passes through **byte-identical**; anything auto-conformed produces a warning. The conformance gate is `packages/core/tests/agentskills-conformance.test.ts`.
 
 ## Claude Code
 
 **Target:** `claude-code`
 
-| Atom           | Output                                                       |
-|----------------|--------------------------------------------------------------|
-| `instruction`  | `CLAUDE.md` section                                          |
-| `rule`         | `CLAUDE.md` rules section (full body: severity, globs, must/must-not) |
-| `skill`        | `.claude/skills/<slug>/` (verbatim file copy of the atom dir)|
-| `command`      | `.claude/commands/<slug>.md` (real slash command — `/<slug>` works) |
-| `subagent`     | `.claude/agents/<slug>.md` (frontmatter: name + description only) |
-| `hook`         | `.claude/settings.json#hooks` block                          |
-| `mcp_server`   | `.mcp.json` at project root                                  |
-| `workflow`     | `CLAUDE.md` workflow section                                 |
+| Atom          | Output                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------- |
+| `instruction` | `CLAUDE.md` section                                                                               |
+| `rule`        | `CLAUDE.md` rules section (full body: severity, globs, must/must-not)                             |
+| `skill`       | `.claude/skills/<slug>/` (file copy of the atom dir; SKILL.md conformed to the Agent Skills spec) |
+| `command`     | `.claude/commands/<slug>.md` (real slash command — `/<slug>` works)                               |
+| `subagent`    | `.claude/agents/<slug>.md` (frontmatter: name + description only)                                 |
+| `hook`        | `.claude/settings.json#hooks` block                                                               |
+| `mcp_server`  | `.mcp.json` at project root                                                                       |
+| `workflow`    | `CLAUDE.md` workflow section                                                                      |
 
 `CLAUDE.md` always wraps content in the AgentPack BEGIN/END markers.
 
@@ -40,16 +41,16 @@ Fidelity notes (these mirror what Claude Code actually reads):
 
 **Target:** `codex`
 
-| Atom           | Output                                                       |
-|----------------|--------------------------------------------------------------|
-| `instruction`  | `AGENTS.md` section                                          |
-| `rule`         | `AGENTS.md` rules section (full body)                        |
-| `skill`        | `.codex/skills/<slug>/` + an index entry in `AGENTS.md`      |
-| `command`      | `.codex/skills/<slug>/SKILL.md` + `AGENTS.md` index entry    |
-| `subagent`     | `.codex/agents/<slug>.toml` (reference output)               |
-| `hook`         | `.codex/hooks.json` (reference output)                       |
-| `mcp_server`   | `.codex/config.toml` `[mcp_servers.<slug>]` table (reference output; same declaration + shell-escape gate as claude-code) |
-| `workflow`     | `AGENTS.md` workflow section                                 |
+| Atom          | Output                                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `instruction` | `AGENTS.md` section                                                                                                       |
+| `rule`        | `AGENTS.md` rules section (full body)                                                                                     |
+| `skill`       | `.codex/skills/<slug>/` + an index entry in `AGENTS.md`                                                                   |
+| `command`     | `.codex/skills/<slug>/SKILL.md` + `AGENTS.md` index entry                                                                 |
+| `subagent`    | `.codex/agents/<slug>.toml` (reference output)                                                                            |
+| `hook`        | `.codex/hooks.json` (reference output)                                                                                    |
+| `mcp_server`  | `.codex/config.toml` `[mcp_servers.<slug>]` table (reference output; same declaration + shell-escape gate as claude-code) |
+| `workflow`    | `AGENTS.md` workflow section                                                                                              |
 
 **Honesty note (verified against Codex CLI 0.128.0):** Codex reads the
 repo-root `AGENTS.md` and `~/.codex/config.toml` — it does **not** read
@@ -64,31 +65,31 @@ and (b) labels the `.codex/` files as reference outputs (the generated
 
 **Target:** `cursor`
 
-| Atom           | Output                                                       |
-|----------------|--------------------------------------------------------------|
-| `instruction`  | `AGENTS.md` section                                          |
-| `rule`         | `.cursor/rules/<slug>.mdc` (frontmatter + full rule body)    |
-| `skill`        | inlined into `AGENTS.md` (Cursor has no Skills format)       |
-| `command`      | description surfaced in `AGENTS.md`                          |
-| `subagent`     | role description surfaced in `AGENTS.md`                     |
-| `hook`         | warning — no stable Cursor hook target                       |
-| `mcp_server`   | `.cursor/mcp.json` entry (declaration + shell-escape gate)   |
-| `workflow`     | `AGENTS.md` workflow section                                 |
+| Atom          | Output                                                     |
+| ------------- | ---------------------------------------------------------- |
+| `instruction` | `AGENTS.md` section                                        |
+| `rule`        | `.cursor/rules/<slug>.mdc` (frontmatter + full rule body)  |
+| `skill`       | inlined into `AGENTS.md` (Cursor has no Skills format)     |
+| `command`     | description surfaced in `AGENTS.md`                        |
+| `subagent`    | role description surfaced in `AGENTS.md`                   |
+| `hook`        | warning — no stable Cursor hook target                     |
+| `mcp_server`  | `.cursor/mcp.json` entry (declaration + shell-escape gate) |
+| `workflow`    | `AGENTS.md` workflow section                               |
 
 ## ChatGPT Apps SDK
 
 **Target:** `chatgpt` (**export-only**)
 
-| Atom           | Output                                                       |
-|----------------|--------------------------------------------------------------|
-| `instruction`  | `project-instructions.md`                                    |
-| `rule`         | `project-instructions.md` rules section                      |
-| `command`      | `mcp-server/src/tools/<slug>.ts` stub (conservative)         |
-| `mcp_server`   | referenced in `app-manifest.json`                            |
-| `plugin`       | `app-manifest.json` entry                                    |
-| `skill`        | surfaced in `project-instructions.md`                        |
-| `hook`         | unsupported warning                                          |
-| `subagent`     | surfaced as instruction note                                 |
+| Atom          | Output                                               |
+| ------------- | ---------------------------------------------------- |
+| `instruction` | `project-instructions.md`                            |
+| `rule`        | `project-instructions.md` rules section              |
+| `command`     | `mcp-server/src/tools/<slug>.ts` stub (conservative) |
+| `mcp_server`  | referenced in `app-manifest.json`                    |
+| `plugin`      | `app-manifest.json` entry                            |
+| `skill`       | surfaced in `project-instructions.md`                |
+| `hook`        | unsupported warning                                  |
+| `subagent`    | surfaced as instruction note                         |
 
 The adapter generates a skeleton MCP app that must be reviewed and registered manually with ChatGPT. The CLI prints a clear warning.
 
@@ -96,16 +97,16 @@ The adapter generates a skeleton MCP app that must be reviewed and registered ma
 
 **Target:** `generic`
 
-| Atom           | Output                                                       |
-|----------------|--------------------------------------------------------------|
-| `instruction`  | `AGENTS.md`                                                  |
-| `rule`         | `AGENTS.md`                                                  |
-| `skill`        | `skills/<slug>/` (Agent Skills format)                       |
-| `command`      | `README-agent.md` command section                            |
-| `subagent`     | `README-agent.md` subagent section                           |
-| `hook`         | metadata in `agentpack.json` + warning                       |
-| `mcp_server`   | metadata in `agentpack.json` + warning                       |
-| `workflow`     | `README-agent.md` workflow section                           |
+| Atom          | Output                                 |
+| ------------- | -------------------------------------- |
+| `instruction` | `AGENTS.md`                            |
+| `rule`        | `AGENTS.md`                            |
+| `skill`       | `skills/<slug>/` (Agent Skills format) |
+| `command`     | `README-agent.md` command section      |
+| `subagent`    | `README-agent.md` subagent section     |
+| `hook`        | metadata in `agentpack.json` + warning |
+| `mcp_server`  | metadata in `agentpack.json` + warning |
+| `workflow`    | `README-agent.md` workflow section     |
 
 The generic adapter is the safe target when targeting a runtime that reads `AGENTS.md` and Agent Skills without platform-specific hooks/MCP plumbing.
 

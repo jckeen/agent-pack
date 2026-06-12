@@ -14,6 +14,7 @@ import { createInstallPlan } from "../planner/createInstallPlan.js";
 import { UnknownProfileError } from "../planner/resolveAtoms.js";
 import { stableJsonStringify } from "../adapters/types.js";
 import { summarizePortability, type PortabilitySummary } from "../portability.js";
+import { normalizeSkillSlug, renderSkillMd } from "../skills/agentskills.js";
 
 export interface ExportPluginOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -152,8 +153,14 @@ function toPluginFiles(
     if (f.path === "CLAUDE.md") {
       // Instructions/rules have no ambient home outside Claude Code. Bundle as
       // an on-invoke skill so the guidance still reaches plugin-aware surfaces.
+      // One normalized name is used for BOTH the directory and the frontmatter
+      // (Agent Skills spec: name must equal directory, ≤64 chars).
+      const guidanceName = normalizeSkillSlug(`${pluginName}-guidance`);
       out.push(
-        mk(`skills/${pluginName}-guidance/SKILL.md`, guidanceSkill(manifest, f.content)),
+        mk(
+          `skills/${guidanceName}/SKILL.md`,
+          guidanceSkill(manifest, guidanceName, f.content),
+        ),
       );
       continue;
     }
@@ -226,19 +233,16 @@ function marketplaceManifest(
   };
 }
 
-function guidanceSkill(manifest: AgentPackManifest, body: string): string {
-  const name = `${kebab(manifest.metadata.slug)}-guidance`;
+function guidanceSkill(manifest: AgentPackManifest, name: string, body: string): string {
   // Strip an existing top H1 to avoid a double title inside the skill body.
   const trimmed = body.replace(/^#\s.*\n+/, "").trimEnd();
-  return [
-    "---",
-    `name: ${name}`,
-    `description: ${manifest.metadata.name} standards and rules. Bundled from the pack's instruction/rule atoms — ambient only in Claude Code; invoke this skill to apply the same guidance on Cowork, Desktop, and claude.ai.`,
-    "---",
-    "",
+  return renderSkillMd(
+    {
+      name,
+      description: `${manifest.metadata.name} standards and rules. Bundled from the pack's instruction/rule atoms — ambient only in Claude Code; invoke this skill to apply the same guidance on Cowork, Desktop, and claude.ai.`,
+    },
     trimmed,
-    "",
-  ].join("\n");
+  );
 }
 
 function extractHooks(settingsJson: string): unknown | null {
