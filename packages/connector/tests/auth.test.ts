@@ -6,8 +6,6 @@ import * as path from "node:path";
 import {
   timingSafeEqual_str,
   validateTokenEnv,
-  bearerAuthMiddleware,
-  dnsRebindingMiddleware,
   buildAllowedHosts,
   DEFAULT_ALLOWED_HOSTS,
   TOKEN_ENV_VAR,
