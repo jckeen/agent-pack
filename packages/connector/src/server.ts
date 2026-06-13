@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
 import type { ConnectorCatalog } from "./catalog.js";
+import { bearerAuthMiddleware, buildAllowedHosts, dnsRebindingMiddleware } from "./auth.js";
 
 /**
  * Build an MCP server that serves a pack catalog: each carried atom becomes a
@@ -72,19 +73,38 @@ export function buildMcpServer(catalog: ConnectorCatalog): McpServer {
 
 /**
  * A Hono app exposing the catalog over Streamable HTTP at `/mcp`, plus a
- * `/healthz` probe. Stateless (a fresh server + transport per request) — the
- * simplest correct model for a connector prototype.
+ * `/healthz` probe. Stateless (a fresh server + transport per request).
  *
- * NOTE: this prototype binds with no auth. Before exposing it publicly, add a
- * bearer-token middleware (MCP resource-server pattern) and enable the
- * transport's DNS-rebinding protection. See README.
+ * Security:
+ * - DNS-rebinding protection applied globally via Host/Origin allowlist
+ *   middleware (external middleware per SDK 1.29.0 recommendation —
+ *   the SDK's built-in enableDnsRebindingProtection is @deprecated).
+ * - Bearer-token auth applied on `/mcp` only; `/healthz` is explicitly
+ *   public so load-balancer probes work without a token.
+ *
+ * @param catalog       The pack catalog to expose.
+ * @param expectedToken The bearer secret from validateTokenEnv(). Required.
+ * @param allowedHosts  Host allowlist for DNS-rebinding protection (defaults
+ *                      to localhost + loopback via buildAllowedHosts()).
  */
-export function createApp(catalog: ConnectorCatalog): Hono {
+export function createApp(
+  catalog: ConnectorCatalog,
+  expectedToken: string,
+  allowedHosts: Set<string> = buildAllowedHosts(),
+): Hono {
   const app = new Hono();
 
+  // DNS-rebinding protection on every route (Host + Origin allowlist).
+  app.use("*", dnsRebindingMiddleware(allowedHosts));
+
+  // /healthz is explicitly public — load-balancer probes don't carry tokens.
+  // It is intentionally narrow: no pack content, only liveness signal.
   app.get("/healthz", (c) =>
     c.json({ ok: true, pack: catalog.packId, version: catalog.packVersion }),
   );
+
+  // Bearer-token auth on the MCP endpoint only.
+  app.use("/mcp", bearerAuthMiddleware(expectedToken));
 
   app.all("/mcp", async (c) => {
     const server = buildMcpServer(catalog);
