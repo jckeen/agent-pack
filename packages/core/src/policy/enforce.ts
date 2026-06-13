@@ -19,13 +19,7 @@ export interface PolicyEnforcementPlan {
 }
 
 export interface PolicyViolation {
-  code:
-    | "registry"
-    | "publisher"
-    | "blockedPack"
-    | "unsigned"
-    | "profile"
-    | "atomType";
+  code: "registry" | "publisher" | "blockedPack" | "unsigned" | "profile" | "atomType";
   message: string;
   hint?: string;
 }
@@ -37,7 +31,7 @@ export type PolicyEnforcementResult =
 export function enforcePolicy(
   policy: PolicyConfig | null,
   plan: PolicyEnforcementPlan,
-  registryUrl: string
+  registryUrl: string,
 ): PolicyEnforcementResult {
   if (!policy) {
     return { ok: true };
@@ -76,12 +70,15 @@ export function enforcePolicy(
     });
   }
 
-  // 4. Signature requirement (Phase 4-ready; always fails until Phase 4 lands).
+  // 4. Signature requirement. Phase 4 (cosign keyless signing) shipped; a
+  // pack counts as signed only when the install actually verified a signature
+  // (the CLI sets `plan.signed` after `--require-sig` passes). Signer-identity
+  // pinning is layered on top by `evaluateSignerGate` (ISC-289).
   if (policy.install.requireSignature && !plan.signed) {
     violations.push({
       code: "unsigned",
       message: `policy requires signed packs; ${fullId}@${plan.target}/${plan.profile} is unsigned`,
-      hint: "Phase 4 (cosign keyless signing) is not yet implemented",
+      hint: "install with --require-sig against a signed registry pack",
     });
   }
 

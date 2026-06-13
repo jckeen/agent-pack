@@ -4,31 +4,21 @@ import path from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
 
-import {
-  parseLockfile,
-  signing,
-  verifyInstall,
-} from "@agentpack/core";
+import { loadPolicy, parseLockfile, signing, verifyInstall } from "@agentpack/core";
 
 import { failCleanly } from "../lib/error.js";
 
 export function registerVerify(program: Command): void {
   program
     .command("verify <packId>")
-    .description(
-      "Verify that installed files still match the lockfile (drift detection)."
-    )
+    .description("Verify that installed files still match the lockfile (drift detection).")
     .option("--project <dir>", "target project directory", process.cwd())
     .option("--chain", "also verify the history.jsonl hash chain", false)
-    .option(
-      "--sig",
-      "also verify the Sigstore signature recorded in the lockfile",
-      false
-    )
+    .option("--sig", "also verify the Sigstore signature recorded in the lockfile", false)
     .option(
       "--strict",
       "with --sig, exit non-zero if the lockfile records no signature",
-      false
+      false,
     )
     .option(
       "--expected-signer <san>",
@@ -43,7 +33,7 @@ export function registerVerify(program: Command): void {
           sig: boolean;
           strict: boolean;
           expectedSigner?: string;
-        }
+        },
       ) => {
         try {
           const result = await verifyInstall({
@@ -59,8 +49,8 @@ export function registerVerify(program: Command): void {
           if (result.chainOk === false) {
             console.error(
               pc.red(
-                `✗ history.jsonl chain integrity FAILED at entry index ${result.chainBrokeAt}.`
-              )
+                `✗ history.jsonl chain integrity FAILED at entry index ${result.chainBrokeAt}.`,
+              ),
             );
             process.exit(3);
           }
@@ -68,7 +58,7 @@ export function registerVerify(program: Command): void {
             console.error(pc.red(`✗ ${packId} has drift:`));
             for (const d of result.drift) {
               console.error(
-                `  ${pc.red("•")} ${d.path}: expected ${d.expected.slice(0, 12)}…, actual ${d.actual.slice(0, 12)}…`
+                `  ${pc.red("•")} ${d.path}: expected ${d.expected.slice(0, 12)}…, actual ${d.actual.slice(0, 12)}…`,
               );
             }
             for (const m of result.missing) {
@@ -79,45 +69,50 @@ export function registerVerify(program: Command): void {
 
           // Drift-clean — optionally also verify the signature.
           if (options.sig) {
+            const policy = await loadPolicy(options.project);
             const sigResult = await checkLockfileSignature(
               options.project,
               packId,
               options.strict,
-              options.expectedSigner
+              options.expectedSigner,
+              policy?.install.allowedSigners,
+              policy?.install.requireIdentity,
             );
             if (sigResult.code === "ok") {
-              if (options.expectedSigner) {
+              if (sigResult.pinned) {
                 console.log(
                   pc.green(
-                    `✓ ${packId} clean — signature valid, signer pinned (${sigResult.san})`
-                  )
+                    `✓ ${packId} clean — signature valid, signer pinned (${sigResult.san})`,
+                  ),
                 );
               } else {
                 console.log(
-                  pc.green(`✓ ${packId} clean — signature cryptographically valid (${sigResult.san})`) +
+                  pc.green(
+                    `✓ ${packId} clean — signature cryptographically valid (${sigResult.san})`,
+                  ) +
                     " " +
-                    pc.yellow("(signer identity not pinned — pass --expected-signer to enforce)")
+                    pc.yellow(
+                      "(signer identity not pinned — pass --expected-signer to enforce)",
+                    ),
                 );
               }
             } else if (sigResult.code === "unsigned") {
               if (options.strict) {
                 console.error(
                   pc.red(
-                    `✗ ${packId} clean but UNSIGNED — --strict refuses unsigned packs.`
-                  )
+                    `✗ ${packId} clean but UNSIGNED — --strict refuses unsigned packs.`,
+                  ),
                 );
                 process.exit(5);
               }
               console.log(
-                pc.green(`✓ ${packId} clean — no drift.`) +
-                  " " +
-                  pc.yellow("(unsigned)")
+                pc.green(`✓ ${packId} clean — no drift.`) + " " + pc.yellow("(unsigned)"),
               );
             } else {
               console.error(
                 pc.red(
-                  `✗ ${packId} clean but SIGNATURE INVALID — ${sigResult.reason}${sigResult.detail ? ` (${sigResult.detail})` : ""}`
-                )
+                  `✗ ${packId} clean but SIGNATURE INVALID — ${sigResult.reason}${sigResult.detail ? ` (${sigResult.detail})` : ""}`,
+                ),
               );
               process.exit(4);
             }
@@ -131,13 +126,15 @@ export function registerVerify(program: Command): void {
         } catch (err) {
           failCleanly(err);
         }
-      }
+      },
     );
 }
 
 interface SigOk {
   code: "ok";
   san: string;
+  /** True when the signer SAN was pinned (CLI flag or policy allowlist). */
+  pinned: boolean;
 }
 interface SigUnsigned {
   code: "unsigned";
@@ -153,7 +150,9 @@ async function checkLockfileSignature(
   projectRoot: string,
   _packId: string,
   _strict: boolean,
-  expectedSigner?: string
+  expectedSigner?: string,
+  allowedSigners?: readonly string[],
+  requireIdentity?: boolean,
 ): Promise<SigCheck> {
   const lockfilePath = path.join(projectRoot, "AGENTPACK.lock");
   let raw: string;
@@ -180,9 +179,7 @@ async function checkLockfileSignature(
   if (!manifestSig) return { code: "unsigned" };
   let envelope: signing.SignedManifest;
   try {
-    const decoded = JSON.parse(
-      Buffer.from(manifestSig, "base64").toString("utf-8")
-    );
+    const decoded = JSON.parse(Buffer.from(manifestSig, "base64").toString("utf-8"));
     envelope = signing.signedManifestSchema.parse(decoded);
   } catch (err) {
     return {
@@ -191,17 +188,38 @@ async function checkLockfileSignature(
       detail: (err as Error).message,
     };
   }
+  // Pure cryptographic verification; the identity decision is applied by the
+  // shared signer gate below (ISC-289), so `--expected-signer` and policy
+  // `install.allowedSigners` are enforced consistently with `install`.
   const result = await signing.verifyManifestSignature({
     manifestChecksum: lockfile.manifestChecksum,
     signed: envelope,
-    ...(expectedSigner ? { requireIdentity: true, expectedSAN: expectedSigner } : {}),
   });
-  if (result.valid) {
-    return { code: "ok", san: result.metadata.identity.san };
+  if (!result.valid) {
+    return {
+      code: "invalid",
+      reason: result.reason,
+      detail: result.detail,
+    };
   }
-  return {
-    code: "invalid",
-    reason: result.reason,
-    detail: result.detail,
-  };
+  const gate = signing.evaluateSignerGate({
+    signerSan: result.metadata.identity.san,
+    expectedSigner,
+    allowedSigners,
+    requireIdentity,
+  });
+  if (!gate.ok) {
+    return {
+      code: "invalid",
+      reason:
+        gate.reason === "identity_mismatch"
+          ? "signer_not_allowed"
+          : "signer_identity_required",
+      detail:
+        gate.reason === "identity_mismatch"
+          ? `signer ${gate.signerSan} not in allowed set: ${gate.allowed.join(", ")}`
+          : `signer ${gate.signerSan} is unpinned and policy requires a pinned identity`,
+    };
+  }
+  return { code: "ok", san: gate.signerSan, pinned: gate.mode === "pinned" };
 }

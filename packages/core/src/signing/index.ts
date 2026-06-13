@@ -25,3 +25,9 @@ export {
   type SignOptions,
   type VerifyOptions,
 } from "./sigstore.js";
+
+export {
+  evaluateSignerGate,
+  type SignerGateInput,
+  type SignerGateResult,
+} from "./signerPolicy.js";

@@ -209,7 +209,6 @@ export function registerInstall(program: Command): void {
                 publisher,
                 pack: packSlug,
                 version: requestedVersion,
-                expectedSigner: options.expectedSigner,
               });
               if (sigCheck.code === "unsigned") {
                 console.error(
@@ -229,23 +228,55 @@ export function registerInstall(program: Command): void {
                 );
                 process.exit(4);
               }
-              if (options.expectedSigner) {
+              // Signature is cryptographically valid — now apply the
+              // identity gate. A valid keyless signature only proves *some*
+              // identity signed it; the gate pins the acceptable signer from
+              // `--expected-signer` ∪ policy `install.allowedSigners`, and
+              // (with policy `install.requireIdentity`) refuses an unpinned
+              // signer rather than accepting it on trust-on-first-use
+              // (ISC-289).
+              const sigPolicy = await loadPolicy(options.project);
+              const gate = signing.evaluateSignerGate({
+                signerSan: sigCheck.san,
+                expectedSigner: options.expectedSigner,
+                allowedSigners: sigPolicy?.install.allowedSigners,
+                requireIdentity: sigPolicy?.install.requireIdentity,
+              });
+              if (!gate.ok) {
+                if (gate.reason === "identity_mismatch") {
+                  console.error(
+                    pc.red(
+                      `\n✗ ${publisher}/${packSlug} signed by an UNTRUSTED identity — got ${gate.signerSan}, expected one of: ${gate.allowed.join(", ")}.\n` +
+                        `  Refusing to install.`,
+                    ),
+                  );
+                } else {
+                  console.error(
+                    pc.red(
+                      `\n✗ ${publisher}/${packSlug} signature valid but signer identity is NOT pinned — policy requires a pinned identity.\n` +
+                        `  Pass --expected-signer <san> or set install.allowedSigners in agentpack.policy.json (signer: ${gate.signerSan}).`,
+                    ),
+                  );
+                }
+                process.exit(4);
+              }
+              if (gate.mode === "pinned") {
                 console.log(
                   pc.green(
-                    `  ✓ signature verified — signed by ${sigCheck.san} (identity pinned)`,
+                    `  ✓ signature verified — signed by ${gate.signerSan} (identity pinned)`,
                   ),
                 );
               } else {
-                // Without --expected-signer ANY valid Sigstore identity passes
-                // (trust-on-first-use). Never imply the publisher signed it.
+                // Trust-on-first-use: valid signature, unpinned signer.
+                // Never imply the publisher signed it.
                 console.log(
                   pc.green(
-                    `  ✓ signature cryptographically valid — signer: ${sigCheck.san}`,
+                    `  ✓ signature cryptographically valid — signer: ${gate.signerSan}`,
                   ),
                 );
                 console.log(
                   pc.yellow(
-                    `  ⚠ signer identity NOT pinned — pass --expected-signer <san> to require a specific identity.`,
+                    `  ⚠ signer identity NOT pinned — pass --expected-signer <san> or set install.allowedSigners in policy to require a specific identity.`,
                   ),
                 );
               }
@@ -618,7 +649,6 @@ async function verifyRegistrySignature(params: {
   publisher: string;
   pack: string;
   version: string | undefined;
-  expectedSigner?: string | undefined;
 }): Promise<SigCheck> {
   const versionPath = params.version ?? "latest";
   const url = `${params.registry.replace(/\/+$/, "")}/api/v1/packs/${params.publisher}/${params.pack}/versions/${versionPath}/signatures`;
@@ -653,13 +683,14 @@ async function verifyRegistrySignature(params: {
   // Verify the newest signature (registry sorts newest-first).
   const latest = data.signatures[0];
   if (!latest) return { code: "unsigned" };
-  // v0.5.1 hardening (security-reviewer CRITICAL-1): the signing API now
-  // supports `requireIdentity: true` to refuse trust-on-first-publish, but
-  // the wire path needs an `expectedSAN` (per-publisher allowlist served
-  // by the registry) before we can enable it without breaking every
-  // current sig-checked install. Until the registry response carries the
-  // bound SAN — tracked as v0.5.2 follow-up — verify against the bundle
-  // alone and surface the SAN in the result so the caller can audit.
+  // Pure cryptographic verification — confirm the bundle is a valid Sigstore
+  // signature over this manifest checksum and surface the signer SAN. The
+  // identity decision (is this signer *trusted*?) is applied by the caller
+  // via `evaluateSignerGate`, which pins against `--expected-signer` and the
+  // policy `install.allowedSigners` allowlist (ISC-289). A registry that
+  // serves a bound per-publisher SAN automatically is a later enhancement
+  // that needs the live registry; until then the pin source is the client's
+  // CLI flag and policy file.
   const result = await signing.verifyManifestSignature({
     manifestChecksum: data.manifestSha256,
     signed: {
@@ -668,9 +699,6 @@ async function verifyRegistrySignature(params: {
       metadata: latest.metadata,
       envelopeVersion: 1,
     },
-    ...(params.expectedSigner
-      ? { requireIdentity: true, expectedSAN: params.expectedSigner }
-      : {}),
   });
   if (result.valid) {
     return { code: "ok", san: result.metadata.identity.san };
