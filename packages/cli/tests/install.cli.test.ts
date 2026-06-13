@@ -211,7 +211,9 @@ describe("agentpack install (CLI)", () => {
     expect(uninstall.stdout).toContain("Uninstalled");
 
     const post = await run(["verify", "agentpack.pr-quality", "--project", dir]);
-    expect(post.code).not.toBe(0);
+    // ISC-295: a missing install manifest is a NotFound condition → exit 8,
+    // not the generic 1 that failCleanly used to hardcode.
+    expect(post.code).toBe(8);
     expect(post.stderr).toMatch(/No install manifest/);
   });
 

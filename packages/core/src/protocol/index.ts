@@ -16,7 +16,12 @@ import {
   type RiskLevel,
 } from "../schema/types.js";
 
-export { ExitCode, RegistryErrorName, errorNameToExitCode } from "./error-codes.js";
+export {
+  ExitCode,
+  RegistryErrorName,
+  errorNameToExitCode,
+  exitCodeForError,
+} from "./error-codes.js";
 export type { ExitCodeName, ExitCodeValue } from "./error-codes.js";
 
 // ---------------------------------------------------------------------------
@@ -38,7 +43,7 @@ export const semverSchema = z
   .string()
   .regex(
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/,
-    "invalid semver"
+    "invalid semver",
   );
 
 /** Project-relative POSIX path, no `..`, no leading slash. */
@@ -51,11 +56,11 @@ export const relativePathSchema = z
   .refine((p) => !/[\\]/.test(p), "must use POSIX separators");
 
 export const platformTargetSchema = z.enum(
-  TARGET_PLATFORMS as unknown as readonly [string, ...string[]]
+  TARGET_PLATFORMS as unknown as readonly [string, ...string[]],
 );
 
 export const atomTypeSchema = z.enum(
-  ATOM_TYPES as unknown as readonly [string, ...string[]]
+  ATOM_TYPES as unknown as readonly [string, ...string[]],
 );
 
 export const compatibilityStatusSchema = z.enum([
@@ -119,9 +124,9 @@ export const tokenSchema = z.string().regex(TOKEN_REGEX, "invalid agp_live_ toke
 // Trojan/DoS amplification was the security-reviewer's finding here — the
 // uncapped versions let a token-holder bombard init with 10k files of
 // 100 GB each.
-export const MAX_MANIFEST_BYTES = 1 * 1024 * 1024;        // 1 MiB
-export const MAX_FILE_BYTES     = 50 * 1024 * 1024;       // 50 MiB per file
-export const MAX_PACK_BYTES     = 200 * 1024 * 1024;      // 200 MiB total
+export const MAX_MANIFEST_BYTES = 1 * 1024 * 1024; // 1 MiB
+export const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MiB per file
+export const MAX_PACK_BYTES = 200 * 1024 * 1024; // 200 MiB total
 export const MAX_FILES_PER_PACK = 2000;
 
 export const publishFileEntrySchema = z.object({
@@ -156,10 +161,7 @@ export const publishInitRequestSchema = z
     // Size of the AGENTPACK.yaml in bytes. Bounded so init-time presign
     // sets a real ContentLength + checksum-sha256 conditional on R2.
     manifestBytes: z.number().int().positive().max(MAX_MANIFEST_BYTES),
-    files: z
-      .array(publishFileEntrySchema)
-      .min(1)
-      .max(MAX_FILES_PER_PACK),
+    files: z.array(publishFileEntrySchema).min(1).max(MAX_FILES_PER_PACK),
     metadata: publishMetadataSchema,
   })
   .superRefine((v, ctx) => {
@@ -220,9 +222,7 @@ export const publishSizeMismatchResponseSchema = z.object({
   mismatched: z.array(sizeMismatchEntrySchema),
 });
 
-export type PublishSizeMismatchResponse = z.infer<
-  typeof publishSizeMismatchResponseSchema
->;
+export type PublishSizeMismatchResponse = z.infer<typeof publishSizeMismatchResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Read API shapes

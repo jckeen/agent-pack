@@ -56,3 +56,33 @@ export function errorNameToExitCode(name: string): ExitCodeValue {
       return ExitCode.Generic;
   }
 }
+
+/**
+ * Map a thrown domain error to its pinned CLI exit code.
+ *
+ * Matching is by the error's `.name` (every AgentPack error class sets a
+ * stable `name`), not `instanceof` — this keeps the protocol module free of
+ * import cycles back into install/cache/registry-client. The CLI's
+ * `failCleanly` catch-all calls this so a `verify` of an uninstalled pack
+ * exits 8 (NotFound) and a cache integrity failure exits 7 — instead of every
+ * uncaught error collapsing to the generic 1. Unknown errors stay Generic.
+ *
+ * CLI-layer usage errors (bad invocation, e.g. NonInteractiveError) are
+ * mapped by the CLI itself before this fallback, since their exit semantics
+ * (2) are a CLI concern, not a domain one.
+ */
+export function exitCodeForError(err: unknown): ExitCodeValue {
+  if (!(err instanceof Error)) return ExitCode.Generic;
+  switch (err.name) {
+    case "InstallManifestNotFoundError":
+    case "VersionNotFoundError":
+    case "BlobNotFoundError":
+      return ExitCode.NotFound;
+    case "IntegrityError":
+      return ExitCode.IntegrityError;
+    case "UninstallConflictError":
+      return ExitCode.Conflict;
+    default:
+      return ExitCode.Generic;
+  }
+}
