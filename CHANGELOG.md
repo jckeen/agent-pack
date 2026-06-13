@@ -9,8 +9,13 @@ Closes the eight `[DEFERRED-VERIFY]` security/correctness issues migrated to Git
 - **Connector auth (security)** — the remote-MCP connector bound with no auth. Now auth-by-default: `AGENTPACK_CONNECTOR_TOKEN` (≥16 chars) is required or the server refuses to start (fail-closed, no skip-auth branch); bearer compared in constant time; `/mcp` authenticated, `/healthz` public; DNS-rebinding Host/Origin allowlist. 4 → 33 connector tests.
 - **Registry hardening** — `verifyBearer` gained a per-instance 45 s TTL cache (documented revocation-staleness window); regression tests backfilled for the already-shipped audit hash-chain fork guard (#15, advisory lock + `FOR UPDATE`) and admin CSRF/Origin guard (#16); a real schema drift fixed (`pack_signatures_signer_san_idx` existed in SQL but not the Drizzle schema object) and a drizzle-kit `meta/` journal baseline established so `db:generate` reports no drift. Registry 43 → 72 tests.
 - **Verified-and-closed (#17, #18, #19, #21)** — ref control-char rejection, git-source SHA-pinning, project-wide install lock, and Windows reserved-name rejection were already implemented; each now has a named regression test cited in the issue closure.
+- **Adversarial review hardening** (found by a fresh-context security + correctness pass over the diff):
+  - **CRITICAL** — `verifyManifestSignature` judged the signer SAN from `envelope.metadata` (attacker-controllable JSON), so a valid bundle re-signed by any identity with the SAN string edited could pass the gate. The identity is now re-derived from the certificate **inside the cryptographically-verified bundle** and that is what the gate and the persisted metadata use; the envelope SAN is only a pre-crypto fast-fail. New `identity-binding` test proves a forged-SAN bundle is rejected.
+  - `install --require-sig` now pins the signature fetch to the **resolved** version and cross-checks the signed manifest sha against the bytes on disk — a racing `latest` can't sign a different version than is installed.
+  - Connector `timingSafeEqual_str` compared UTF-16 code units, not bytes (multibyte tokens could false-accept) — now byte-correct; DNS-rebinding host check is bracket-aware for `[::1]:port`.
+- **Dependency advisories cleared** — `diff` 7→9, `yaml` 2.6→2.9, and a `postcss ≥8.5.10` override; `pnpm audit --prod` reports **no known vulnerabilities**.
 
-Tests: `pnpm verify` exit 0 — **484** total (320 core + 40 cli + 19 db + 33 connector + 72 registry). New policy fields `install.allowedSigners` / `install.requireIdentity`.
+Tests: `pnpm verify` exit 0 — **488** total (322 core + 40 cli + 19 db + 35 connector + 72 registry). New policy fields `install.allowedSigners` / `install.requireIdentity`.
 
 ## 0.6.10-dev — 2026-06-12 (doc contract; drift-sweep bootstrap)
 

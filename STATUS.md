@@ -15,7 +15,9 @@ Last updated: 2026-06-13 (deferred-verify issue sweep — all of #14–#21 resol
 - **Typed exit codes (#20)**: `failCleanly` now maps domain errors to the pinned taxonomy (not-found → 8, integrity → 7, conflict → 9) instead of collapsing to 1.
 - **Connector auth (security)**: the remote-MCP connector is now auth-by-default — `AGENTPACK_CONNECTOR_TOKEN` (≥16 chars) required or fail-closed start, constant-time bearer compare, DNS-rebinding Host/Origin allowlist.
 - **Registry hardening**: `verifyBearer` 45 s TTL cache; audit-fork (#15) + admin-CSRF (#16) regression tests backfilled; `pack_signatures_signer_san_idx` schema drift fixed; drizzle-kit `meta/` journal baseline (so `db:generate` reports no drift).
-- **Tests**: `pnpm verify` exit 0 — **484** (320 core + 40 cli + 19 db + 33 connector + 72 registry).
+- **Adversarial-review fix (CRITICAL)**: signature trust is now bound to the certificate **inside the verified bundle**, not the forgeable `envelope.metadata.identity.san` — a re-signed bundle with an edited SAN string no longer passes the signer gate. `--require-sig` also pins to the resolved version + cross-checks the manifest hash.
+- **Dependencies**: `diff`/`yaml`/`postcss` advisories patched — `pnpm audit --prod` reports no known vulnerabilities.
+- **Tests**: `pnpm verify` exit 0 — **488** (322 core + 40 cli + 19 db + 35 connector + 72 registry).
 
 ## Iteration-8 highlights (2026-06-12)
 
@@ -60,11 +62,11 @@ Last updated: 2026-06-13 (deferred-verify issue sweep — all of #14–#21 resol
 
 ## Test status
 
-- **484 tests passing**: 320 core + 40 cli + 19 db + 33 connector + 72 registry (iteration-9 added the signer-gate, exit-code, connector-auth, audit/CSRF, and verifyBearer-cache suites).
+- **488 tests passing**: 322 core + 40 cli + 19 db + 35 connector + 72 registry (iteration-9 added the signer-gate, signature-identity-binding, exit-code, connector-auth, audit/CSRF, and verifyBearer-cache suites).
 - All workspace packages typecheck + lint + build cleanly.
 - Registry builds Next.js 15.5.18 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.
-- `pnpm audit --prod` — 0 critical, 0 high, 7 moderate (Next.js Image-Optimizer variants — registry stays in JSON-fallback for OSS launch; revisit when DB-backed live), 2 low.
+- `pnpm audit --prod` — **no known vulnerabilities** (iteration-9 patched `diff`/`yaml` and added a `postcss ≥8.5.10` override).
 - Iteration-5 dep bumps (2026-05-19): `next 15.1.3 → 15.5.18` (patches 2 CRITICAL + 8 HIGH per `pnpm audit`), `vitest 2.1.8 → 2.1.9` (patches 1 CRITICAL RCE).
 
 ## How to bring it up locally
