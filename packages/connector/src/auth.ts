@@ -21,15 +21,22 @@ export const TOKEN_ENV_VAR = "AGENTPACK_CONNECTOR_TOKEN";
  * length-leak when the incoming token is zero-length.
  */
 export function timingSafeEqual_str(a: string, b: string): boolean {
-  if (a.length === 0 || b.length === 0) return false;
-  // Pad to the same length with a deterministic fill so Buffer.byteLength
-  // is equal and timingSafeEqual does not throw.
-  const maxLen = Math.max(a.length, b.length);
-  const aBuf = Buffer.alloc(maxLen, 0);
-  const bBuf = Buffer.alloc(maxLen, 0);
-  aBuf.write(a);
-  bBuf.write(b);
-  return timingSafeEqual(aBuf, bBuf) && a.length === b.length;
+  // Compare BYTES, not UTF-16 code units. `Buffer.alloc(a.length)` sizes by
+  // code units while `.write()` truncates at the byte boundary, so a multibyte
+  // token (e.g. a passphrase with a non-ASCII tail) could collide with a
+  // different equal-code-unit string. Encode to UTF-8 buffers up front and
+  // gate on byte length. (security-reviewer MEDIUM-1, iter-9.)
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+  if (aBuf.length === 0 || bBuf.length === 0) return false;
+  // Pad to equal byte length so timingSafeEqual does not throw; the final
+  // byte-length equality check is what actually decides a length mismatch.
+  const len = Math.max(aBuf.length, bBuf.length);
+  const aPad = Buffer.alloc(len, 0);
+  const bPad = Buffer.alloc(len, 0);
+  aBuf.copy(aPad);
+  bBuf.copy(bPad);
+  return timingSafeEqual(aPad, bPad) && aBuf.length === bBuf.length;
 }
 
 /**
@@ -128,8 +135,12 @@ export function buildAllowedHosts(): Set<string> {
 export function dnsRebindingMiddleware(allowedHosts: Set<string>): MiddlewareHandler {
   return async (c: Context, next) => {
     const host = c.req.header("host") ?? "";
-    // Strip port suffix for the allowlist check.
-    const hostNoPort = host.split(":")[0] ?? "";
+    // Strip the port for the allowlist check, bracket-aware so a bracketed
+    // IPv6 host with a port (`[::1]:8787`) reduces to `[::1]` rather than `[`.
+    // (security-reviewer LOW-1, iter-9.)
+    const hostNoPort = host.startsWith("[")
+      ? host.slice(0, host.indexOf("]") + 1)
+      : (host.split(":")[0] ?? "");
 
     if (!allowedHosts.has(host) && !allowedHosts.has(hostNoPort)) {
       return c.json({ error: "Forbidden: disallowed Host header" }, 403);

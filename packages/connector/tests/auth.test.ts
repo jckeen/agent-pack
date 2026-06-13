@@ -38,6 +38,16 @@ describe("timingSafeEqual_str", () => {
     expect(timingSafeEqual_str("", "abc")).toBe(false);
     expect(timingSafeEqual_str("abc", "")).toBe(false);
   });
+
+  it("does not false-accept multibyte tokens of equal code-unit length (MEDIUM-1)", () => {
+    // Same UTF-16 length, different trailing multibyte char. A byte-truncating
+    // comparison would drop the last char and collide; a byte-correct one must
+    // reject.
+    expect(timingSafeEqual_str("aaaaaaaaaaaaaaaé", "aaaaaaaaaaaaaaaè")).toBe(false);
+    expect(timingSafeEqual_str("tokén-value-x", "tokèn-value-x")).toBe(false);
+    // ...and still accepts a genuinely identical multibyte token.
+    expect(timingSafeEqual_str("tokén-value-x", "tokén-value-x")).toBe(true);
+  });
 });
 
 // ── validateTokenEnv ─────────────────────────────────────────────────────────
@@ -150,6 +160,12 @@ describe("dnsRebindingMiddleware (handler-level)", () => {
 
   it("allows Host with port suffix when base hostname is allowed (127.0.0.1:8787)", async () => {
     const res = await callApp("127.0.0.1:8787");
+    expect(res.status).toBe(200);
+  });
+
+  it("allows bracketed IPv6 loopback with a port ([::1]:8787) (LOW-1)", async () => {
+    // Naive `host.split(':')[0]` would yield "[" and 403 a legitimate client.
+    const res = await callApp("[::1]:8787");
     expect(res.status).toBe(200);
   });
 

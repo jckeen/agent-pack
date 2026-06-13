@@ -25,18 +25,10 @@
  * and the failure modes more discoverable.
  */
 
-import { bundleToJSON, type Bundle } from "@sigstore/bundle";
-import {
-  DSSEBundleBuilder,
-  FulcioSigner,
-  RekorWitness,
-} from "@sigstore/sign";
+import { bundleFromJSON, bundleToJSON, type Bundle } from "@sigstore/bundle";
+import { DSSEBundleBuilder, FulcioSigner, RekorWitness } from "@sigstore/sign";
 
-import type {
-  SignatureMetadata,
-  SignedManifest,
-  VerifyResult,
-} from "./types.js";
+import type { SignatureMetadata, SignedManifest, VerifyResult } from "./types.js";
 import { signedManifestSchema } from "./types.js";
 
 const DEFAULT_FULCIO_URL = "https://fulcio.sigstore.dev";
@@ -81,14 +73,12 @@ export interface VerifyOptions {
  * Sign the `manifestChecksum` using Sigstore keyless flow. Returns the
  * envelope shape that goes into `lockfile.signatures.manifest`.
  */
-export async function signManifestChecksum(
-  opts: SignOptions
-): Promise<SignedManifest> {
+export async function signManifestChecksum(opts: SignOptions): Promise<SignedManifest> {
   const identityToken = resolveIdentityToken(opts);
   if (!identityToken) {
     throw new SigningError(
       "no_oidc_token",
-      "No OIDC token available. Set SIGSTORE_ID_TOKEN, run under GitHub Actions, or pass identityToken."
+      "No OIDC token available. Set SIGSTORE_ID_TOKEN, run under GitHub Actions, or pass identityToken.",
     );
   }
 
@@ -116,9 +106,7 @@ export async function signManifestChecksum(
   }
 
   const bundleJson = bundleToJSON(bundle);
-  const bundleB64 = Buffer.from(JSON.stringify(bundleJson), "utf-8").toString(
-    "base64"
-  );
+  const bundleB64 = Buffer.from(JSON.stringify(bundleJson), "utf-8").toString("base64");
   const metadata = extractMetadata(bundle);
 
   const envelope: SignedManifest = {
@@ -136,9 +124,7 @@ export async function signManifestChecksum(
  * Verify a signed manifest against the observed `manifestChecksum`. Returns
  * a discriminated union — no exceptions for verification failure.
  */
-export async function verifyManifestSignature(
-  opts: VerifyOptions
-): Promise<VerifyResult> {
+export async function verifyManifestSignature(opts: VerifyOptions): Promise<VerifyResult> {
   // 1. Schema sanity.
   let envelope: SignedManifest;
   try {
@@ -174,6 +160,13 @@ export async function verifyManifestSignature(
         "requireIdentity set but no expectedSAN/expectedIssuer provided — refusing trust-on-first-publish",
     };
   }
+  // The two comparisons below are a FAST-FAIL ONLY against the envelope's
+  // self-reported identity, which is attacker-controllable JSON. They catch
+  // honest mismatches without a network round-trip but are NOT the security
+  // control — an attacker can edit `envelope.metadata.identity.san` to match.
+  // The authoritative check is step 5, against the SAN re-derived from the
+  // cryptographically-verified certificate. (security-reviewer CRITICAL-1,
+  // iter-9 / ISC-289.)
   if (opts.expectedSAN && envelope.metadata.identity.san !== opts.expectedSAN) {
     return {
       valid: false,
@@ -181,10 +174,7 @@ export async function verifyManifestSignature(
       detail: `san: expected ${opts.expectedSAN}, got ${envelope.metadata.identity.san}`,
     };
   }
-  if (
-    opts.expectedIssuer &&
-    envelope.metadata.identity.issuer !== opts.expectedIssuer
-  ) {
+  if (opts.expectedIssuer && envelope.metadata.identity.issuer !== opts.expectedIssuer) {
     return {
       valid: false,
       reason: "identity_mismatch",
@@ -201,9 +191,7 @@ export async function verifyManifestSignature(
   // parsed JSON directly rather than going through bundleFromJSON().
   let bundleJson: unknown;
   try {
-    bundleJson = JSON.parse(
-      Buffer.from(envelope.bundleB64, "base64").toString("utf-8")
-    );
+    bundleJson = JSON.parse(Buffer.from(envelope.bundleB64, "base64").toString("utf-8"));
   } catch (err) {
     return {
       valid: false,
@@ -222,12 +210,45 @@ export async function verifyManifestSignature(
       Buffer.from(opts.manifestChecksum, "utf-8"),
       {
         tlogThreshold: opts.offline ? 0 : 1,
-      }
+      },
     );
-    return { valid: true, metadata: envelope.metadata };
   } catch (err) {
     return classifyVerifyError(err as Error);
   }
+
+  // 5. AUTHORITATIVE identity check. The bundle is now cryptographically
+  // verified — re-derive the signer identity from the certificate INSIDE the
+  // verified bundle (not the attacker-controllable `envelope.metadata`), and
+  // make the trust decision against that. This closes the ISC-289 hole where a
+  // valid bundle re-signed by any identity could carry a forged
+  // `metadata.identity.san` string and pass the gate. The returned metadata is
+  // also the cert-derived one, so callers (and the registry publish flow that
+  // persists the signer) record the real identity.
+  let verifiedMetadata: SignatureMetadata;
+  try {
+    verifiedMetadata = extractMetadata(bundleFromJSON(bundleJson as never));
+  } catch (err) {
+    return {
+      valid: false,
+      reason: "cert_invalid",
+      detail: `could not extract identity from the verified bundle: ${(err as Error).message}`,
+    };
+  }
+  if (opts.expectedSAN && verifiedMetadata.identity.san !== opts.expectedSAN) {
+    return {
+      valid: false,
+      reason: "identity_mismatch",
+      detail: `verified-cert san: expected ${opts.expectedSAN}, got ${verifiedMetadata.identity.san}`,
+    };
+  }
+  if (opts.expectedIssuer && verifiedMetadata.identity.issuer !== opts.expectedIssuer) {
+    return {
+      valid: false,
+      reason: "identity_mismatch",
+      detail: `verified-cert issuer: expected ${opts.expectedIssuer}, got ${verifiedMetadata.identity.issuer}`,
+    };
+  }
+  return { valid: true, metadata: verifiedMetadata };
 }
 
 // ---------------------------------------------------------------------------
@@ -311,10 +332,11 @@ function parseLeafCert(der: Uint8Array): {
   // X509Certificate doesn't expose directly; we leave the field as the
   // cert subject's organization for v1 and read the OIDC issuer extension
   // in a follow-up when JS APIs expose it cleanly.
-  const issuer = cert.issuer
-    .split("\n")
-    .find((line) => line.startsWith("O="))
-    ?.replace(/^O=/, "") ?? "sigstore.dev";
+  const issuer =
+    cert.issuer
+      .split("\n")
+      .find((line) => line.startsWith("O="))
+      ?.replace(/^O=/, "") ?? "sigstore.dev";
   return {
     san,
     issuer,
@@ -351,7 +373,7 @@ export class SigningError extends Error {
       | "bundle_invalid"
       | "fulcio_error"
       | "rekor_error",
-    message: string
+    message: string,
   ) {
     super(message);
     this.name = "SigningError";

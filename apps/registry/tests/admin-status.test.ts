@@ -95,6 +95,10 @@ describe("audit canonicalize — deterministic stringify", () => {
   // Re-export canonicalize here as a pure function copy for testing —
   // the real one in lib/audit.ts is identical but bundled with DB deps.
   function canonicalize(obj: unknown): string {
+    // Must stay byte-for-byte identical to lib/audit.ts — including the
+    // undefined→"null" normalization, without which JSON.stringify(undefined)
+    // returns the JS value `undefined` and diverges from production hashes.
+    if (obj === undefined) return "null";
     if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
     if (Array.isArray(obj)) return `[${obj.map(canonicalize).join(",")}]`;
     const keys = Object.keys(obj as Record<string, unknown>).sort();

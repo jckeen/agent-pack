@@ -29,7 +29,7 @@ export function failCleanly(err: unknown): never {
   // CLI-layer usage errors exit 2 regardless of any domain mapping — a bad
   // invocation is a caller mistake, not a runtime domain failure.
   if (err instanceof NonInteractiveError || err instanceof UnknownProfileError) {
-    process.exit(ExitCode.Drift);
+    process.exit(ExitCode.UsageError);
   }
   process.exit(exitCodeForError(err));
 }

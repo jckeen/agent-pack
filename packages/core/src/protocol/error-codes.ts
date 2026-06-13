@@ -12,6 +12,14 @@ export const ExitCode = {
   Success: 0,
   Generic: 1,
   Drift: 2,
+  /**
+   * Alias for code 2 used at CLI usage-error sites (bad invocation: missing
+   * `--yes` in a non-TTY, unknown profile). Same value as `Drift` — code 2 is
+   * deliberately overloaded in the taxonomy ("bad invocation, drift, dry-run
+   * conflicts") — but the name documents intent so a future renumber of one
+   * meaning doesn't silently move the other.
+   */
+  UsageError: 2,
   ChainBroken: 3,
   SignatureFailed: 4,
   Unsigned: 5,

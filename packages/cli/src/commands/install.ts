@@ -178,8 +178,15 @@ export function registerInstall(program: Command): void {
             if (!publisher || !packSlug) {
               throw new Error("remote identity parse failed");
             }
+            // The concrete version + manifest hash the content was actually
+            // resolved to. The signature check below pins to these — not the
+            // raw (possibly "latest") request — so a publish racing between
+            // resolution and the signature fetch can't sign a different version
+            // than the one being installed (code-reviewer finding, iter-9).
+            let resolvedVersion: string | undefined;
+            let resolvedManifestSha: string | undefined;
             try {
-              source = await fetchRemotePack({
+              const remote = await fetchRemotePack({
                 publisher,
                 pack: packSlug,
                 requestedVersion,
@@ -188,6 +195,9 @@ export function registerInstall(program: Command): void {
                 profile: options.profile ?? "safe",
                 projectRoot: options.project,
               });
+              source = remote.tmpRoot;
+              resolvedVersion = remote.resolvedVersion;
+              resolvedManifestSha = remote.manifestSha256;
             } catch (err) {
               // Bare network errors ("fetch failed") give an agent nothing to
               // act on — say which registry was contacted and note the common
@@ -208,7 +218,8 @@ export function registerInstall(program: Command): void {
                 registry: options.registry,
                 publisher,
                 pack: packSlug,
-                version: requestedVersion,
+                version: resolvedVersion,
+                expectedManifestSha256: resolvedManifestSha,
               });
               if (sigCheck.code === "unsigned") {
                 console.error(
@@ -470,7 +481,7 @@ async function fetchRemotePack(params: {
   target: TargetPlatform;
   profile: string;
   projectRoot: string;
-}): Promise<string> {
+}): Promise<{ tmpRoot: string; resolvedVersion: string; manifestSha256: string }> {
   const registry = params.registry.replace(/\/+$/, "");
   const token = (await getToken(registry)) ?? undefined;
   const client: RegistryClient = new HttpRegistryClient({
@@ -581,7 +592,7 @@ async function fetchRemotePack(params: {
   console.log(
     pc.dim(`Installed from registry: ${params.publisher}/${params.pack}@${version}`),
   );
-  return tmpRoot;
+  return { tmpRoot, resolvedVersion: version, manifestSha256: actualManifestSha };
 }
 
 async function peekAtomTypes(
@@ -649,6 +660,13 @@ async function verifyRegistrySignature(params: {
   publisher: string;
   pack: string;
   version: string | undefined;
+  /**
+   * sha256 of the manifest actually materialized on disk. When provided, the
+   * signed checksum the registry serves MUST equal it — otherwise the
+   * signature is over different content than what's being installed (e.g. a
+   * stale `latest` pointer) and is rejected.
+   */
+  expectedManifestSha256?: string | undefined;
 }): Promise<SigCheck> {
   const versionPath = params.version ?? "latest";
   const url = `${params.registry.replace(/\/+$/, "")}/api/v1/packs/${params.publisher}/${params.pack}/versions/${versionPath}/signatures`;
@@ -679,6 +697,21 @@ async function verifyRegistrySignature(params: {
     }>;
   };
   if (data.signatures.length === 0) return { code: "unsigned" };
+
+  // Tie the signature to the bytes on disk: the checksum the registry signed
+  // must equal the manifest we actually materialized. Without this, a `latest`
+  // pointer that advanced between content fetch and signature fetch would let a
+  // signature for a *different* version pass as if it covered the install.
+  if (
+    params.expectedManifestSha256 &&
+    data.manifestSha256 !== params.expectedManifestSha256
+  ) {
+    return {
+      code: "invalid",
+      reason: "manifest_mismatch",
+      detail: `signed manifest ${data.manifestSha256.slice(0, 12)}… does not match the installed manifest ${params.expectedManifestSha256.slice(0, 12)}…`,
+    };
+  }
 
   // Verify the newest signature (registry sorts newest-first).
   const latest = data.signatures[0];
