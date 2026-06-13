@@ -33,7 +33,7 @@ the zod schema lives in `packages/core/src/policy/schema.ts`.
 }
 ```
 
-Place this file at the project root (next to `package.json` /  `AGENTPACK.yaml`).
+Place this file at the project root (next to `package.json` / `AGENTPACK.yaml`).
 **Not** under `.agentpack/` — like `.editorconfig` it is user-authored, hand-edited,
 and meant to be committed.
 
@@ -41,18 +41,20 @@ and meant to be committed.
 
 ## Schema (v1)
 
-| Field | Type | Default | Meaning |
-|---|---|---|---|
-| `policyVersion` | `1` (literal) | required | Schema version. v2 will arrive when Phase 6 org-policy lands. |
-| `registries.allowed` | `string[]` (URLs) | `[]` | Whitelist; empty = no constraint. |
-| `registries.default` | `string` (URL) | none | Used when `--registry` isn't passed. |
-| `packs.allowedPublishers` | `string[]` (slugs) | none | Whitelist publishers. |
-| `packs.blockedPacks` | `string[]` (`pub/pack` or full ID) | none | Hard blocklist. |
-| `install.requireSignature` | `boolean` | `false` | Reject packs with no cosign signature (Phase 4-ready; currently always rejects until Phase 4 lands). |
-| `install.allowedProfiles` | `ProfileName[]` | none | Restrict installable profiles. |
-| `install.deniedAtomTypes` | `AtomType[]` | none | Reject plans containing any of these atom types. |
-| `verify.onInstall` | `off \| warn \| required` | none | Run `agentpack verify` after install. Reserved for Phase 4 wiring. |
-| `verify.chain` | `off \| warn \| required` | none | Run `agentpack verify --chain` after install. Reserved. |
+| Field                      | Type                               | Default  | Meaning                                                                                                                                                       |
+| -------------------------- | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policyVersion`            | `1` (literal)                      | required | Schema version. v2 will arrive when Phase 6 org-policy lands.                                                                                                 |
+| `registries.allowed`       | `string[]` (URLs)                  | `[]`     | Whitelist; empty = no constraint.                                                                                                                             |
+| `registries.default`       | `string` (URL)                     | none     | Used when `--registry` isn't passed.                                                                                                                          |
+| `packs.allowedPublishers`  | `string[]` (slugs)                 | none     | Whitelist publishers.                                                                                                                                         |
+| `packs.blockedPacks`       | `string[]` (`pub/pack` or full ID) | none     | Hard blocklist.                                                                                                                                               |
+| `install.requireSignature` | `boolean`                          | `false`  | Reject packs installed without a verified cosign signature (install with `--require-sig` against a signed registry pack).                                     |
+| `install.allowedProfiles`  | `ProfileName[]`                    | none     | Restrict installable profiles.                                                                                                                                |
+| `install.deniedAtomTypes`  | `AtomType[]`                       | none     | Reject plans containing any of these atom types.                                                                                                              |
+| `install.allowedSigners`   | `string[]` (SANs)                  | none     | Allowlist of acceptable Sigstore signer identities. A signed pack whose signer SAN isn't listed is refused (exit 4). Unioned with `--expected-signer`.        |
+| `install.requireIdentity`  | `boolean`                          | `false`  | Refuse an otherwise-valid signature whose signer is **unpinned** (no `--expected-signer`, no `allowedSigners`) instead of accepting it on trust-on-first-use. |
+| `verify.onInstall`         | `off \| warn \| required`          | none     | Run `agentpack verify` after install. Reserved for Phase 4 wiring.                                                                                            |
+| `verify.chain`             | `off \| warn \| required`          | none     | Run `agentpack verify --chain` after install. Reserved.                                                                                                       |
 
 ---
 
@@ -67,6 +69,8 @@ and meant to be committed.
 4. **Signature requirement** — if `install.requireSignature: true` and the lockfile's `signatures.manifest` is empty. Code: `unsigned`.
 5. **Profile allowlist** — if `install.allowedProfiles` is non-empty and the chosen profile isn't in it. Code: `profile`.
 6. **Denied atom types** — if any atom in the plan has a type in `install.deniedAtomTypes`. Code: `atomType`.
+
+**Signer-identity** is enforced separately, at the `install --require-sig` / `verify --sig` step rather than in `enforcePolicy`: once a signature is cryptographically valid, the signer SAN is checked against `install.allowedSigners` (∪ `--expected-signer`), and `install.requireIdentity` refuses an unpinned signer. An identity failure exits `4`, not `6` — it's a signature-trust failure, not a plan-policy violation.
 
 Each violation has a human `message` and an optional `hint`. The CLI prints
 them all then exits **6** (`ExitCode.PolicyViolation`).

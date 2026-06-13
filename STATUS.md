@@ -1,12 +1,21 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-12 (Agent Skills spec conformance — emit + ingest + CI gate; see CHANGELOG 0.6.9. Prior same-day: cross-surface reach — plugin emit + MCP connector + portability ceilings; see CHANGELOG 0.6.3→0.6.7)
+Last updated: 2026-06-13 (deferred-verify issue sweep — all of #14–#21 resolved + connector auth + registry hardening; see CHANGELOG 0.6.11 / ISA Iteration-9. Prior: Agent Skills spec conformance, CHANGELOG 0.6.9)
 
 ## Where we are
 
 **AgentPack is OPEN SOURCE.** Standard, registry, CLI, connector, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
 **Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; iteration-8 (2026-06-12) landed Agent Skills spec conformance (emit + ingest + CI gate, CHANGELOG 0.6.9); v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+
+## Iteration-9 highlights (2026-06-13)
+
+- **All eight deferred-verify issues (#14–#21) resolved.** Six were already fixed in code (drift-sweep had migrated them as verification tasks, not open defects) and now carry named regression tests; two needed real work. See ISA Iteration-9 / CHANGELOG 0.6.11.
+- **Signer-identity enforcement (#14)**: `evaluateSignerGate` pins the acceptable Sigstore signer from `--expected-signer` ∪ policy `install.allowedSigners`; `install.requireIdentity` refuses an unpinned signer. The registry-side per-publisher bound-SAN remains a follow-up gated on the live registry.
+- **Typed exit codes (#20)**: `failCleanly` now maps domain errors to the pinned taxonomy (not-found → 8, integrity → 7, conflict → 9) instead of collapsing to 1.
+- **Connector auth (security)**: the remote-MCP connector is now auth-by-default — `AGENTPACK_CONNECTOR_TOKEN` (≥16 chars) required or fail-closed start, constant-time bearer compare, DNS-rebinding Host/Origin allowlist.
+- **Registry hardening**: `verifyBearer` 45 s TTL cache; audit-fork (#15) + admin-CSRF (#16) regression tests backfilled; `pack_signatures_signer_san_idx` schema drift fixed; drizzle-kit `meta/` journal baseline (so `db:generate` reports no drift).
+- **Tests**: `pnpm verify` exit 0 — **484** (320 core + 40 cli + 19 db + 33 connector + 72 registry).
 
 ## Iteration-8 highlights (2026-06-12)
 
@@ -51,8 +60,8 @@ Last updated: 2026-06-12 (Agent Skills spec conformance — emit + ingest + CI g
 
 ## Test status
 
-- **300 tests passing**: 219 core + 19 db + 36 cli + 26 registry (iteration-6 added merge-install, recovery-restore, and rewrote git-source mocks).
-- All four workspace packages typecheck + lint + build cleanly.
+- **484 tests passing**: 320 core + 40 cli + 19 db + 33 connector + 72 registry (iteration-9 added the signer-gate, exit-code, connector-auth, audit/CSRF, and verifyBearer-cache suites).
+- All workspace packages typecheck + lint + build cleanly.
 - Registry builds Next.js 15.5.18 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.
 - `pnpm audit --prod` — 0 critical, 0 high, 7 moderate (Next.js Image-Optimizer variants — registry stays in JSON-fallback for OSS launch; revisit when DB-backed live), 2 low.
@@ -77,7 +86,7 @@ For DB-backed mode (browseable AT a public URL with real publish/install round-t
 - **v0.3.0 promotion** — held until live smoke (`scripts/smoke-e2e.sh`) round-trips publish→install against the hosted registry. Blocked on operator-provided DATABASE_URL + R2 credentials + GitHub OAuth app + DNS.
 - **Repo visibility flip** — operator one-time action; see "Open-source readiness" above.
 - **Vercel preview deploy** — Vercel project linked; `rootDirectory` must be set to `apps/registry` in the project's Settings page in the Vercel dashboard before `vercel --prod=false` from the repo root will succeed (the CLI does not expose this setting). One-click fix; documented for the operator.
-- **Phase 4 final touches** — live Sigstore round-trip from CI; deeper signature-identity enforcement (registry-side SAN-allowlist per publisher); CSRF/Origin check on admin status POST route. See iteration-5 Decisions in `ISA.md` for the audit findings list.
+- **Phase 4 final touches** — client-side signer-identity enforcement shipped in Iteration-9 (`--expected-signer` ∪ policy `install.allowedSigners` / `requireIdentity`); admin CSRF/Origin check confirmed + tested (#16). Remaining and **gated on the live registry**: a live Sigstore round-trip from CI, and the registry serving a bound per-publisher SAN so installs auto-pin without a local allowlist.
 - **Phase 6** (enterprise) — 🔒 **Gated.** Triggers on first paying-customer conversation about enterprise self-host. Schema slots preserved (`org_id` nullable, `audit_events` table exists, audit hash-chain writer landed). See `Plans/PHASE-6-GATE.md`.
 - **Phase 7** (AgentPack integration) — `POST /api/v1/import/workgraph`, trust signals, Agent Commons publish bridge. Requires AgentPack registry API + Agent Commons publishing endpoint.
 

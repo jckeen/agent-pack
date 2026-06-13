@@ -29,30 +29,42 @@ instructions remain Claude-Code-only. This connector bridges what is bridgeable.
 
 ```bash
 pnpm --filter @agentpack/connector build
-node packages/connector/dist/serve.js ./examples/pr-quality
+AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 24) \
+  node packages/connector/dist/serve.js ./examples/pr-quality
 # MCP endpoint at http://localhost:8787/mcp ; health at /healthz
 ```
 
 Then add it as a **Custom Connector** (remote MCP) in claude.ai or Claude
-Desktop settings, pointing at the `/mcp` URL.
+Desktop settings, pointing at the `/mcp` URL, with the same token as a
+`Authorization: Bearer` header.
 
-## Before exposing publicly
+## Authentication (required, fail-closed)
 
-This prototype binds with **no authentication** and is intended for local use.
-Productionizing requires:
+The server is **auth-by-default**: it refuses to start unless
+`AGENTPACK_CONNECTOR_TOKEN` is set and ≥16 characters. There is no skip-auth
+branch — local dev uses a real token through the same verifier.
 
-1. **Bearer auth** — the MCP resource-server pattern: a middleware that
-   validates `Authorization: Bearer` against your IdP (the SDK ships
-   `requireBearerAuth` + `mcpAuthMetadataRouter`), plus
-   `/.well-known/oauth-protected-resource` metadata.
-2. **DNS-rebinding protection** — set `enableDnsRebindingProtection: true` and
-   `allowedHosts` on the transport once it binds to a public interface.
-3. **Hosting** — any Node host (Fluid Compute / a container). **Deferred:**
-   provisioning recurring hosted infra is out of scope for this prototype. To
-   deploy later: `vercel deploy` (or a container) running `node dist/serve.js`,
-   with the pack baked in or fetched at boot.
+| Env var                             | Required            | Purpose                                                                                                                                              |
+| ----------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENTPACK_CONNECTOR_TOKEN`         | **yes** (≥16 chars) | Bearer token. `/mcp` requests must send `Authorization: Bearer <token>`; compared in constant time. Missing/invalid → `401` with `WWW-Authenticate`. |
+| `AGENTPACK_CONNECTOR_ALLOWED_HOSTS` | no                  | Comma-separated extra Host/Origin allowlist entries (DNS-rebinding guard). Defaults always include `localhost`, `127.0.0.1`, `[::1]`.                |
+| `AGENTPACK_CONNECTOR_PORT`          | no                  | Listen port (default `8787`).                                                                                                                        |
+
+`/healthz` is intentionally public (load-balancer probes); every other route
+requires the token. A **DNS-rebinding guard** rejects requests whose `Host`
+(or, when present, `Origin`) host isn't in the allowlist, so a malicious web
+page can't reach a locally-bound connector.
+
+## Before hosting it
+
+The remaining gap is **hosting**: provisioning recurring hosted infra is out of
+scope here (cost policy). To deploy later, run `node dist/serve.js` on any Node
+host (Fluid Compute / a container) behind TLS, with `AGENTPACK_CONNECTOR_TOKEN`
+set and the public hostname added to `AGENTPACK_CONNECTOR_ALLOWED_HOSTS`.
 
 ## Status
 
-Prototype. The catalog builder and MCP registration are covered by tests; a
-full MCP client handshake against a running server has not been wired into CI.
+Prototype with auth. The catalog builder, MCP registration, bearer auth, and
+DNS-rebinding guard are covered by tests (33 total, incl. a bound-socket
+round-trip); a full MCP **client** handshake against a running server is not
+yet wired into CI.

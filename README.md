@@ -161,9 +161,10 @@ A pack's overall reach is bounded by its least-portable atom. Instruction/rule c
 agentpack pack plugin examples/pr-quality --profile full --out dist-plugin
 #   → /plugin marketplace add <repo> ; /plugin install pr-quality@pr-quality-marketplace
 
-# Run a remote MCP connector that reaches every surface (prototype; local, no auth)
-node packages/connector/dist/serve.js examples/pr-quality
-#   → add the /mcp URL as a Custom Connector in claude.ai or Desktop
+# Run a remote MCP connector that reaches every surface (prototype; auth-by-default)
+AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 24) \
+  node packages/connector/dist/serve.js examples/pr-quality
+#   → add the /mcp URL as a Custom Connector in claude.ai or Desktop (Bearer = the token)
 ```
 
 ---

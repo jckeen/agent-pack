@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.11-dev — 2026-06-13 (deferred-verify issue sweep; ISA iteration-9)
+
+Closes the eight `[DEFERRED-VERIFY]` security/correctness issues migrated to GitHub (#14–#21) — six were already fixed in code and are now confirmed with regression tests; two needed real work; the connector gained the auth it was always missing.
+
+- **Signer-identity enforcement (#14)** — a valid Sigstore keyless signature only proves _some_ identity signed the manifest, not the expected publisher's. New `evaluateSignerGate` (core `signing/`) pins the acceptable signer from `--expected-signer` ∪ policy `install.allowedSigners`, and policy `install.requireIdentity` refuses an unpinned signer instead of trust-on-first-use. Wired into `install --require-sig` and `verify --sig`; identity failure exits 4. The registry-side per-publisher bound-SAN remains a follow-up gated on the live registry.
+- **Typed exit codes (#20)** — the CLI catch-all (`failCleanly`) mapped every uncaught error to 1. New `exitCodeForError` maps typed domain errors to the pinned taxonomy: `InstallManifestNotFoundError`/`VersionNotFoundError`/`BlobNotFoundError` → 8, `IntegrityError` → 7, `UninstallConflictError` → 9. `verify` of an uninstalled pack now exits 8. (Also fixed a copy-paste duplicate `AGENTPACK_DEBUG` guard.)
+- **Connector auth (security)** — the remote-MCP connector bound with no auth. Now auth-by-default: `AGENTPACK_CONNECTOR_TOKEN` (≥16 chars) is required or the server refuses to start (fail-closed, no skip-auth branch); bearer compared in constant time; `/mcp` authenticated, `/healthz` public; DNS-rebinding Host/Origin allowlist. 4 → 33 connector tests.
+- **Registry hardening** — `verifyBearer` gained a per-instance 45 s TTL cache (documented revocation-staleness window); regression tests backfilled for the already-shipped audit hash-chain fork guard (#15, advisory lock + `FOR UPDATE`) and admin CSRF/Origin guard (#16); a real schema drift fixed (`pack_signatures_signer_san_idx` existed in SQL but not the Drizzle schema object) and a drizzle-kit `meta/` journal baseline established so `db:generate` reports no drift. Registry 43 → 72 tests.
+- **Verified-and-closed (#17, #18, #19, #21)** — ref control-char rejection, git-source SHA-pinning, project-wide install lock, and Windows reserved-name rejection were already implemented; each now has a named regression test cited in the issue closure.
+
+Tests: `pnpm verify` exit 0 — **484** total (320 core + 40 cli + 19 db + 33 connector + 72 registry). New policy fields `install.allowedSigners` / `install.requireIdentity`.
+
 ## 0.6.10-dev — 2026-06-12 (doc contract; drift-sweep bootstrap)
 
 Docs/CI-only. Every tracked markdown surface is now declared in a root `.doc-contract` (LIVING / SOURCE / HISTORICAL) and asserted in CI by a vendored `scripts/check-doc-truth.sh` (ADR 0005 in dotfiles), running as the first CI step.

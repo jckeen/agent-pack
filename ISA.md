@@ -690,7 +690,7 @@ Pre-launch verification run. Goal: re-probe every ISC claim before public announ
 
 #### Deferred to v0.5.1 (documented, not auto-fixed)
 
-Open [DEFERRED-VERIFY] findings are tracked as GitHub issues (state lives there, not here):
+These [DEFERRED-VERIFY] findings were tracked as GitHub issues; **all eight are now RESOLVED** (Iteration-9, 2026-06-13 — six were already fixed in code and confirmed with regression tests, two were implemented). State lives in the issues; the resolution detail is in the Iteration-9 ISCs below.
 
 - ISC-289 → [#14](https://github.com/jckeen/agent-pack/issues/14): Sigstore identity-mismatch enforcement — `expectedSAN` not required with `--require-sig`.
 - ISC-290 → [#15](https://github.com/jckeen/agent-pack/issues/15): audit-events hash chain can fork under concurrent `appendAuditEvent`.
@@ -878,3 +878,27 @@ Aligns AgentPack with the Anthropic **Agent Skills** specification (agentskills.
 - **Ride the rail, claim conformance — not certification.** Docs say "conformant/validated against the reference validator"; there is no certification program to claim.
 - **TS port over Python-in-CI**: the conformance gate re-implements the six skills-ref rules in TypeScript rather than wiring a Python toolchain into CI; the tradeoff and the manual cross-check command are recorded in the test file header.
 - **Conform, don't reject**: non-conformant skill sources are auto-conformed at emit with warnings (and flagged at `agentpack validate`), preserving install flow while guaranteeing conformant output. Spec-extra fields travel under the spec's `metadata` passthrough, never as ad-hoc top-level frontmatter.
+
+## Iteration-9 — deferred-verify issue sweep (2026-06-13)
+
+Resolves the eight `[DEFERRED-VERIFY]` findings (ISC-289..296, GitHub #14–#21). Audit-first: read each fix site before touching it — six were already implemented in code (the drift-sweep migration created verification tasks, not open defects) and only needed a named regression test + closure; two needed real work. Parallelized across three worktrees (core/cli on the main tree; apps/registry + packages/db; packages/connector) with disjoint file ownership, merged via squash.
+
+### Iteration-9 ISCs (all verified by `pnpm verify` exit 0 — 484 tests)
+
+- [x] ISC-318 (#14, ISC-289): Signer-identity gate — `evaluateSignerGate` (core `signing/signerPolicy.ts`) is the trust decision applied after cryptographic verification. A valid keyless signature only proves _some_ identity signed the manifest; the gate pins the acceptable signer from `--expected-signer` ∪ policy `install.allowedSigners`, and policy `install.requireIdentity` refuses an unpinned signer instead of trust-on-first-use. Wired into `install --require-sig` and `verify --sig`; identity failure exits 4. New policy fields `install.allowedSigners` / `install.requireIdentity`. Registry-side per-publisher bound-SAN serving remains a follow-up gated on the live registry.
+- [x] ISC-319 (#20, ISC-295): Typed exit codes — `exitCodeForError` (core `protocol/error-codes.ts`) maps domain errors by stable `.name` to the pinned taxonomy (`InstallManifestNotFoundError`/`VersionNotFoundError`/`BlobNotFoundError` → 8, `IntegrityError` → 7, `UninstallConflictError` → 9); `failCleanly` delegates to it instead of hardcoding 1, keeping CLI usage errors at 2. Fixed a copy-paste duplicate `AGENTPACK_DEBUG` guard. `verify` of an uninstalled pack now exits 8 (CLI test strengthened from `not 0` to `=== 8`).
+- [x] ISC-320 (#15, ISC-290): audit hash-chain fork guard confirmed (advisory lock issued before head `SELECT … FOR UPDATE`, genesis case covered) + regression tests `apps/registry/tests/audit.test.ts` (canonicalize determinism, checksum chaining, mock-based transaction ordering — live-PG concurrency boundary documented).
+- [x] ISC-321 (#16, ISC-291): admin status CSRF/Origin guard confirmed (content-type + `Sec-Fetch-Site` + `Origin`) + 10 new CSRF tests in `admin-status.test.ts`.
+- [x] ISC-322 (#17, ISC-292): `parseGitId` ref control-char rejection confirmed (`REF_RE`) — regression `git-source.test.ts:101`.
+- [x] ISC-323 (#18, ISC-293): `fetchGitPack` resolves any ref to a 40-hex SHA before all fetches (force-push TOCTOU closed) — regression `git-source.test.ts:194,227`.
+- [x] ISC-324 (#19, ISC-294): `applyInstall` wraps plan→write→commit in `withProjectLock` — regression `install.test.ts:355` (serializes two concurrent `applyInstall` calls).
+- [x] ISC-325 (#21, ISC-296): atom-path schema rejects Windows reserved device names (CON/PRN/AUX/NUL/COM0-9/LPT0-9) — regression `manifest.test.ts:68`.
+- [x] ISC-326 (security): `@agentpack/connector` is now auth-by-default — `AGENTPACK_CONNECTOR_TOKEN` (≥16 chars) required or fail-closed start, constant-time bearer compare, `/healthz` public / `/mcp` authenticated, DNS-rebinding Host/Origin allowlist. 4 → 33 connector tests.
+- [x] ISC-327 (registry): `verifyBearer` per-instance 45 s TTL cache (revocation staleness documented); `pack_signatures_signer_san_idx` schema-drift fixed; drizzle-kit `meta/` journal baseline established (`db:generate` now reports no drift). Registry 43 → 72 tests.
+
+### Iteration-9 decisions
+
+- **Verify before re-implementing**: six of eight issues were already fixed in code — the discipline was to read each site first, prove the fix with a regression test, and close with evidence rather than re-doing work. Two (signer gate, exit codes) were genuinely missing.
+- **Governance-layer answer for #14, not registry-side**: signer-identity enforcement lives in `agentpack.policy.json` (`allowedSigners`/`requireIdentity`) + the CLI flag — the part that needs no live infra. The registry serving a bound per-publisher SAN automatically stays a documented follow-up, honestly deferred rather than fake-closed.
+- **Auth at the boundary for the connector**: the prototype's "no auth" note was a real gap, not an acceptable prototype shortcut; fixed auth-by-default with no skip-auth branch, per the project's standing auth rule.
+- **Parallel worktrees by package ownership**: core/cli, registry+db, connector edited in disjoint trees and squash-merged — no merge commits (the commit-msg hook requires bare conventional prefixes).
