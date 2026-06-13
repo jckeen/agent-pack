@@ -40,9 +40,9 @@
   "dependencies": {
     "@sigstore/bundle": "3.1.0",
     "@sigstore/sign": "4.1.0",
-    "diff": "7.0.0",
+    "diff": "9.0.0",
     "sigstore": "4.0.0",
-    "yaml": "2.6.1",
+    "yaml": "2.9.0",
     "zod": "3.23.8"
   },
   "devDependencies": {
