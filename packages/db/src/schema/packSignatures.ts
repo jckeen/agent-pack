@@ -60,7 +60,10 @@ export const packSignatures = pgTable(
   (t) => ({
     pkgVersionIdx: index("pack_signatures_pack_version_idx").on(t.packVersionId),
     rekorLogIdx: index("pack_signatures_rekor_log_index_idx").on(t.rekorLogIndex),
-  })
+    // Index present in 0002_signatures.sql but absent from the original Drizzle schema;
+    // added here to eliminate the drift between hand-written SQL and the schema object.
+    signerSanIdx: index("pack_signatures_signer_san_idx").on(t.signerSan),
+  }),
 );
 
 export type PackSignature = typeof packSignatures.$inferSelect;

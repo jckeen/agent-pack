@@ -74,6 +74,52 @@ export function findUngrantableScope(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// verifyBearer in-memory TTL cache
+//
+// Motivation: verifyBearer is called on every authenticated API request. Each
+// call hashes the token (cheap) then does two DB round-trips (SELECT token row
+// + SELECT publisher memberships). On a serverless edge the cold-path cost is
+// fine, but warm-instance hot-paths (many requests per second from the same
+// CI token) pay the DB cost repeatedly for no benefit.
+//
+// Design:
+//   - Key: sha256 of the raw Bearer token (never store the raw token).
+//   - Value: { principal: VerifiedToken | null, expiresAt: number }
+//   - TTL: VERIFY_BEARER_TTL_MS (default 45 s). Short enough that a revoked
+//     token remains usable for at most ~45 s after revocation — document this
+//     staleness window in every caller-facing comment. Long enough to absorb
+//     burst traffic from a single CI job.
+//   - null is also cached (invalid / unknown token) so repeated probing of a
+//     bad token doesn't hammer the DB. The null TTL is the same as success TTL;
+//     this is safe because an attacker probing random tokens will get cached
+//     null responses, not repeated DB reads.
+//   - Per-instance: a module-level Map is the right primitive for serverless.
+//     Each function instance gets its own Map; entries do not survive across
+//     cold starts, scale-to-zero, or instance replacement. That's fine — the
+//     TTL is short by design and the DB is always authoritative.
+//   - No background sweeping: entries are evicted lazily on read. Unbounded
+//     growth is bounded by the number of unique token hashes seen per instance
+//     lifetime, which is small in practice. A periodic sweep could be added if
+//     profiling reveals a memory concern.
+// ---------------------------------------------------------------------------
+
+/** Exported for tests that need to reset between runs. Not for production use. */
+export const VERIFY_BEARER_TTL_MS = 45_000;
+
+interface CacheEntry {
+  principal: VerifiedToken | null;
+  expiresAt: number;
+}
+
+/** Module-level TTL cache. One Map per serverless instance — intentional. */
+const _bearerCache = new Map<string, CacheEntry>();
+
+/** Exported solely for unit tests — clears the cache between test cases. */
+export function __resetBearerCacheForTests(): void {
+  _bearerCache.clear();
+}
+
 /**
  * Resolve a Bearer-token-bearing request to a verified token, or null.
  *
@@ -87,6 +133,14 @@ export function findUngrantableScope(
  * On success: fires off a non-awaited `last_used_at` update and resolves the
  * publisher membership set so scope-expansion checks (`publish:packs@<pub>`)
  * can be enforced cleanly downstream.
+ *
+ * **Staleness window**: results are cached in memory for up to
+ * VERIFY_BEARER_TTL_MS (45 s) per serverless instance. A token revoked in the
+ * DB may remain accepted for up to that window on warm instances. This is an
+ * explicit, documented trade-off — revocation is not instantaneous. For
+ * security-sensitive workflows (e.g. emergency key rotation) operators should
+ * redeploy to flush all instances, which takes effect within the deployment
+ * propagation window (~30 s on Vercel).
  */
 export async function verifyBearer(req: Request): Promise<VerifiedToken | null> {
   const header = req.headers.get("authorization") ?? req.headers.get("Authorization");
@@ -96,6 +150,14 @@ export async function verifyBearer(req: Request): Promise<VerifiedToken | null> 
   if (!raw) return null;
 
   const sha = hashToken(raw);
+
+  // Cache hit: return the stored principal (may be null for invalid tokens)
+  // without touching the DB.
+  const cached = _bearerCache.get(sha);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.principal;
+  }
+
   const db = getDb();
   if (!db) return null;
 
@@ -105,7 +167,15 @@ export async function verifyBearer(req: Request): Promise<VerifiedToken | null> 
     .where(and(eq(apiTokens.tokenSha256, sha), isNull(apiTokens.revokedAt)))
     .limit(1);
   const row = rows[0];
-  if (!row) return null;
+
+  if (!row) {
+    // Cache the negative result to avoid re-querying on repeated bad-token probes.
+    _bearerCache.set(sha, {
+      principal: null,
+      expiresAt: Date.now() + VERIFY_BEARER_TTL_MS,
+    });
+    return null;
+  }
 
   // Fire-and-forget last_used_at update — failures are non-fatal and must not
   // delay the request thread. We swallow the rejection deliberately because
@@ -127,13 +197,16 @@ export async function verifyBearer(req: Request): Promise<VerifiedToken | null> 
     .innerJoin(publishers, eq(publisherMembers.publisherId, publishers.id))
     .where(eq(publisherMembers.userId, row.userId));
 
-  return {
+  const principal: VerifiedToken = {
     userId: row.userId,
     tokenId: row.id,
     publisherIds: memberRows.map((r) => r.id),
     publisherSlugs: memberRows.map((r) => r.slug),
     scopes: row.scopes,
   };
+
+  _bearerCache.set(sha, { principal, expiresAt: Date.now() + VERIFY_BEARER_TTL_MS });
+  return principal;
 }
 
 /**
