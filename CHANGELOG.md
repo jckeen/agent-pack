@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.12-dev — 2026-06-14 (test-coverage hardening for public release)
+
+Coverage push ahead of going public: closed the largest untested surfaces and added regression gates so the gains can't silently erode. No source behavior changed — tests + vitest config only.
+
+- **Sigstore verification (core)** — `signing/sigstore.ts` 43→76% lines / 51→90% branch. 14 new tests (`sigstore-verify.test.ts`) pin the trust-gate paths from the iteration-9 identity-binding fix: forged-SAN rejection via the verified-cert (not the envelope), the `requireIdentity` short-circuit, and all eight `VerifyFailureReason` classifications. (The crypto boundary is mocked; the guard logic around it is exercised for real against a decoded test cert.)
+- **db query layer** — `queries/{tokens,packs,publishes,publishers}.ts` 1–2%→**100%** lines; package 51→92%. 53 new tests against a recording fake-Drizzle client assert the load-bearing predicates structurally: the `revokedAt IS NULL` active-token guard, owner-scoped revoke, `status=published` filter, and semver latest-selection. New db coverage gate (lines/statements 85, branch 78).
+- **connector** — `server.ts` 67→**100%**, `serve.ts` 0→**100%**; package 78→98%. 9 new tests drive the real Hono app + MCP transport and prove the auth boundary closes (401 no-token, 403 bad-Host, fail-closed start on missing/short token). New `vitest.config.ts` with a coverage gate (lines/funcs 90, branch 75) — the package previously had no config and no gate.
+- **registry made measurable** — added a `test:coverage` script and wired `apps/*` into the root `test:coverage` so the network-facing app is covered in CI for the first time. Overall 6.33% lines, but the security libs are already covered (`tokens.ts` 97%, `rate-limit.ts` 96%, `audit.ts` 100%); the gap is route handlers + R2/manifest streaming. Route tests + a threshold tracked in [#25](https://github.com/jckeen/agent-pack/issues/25).
+- **Fixed a test-fidelity bug** — a publisher-scope test asserted against a fictional `admin`/`member` role when the real enum is `owner|maintainer`; corrected to real roles. A fresh-context review confirmed no other instance across the new suites.
+
+Tests: `pnpm verify` exit 0 — **564** total (336 core + 40 cli + 72 db + 44 connector + 72 registry), up from 488. New regression gates on db + connector; `cli` stays ungated because its integration tests drive the built CLI as a subprocess that in-process v8 can't instrument (a misleading 2.49%).
+
 ## 0.6.11-dev — 2026-06-13 (deferred-verify issue sweep; ISA iteration-9)
 
 Closes the eight `[DEFERRED-VERIFY]` security/correctness issues migrated to GitHub (#14–#21) — six were already fixed in code and are now confirmed with regression tests; two needed real work; the connector gained the auth it was always missing.
