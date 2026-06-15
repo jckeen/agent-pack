@@ -44,7 +44,10 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((err: unknown) => {
+// Exported so tests can deterministically await startup (and the fail-closed
+// path) instead of racing a fixed timeout. Running `node serve.js` still
+// executes main() on import exactly as before; the export is inert in prod.
+export const ready = main().catch((err: unknown) => {
   process.stderr.write(
     `agentpack-connector failed: ${err instanceof Error ? err.message : String(err)}\n`,
   );
