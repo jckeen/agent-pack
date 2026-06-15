@@ -36,6 +36,12 @@ permissions:
   filesystem:
     read:
       - "."
+  # Capability levels: required | optional | forbidden ("none" is accepted as an
+  # alias for forbidden). Set these for any capability your atoms use.
+  shell:
+    execution: forbidden
+  network:
+    access: forbidden
 
 profiles:
   safe:
@@ -92,17 +98,16 @@ export function registerInit(program: Command): void {
     .action(async (options: { force: boolean }) => {
       const cwd = process.cwd();
       const manifestPath = path.join(cwd, "AGENTPACK.yaml");
-      const instructionPath = path.join(
-        cwd,
-        "atoms/instructions/project-defaults.md",
-      );
+      const instructionPath = path.join(cwd, "atoms/instructions/project-defaults.md");
       const skillPath = path.join(cwd, "atoms/skills/example-skill/SKILL.md");
 
       const writeOnce = async (target: string, body: string) => {
         try {
           await fs.access(target);
           if (!options.force) {
-            console.log(pc.yellow(`! ${target} exists — skipping (use --force to overwrite).`));
+            console.log(
+              pc.yellow(`! ${target} exists — skipping (use --force to overwrite).`),
+            );
             return;
           }
         } catch {
