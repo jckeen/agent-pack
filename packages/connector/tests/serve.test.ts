@@ -28,9 +28,6 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
-// Let the detached main()/main().catch() promise chain settle.
-const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 150));
-
 describe("serve.ts entrypoint", () => {
   beforeEach(() => {
     serveMock.mockReset();
@@ -62,8 +59,8 @@ describe("serve.ts entrypoint", () => {
       },
     );
 
-    await import("../src/serve.js");
-    await flush();
+    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    await mod.ready;
 
     expect(serveMock).toHaveBeenCalledTimes(1);
     const opts = serveMock.mock.calls[0]![0] as { fetch: unknown; port: number };
@@ -90,8 +87,8 @@ describe("serve.ts entrypoint", () => {
       },
     );
 
-    await import("../src/serve.js");
-    await flush();
+    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    await mod.ready;
 
     expect(serveMock).toHaveBeenCalledTimes(1);
     const opts = serveMock.mock.calls[0]![0] as { port: number };
@@ -110,8 +107,8 @@ describe("serve.ts entrypoint", () => {
       .spyOn(process, "exit")
       .mockImplementation(((_code?: number) => undefined) as never);
 
-    await import("../src/serve.js");
-    await flush();
+    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    await mod.ready;
 
     // The listener is never bound and the process is told to exit non-zero.
     expect(serveMock).not.toHaveBeenCalled();
@@ -132,8 +129,8 @@ describe("serve.ts entrypoint", () => {
       .spyOn(process, "exit")
       .mockImplementation(((_code?: number) => undefined) as never);
 
-    await import("../src/serve.js");
-    await flush();
+    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    await mod.ready;
 
     expect(serveMock).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
