@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { registerInit } from "./commands/init.js";
+import { registerImport } from "./commands/import.js";
 import { registerValidate } from "./commands/validate.js";
 import { registerInspect } from "./commands/inspect.js";
 import { registerPlan } from "./commands/plan.js";
@@ -30,6 +31,7 @@ program
   .showHelpAfterError(true);
 
 registerInit(program);
+registerImport(program);
 registerValidate(program);
 registerInspect(program);
 registerPlan(program);

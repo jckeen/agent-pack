@@ -104,6 +104,23 @@ export {
   type SeedPack,
 } from "./seed/seedPacks.js";
 
+// `agentpack import` — compile an existing CLAUDE.md/AGENTS.md into a pack.
+export {
+  importClaudeMd,
+  writeImport,
+  parseClaudeMd,
+  buildManifest,
+  slugify,
+  type ImportResult,
+  type ImportOptions,
+  type ParsedClaudeMd,
+  type ParsedSection,
+  type ParseWarning,
+  type BuildManifestOptions,
+  type BuildManifestResult,
+  type ImportFile,
+} from "./importer/index.js";
+
 // Phase 2 install engine — local install/uninstall/diff/verify/rollback.
 export {
   CANONICALIZATION,
