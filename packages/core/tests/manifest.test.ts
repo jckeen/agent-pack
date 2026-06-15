@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadManifest, validateManifest } from "../src/index.js";
+import { agentPackManifestSchema, loadManifest, validateManifest } from "../src/index.js";
 
 const EXAMPLE = path.resolve(__dirname, "../../../examples/pr-quality");
 
@@ -28,9 +28,7 @@ describe("manifest parsing & validation", () => {
     };
     const result = validateManifest(manifest);
     expect(result.valid).toBe(false);
-    expect(
-      result.errors.some((e) => e.code === "profile.unresolved_include"),
-    ).toBe(true);
+    expect(result.errors.some((e) => e.code === "profile.unresolved_include")).toBe(true);
   });
 
   it("rejects manifests with no profiles", () => {
@@ -38,7 +36,9 @@ describe("manifest parsing & validation", () => {
     manifest.profiles = {};
     const result = validateManifest(manifest);
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.path === "profiles" || e.code.startsWith("schema."))).toBe(true);
+    expect(
+      result.errors.some((e) => e.path === "profiles" || e.code.startsWith("schema.")),
+    ).toBe(true);
   });
 
   it("rejects manifests with an atom id whose prefix differs from declared type", () => {
@@ -46,9 +46,7 @@ describe("manifest parsing & validation", () => {
     manifest.atoms[0]!.id = "rule:wrong-prefix";
     const result = validateManifest(manifest);
     expect(result.valid).toBe(false);
-    expect(
-      result.errors.some((e) => e.code === "atom.id_type_mismatch"),
-    ).toBe(true);
+    expect(result.errors.some((e) => e.code === "atom.id_type_mismatch")).toBe(true);
   });
 
   it("rejects manifests whose `agentpack` version is not 1.x", () => {
@@ -70,7 +68,15 @@ describe("manifest parsing & validation", () => {
     // LPT1.md fails kernel-level writes on Windows regardless of the
     // application. Surface as a validate error rather than a download-time
     // surprise. From qa-lead iter-5 LOW-7.
-    for (const reserved of ["CON.md", "PRN.txt", "AUX/file.md", "NUL", "COM1.json", "lpt9.md", "Con.md"]) {
+    for (const reserved of [
+      "CON.md",
+      "PRN.txt",
+      "AUX/file.md",
+      "NUL",
+      "COM1.json",
+      "lpt9.md",
+      "Con.md",
+    ]) {
       const manifest = baseManifest();
       manifest.atoms[0]!.path = reserved;
       const result = validateManifest(manifest);
@@ -79,6 +85,24 @@ describe("manifest parsing & validation", () => {
         `expected windows-reserved rejection for "${reserved}"`,
       ).toBe(true);
     }
+  });
+
+  it('accepts "none" as an alias for "forbidden" on capability levels', () => {
+    // A guidance-only pack naturally writes an unused capability as "none";
+    // it is normalized to the canonical "forbidden" at the schema boundary.
+    const manifest = baseManifest() as ReturnType<typeof baseManifest> & {
+      permissions?: unknown;
+    };
+    manifest.permissions = {
+      shell: { execution: "none" },
+      network: { access: "none" },
+    };
+    const result = validateManifest(manifest);
+    expect(result.valid).toBe(true);
+
+    const parsed = agentPackManifestSchema.parse(manifest);
+    expect(parsed.permissions?.shell?.execution).toBe("forbidden");
+    expect(parsed.permissions?.network?.access).toBe("forbidden");
   });
 });
 

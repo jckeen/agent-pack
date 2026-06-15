@@ -10,9 +10,16 @@ const compatibilityStatusSchema = z.enum([
   "unsupported",
 ]);
 
-const targetPlatformSchema = z.enum(
-  TARGET_PLATFORMS as unknown as [string, ...string[]],
+// A capability level: required | optional | forbidden. "none" is accepted as an
+// author-friendly alias for "forbidden" — a guidance-only pack naturally writes
+// an unused capability (shell, network) as "none". Normalized here at the schema
+// boundary so the rest of the codebase only ever sees the canonical three values.
+const capabilityLevelSchema = z.preprocess(
+  (v) => (v === "none" ? "forbidden" : v),
+  z.enum(["required", "optional", "forbidden"]),
 );
+
+const targetPlatformSchema = z.enum(TARGET_PLATFORMS as unknown as [string, ...string[]]);
 
 const atomTypeSchema = z.enum(ATOM_TYPES as unknown as [string, ...string[]]);
 
@@ -65,14 +72,14 @@ const permissionsSchema = z
       .optional(),
     shell: z
       .object({
-        execution: z.enum(["required", "optional", "forbidden"]).optional(),
+        execution: capabilityLevelSchema.optional(),
         commands: z.array(z.string()).optional(),
       })
       .partial()
       .optional(),
     network: z
       .object({
-        access: z.enum(["required", "optional", "forbidden"]).optional(),
+        access: capabilityLevelSchema.optional(),
         domains: z.array(z.string()).optional(),
       })
       .partial()
@@ -190,8 +197,7 @@ const atomPlatformsSchema = z
  * filesystem write to them returns EINVAL on Windows, regardless of the
  * application. A pack distributed cross-platform must not contain them.
  */
-const WINDOWS_RESERVED_BASENAME_RE =
-  /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
+const WINDOWS_RESERVED_BASENAME_RE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
 
 const atomPathSchema = z
   .string()
