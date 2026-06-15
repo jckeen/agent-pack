@@ -13,7 +13,7 @@
     "build": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm --filter @agentpack/connector build && pnpm --filter @agentpack/cli build && pnpm --filter @agentpack/registry build",
     "dev": "pnpm --filter @agentpack/registry dev",
     "test": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" test",
-    "test:coverage": "pnpm -r --filter \"./packages/*\" test:coverage",
+    "test:coverage": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" test:coverage",
     "typecheck": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm -r typecheck",
     "lint": "eslint \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\" \"apps/*/{app,components,lib}/**/*.{ts,tsx}\"",
     "format": "prettier --write \"**/*.{ts,tsx,md,json,yaml}\" --ignore-path .gitignore",
