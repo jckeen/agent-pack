@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.13-dev — 2026-06-15 (pre-public issue sweep: importer, adapters, registry routes)
+
+Closes the open DX/correctness issues and adds the CLAUDE.md→pack importer, ahead of the public visibility flip. Every change landed via PR with required CI checks gating the merge.
+
+- **`agentpack import` — new feature (#30).** Compile an existing CLAUDE.md/AGENTS.md into a pack (the inverse of `pack export`): each `##` section becomes an instruction atom; governance/security sections (auth/git/security/verification/definition-of-done) promote to rule atoms with `must`/`must_not` derived from bullet **and** ordered-list items. Traversal-proof writes, always-schema-valid output, `@import` directives warned + dropped. `agentpack import <path> --id <publisher.slug> [--out] [--name]` (`-` reads stdin). 30 tests; dogfooded against a real CLAUDE.md (9 atoms, `validate` clean, the Auth section yields its 6 structured rules).
+- **Adapter heading hierarchy (#24).** Instruction/rule bodies opening with their own `# Title` produced a duplicate title and an H1 nested under the section header in all 5 adapters. New shared `demoteBodyHeadings` strips the redundant title when it equals the atom name, otherwise demotes the body's headings; CRLF-safe (round-trips byte-for-byte), fenced-code-immune, and a no-op for well-formed bodies so determinism holds.
+- **Registry route coverage (#25, partial).** 39 tests for the network-facing auth/publish/token route gates (401/403/409/410/422, finalize-hijack guard, masked-token mint), with `requireScope` and the rate limiter exercised for real. Registry is now measured in the CI coverage chain. Route internals (live-DB transaction, valid-signature crypto) + a threshold remain — tracked in #25.
+- **`none` capability alias (#23).** `permissions.shell.execution: none` / `network.access: none` are now accepted and normalized to `forbidden` at the schema boundary; `agentpack init` scaffolds the shell/network fields with the valid values.
+- **Connector `serve.ts` de-flaked (#27); CI gating hardened.** The coverage push's serve tests raced a fixed timeout on CI; `main()`'s promise is now exported so tests await startup deterministically. Required status checks (`build · typecheck · lint · test`) were enabled on `master`, closing the gap that let a red commit reach the branch.
+
+Tests: `pnpm verify` exit 0 — **645** total (374 core + 44 cli + 72 db + 44 connector + 111 registry), up from 564.
+
 ## 0.6.12-dev — 2026-06-14 (test-coverage hardening for public release)
 
 Coverage push ahead of going public: closed the largest untested surfaces and added regression gates so the gains can't silently erode. No source behavior changed — tests + vitest config only.
