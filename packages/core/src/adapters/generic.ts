@@ -2,6 +2,7 @@ import type { AdapterExportOptions, AdapterOutputFile } from "../schema/types.js
 import {
   atomsByType,
   defineAdapter,
+  demoteBodyHeadings,
   readAtomDirectory,
   readAtomFile,
   stableJsonStringify,
@@ -31,7 +32,10 @@ export const genericAdapter = defineAdapter({
     );
     for (const atom of byType.get("instruction") ?? []) {
       const body = (await readAtomFile(packRoot, atom)) ?? atom.description;
-      sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${body.trim()}\n`);
+      // Strip a redundant leading H1 and demote remaining headings beneath the
+      // `## ` section header (issue #24).
+      const text = demoteBodyHeadings(body.trim(), 2, atom.name);
+      sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${text}\n`);
     }
     for (const atom of byType.get("rule") ?? []) {
       const body = await renderRuleMarkdown(packRoot, atom);

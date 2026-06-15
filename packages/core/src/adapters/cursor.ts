@@ -2,6 +2,7 @@ import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/ty
 import {
   atomsByType,
   defineAdapter,
+  demoteBodyHeadings,
   readAtomDirectory,
   readAtomFile,
   stableJsonStringify,
@@ -34,7 +35,10 @@ export const cursorAdapter = defineAdapter({
     );
     for (const atom of byType.get("instruction") ?? []) {
       const body = (await readAtomFile(packRoot, atom)) ?? atom.description;
-      sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${body.trim()}\n`);
+      // Strip a redundant leading H1 and demote remaining headings beneath the
+      // `## ` section header (issue #24).
+      const text = demoteBodyHeadings(body.trim(), 2, atom.name);
+      sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${text}\n`);
     }
     // Cursor has no native skill/command/subagent surface — their content
     // must land in AGENTS.md or it is lost. Skill bodies are inlined; the

@@ -54,6 +54,140 @@ export function yamlFrontmatter(fields: Record<string, unknown>): string {
   return `---\n${stringifyYaml(present, { lineWidth: 0 })}---\n`;
 }
 
+/**
+ * Reconcile an atom body's heading hierarchy with the section header the
+ * adapter emits for that atom (issue #24).
+ *
+ * Instruction/rule/workflow atoms are rendered under a section header
+ * (`## <Atom>` or `### <Atom>`) and then the atom body is appended verbatim.
+ * When the body itself opens with a top-level `# Title`, two things break:
+ *  1. The title appears twice (once as the section header, once as the body H1).
+ *  2. An `<h1>` lands beneath an `<h2>`/`<h3>`, producing a broken heading
+ *     hierarchy in the generated CLAUDE.md / AGENTS.md.
+ *
+ * We only act when the body's FIRST non-empty line is a top-level `# ` heading.
+ * Two cases, depending on whether that H1's text matches `atomName` (the text
+ * already shown in the section header), compared trimmed and case-insensitively:
+ *  - MATCH → strip the redundant leading H1 line (and a single blank line after
+ *    it) so the title is not duplicated, then demote any REMAINING headings so
+ *    the highest remaining one sits at `sectionLevel + 1`.
+ *  - DIFFER → keep the leading H1 and demote every heading so the leading `#`
+ *    becomes `sectionLevel + 1`, preserving relative depth.
+ *
+ * Bodies that already nest correctly (first non-empty line is not a `# `
+ * heading) are returned unchanged — a no-op for well-formed bodies, so output
+ * stays deterministic.
+ *
+ * Headings inside fenced code blocks (``` / ~~~) are left untouched — a `#` at
+ * the start of a line in a shell snippet is a comment, not a heading. CRLF
+ * line endings are tolerated: a body authored on Windows (`# Title\r`) is
+ * demoted/stripped just like an LF body.
+ *
+ * @param sectionLevel the heading level of the section header the adapter
+ *   already emitted for this atom (2 for `##`, 3 for `###`).
+ * @param atomName the atom name rendered in the section header, used to detect
+ *   a redundant duplicate leading H1.
+ */
+export function demoteBodyHeadings(
+  body: string,
+  sectionLevel: number,
+  atomName: string,
+): string {
+  // Split on \n; carry any trailing \r per line so CRLF bodies round-trip.
+  const lines = body.split("\n");
+
+  // Find the first non-empty line; only act when it is a top-level `# ` ATX
+  // heading. This keeps the transform targeted at the duplicate-title shape.
+  // `\s` covers a lone trailing `\r` on a CRLF line.
+  let firstContentIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.trim() !== "") {
+      firstContentIdx = i;
+      break;
+    }
+  }
+  if (firstContentIdx === -1) return body;
+  const leadingH1 = /^# (?!#)(.*?)\r?$/.exec(lines[firstContentIdx]!);
+  if (!leadingH1) return body;
+
+  // Markdown caps at h6; never exceed it so deeply nested bodies stay valid.
+  const maxLevel = 6;
+
+  const namesMatch = leadingH1[1]!.trim().toLowerCase() === atomName.trim().toLowerCase();
+
+  let workingLines = lines;
+  if (namesMatch) {
+    // Strip the redundant leading H1 line. Also drop a single immediately
+    // following blank line so we don't leave a double blank between the
+    // section header and the body.
+    const after = lines.slice(firstContentIdx + 1);
+    if (after.length > 0 && after[0]!.trim() === "") after.shift();
+    workingLines = [...lines.slice(0, firstContentIdx), ...after];
+  }
+
+  // After a strip, the highest remaining heading should land at
+  // `sectionLevel + 1`. Find the minimum heading level among the remaining
+  // (non-fenced) headings to compute the shift; if none remain, nothing to do.
+  const minRemaining = minHeadingLevel(workingLines);
+  if (minRemaining === Infinity) return workingLines.join("\n");
+
+  // For the differ case minRemaining is 1 (the kept leading H1), so the shift
+  // is `sectionLevel` and the leading `#` becomes `sectionLevel + 1`. For the
+  // strip case the shift lifts whatever the highest remaining heading is to
+  // `sectionLevel + 1` so subsections stay valid.
+  const shift = sectionLevel + 1 - minRemaining;
+  if (shift === 0) return workingLines.join("\n");
+
+  let inFence = false;
+  let fenceMarker = "";
+  const out = workingLines.map((line) => {
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1]!.startsWith("`") ? "```" : "~~~";
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = marker;
+      } else if (marker === fenceMarker) {
+        inFence = false;
+        fenceMarker = "";
+      }
+      return line;
+    }
+    if (inFence) return line;
+    const headingMatch = /^(#{1,6}) (.*?)(\r?)$/.exec(line);
+    if (!headingMatch) return line;
+    const level = headingMatch[1]!.length;
+    const newLevel = Math.min(Math.max(level + shift, 1), maxLevel);
+    return `${"#".repeat(newLevel)} ${headingMatch[2]}${headingMatch[3]}`;
+  });
+  return out.join("\n");
+}
+
+/** Lowest ATX heading level (1 = `#`) among non-fenced lines, or Infinity. */
+function minHeadingLevel(lines: string[]): number {
+  let inFence = false;
+  let fenceMarker = "";
+  let min = Infinity;
+  for (const line of lines) {
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1]!.startsWith("`") ? "```" : "~~~";
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = marker;
+      } else if (marker === fenceMarker) {
+        inFence = false;
+        fenceMarker = "";
+      }
+      continue;
+    }
+    if (inFence) continue;
+    const headingMatch = /^(#{1,6}) /.exec(line);
+    if (headingMatch) min = Math.min(min, headingMatch[1]!.length);
+  }
+  return min;
+}
+
 export class AtomPathEscapeError extends Error {
   constructor(
     public readonly atomId: string,

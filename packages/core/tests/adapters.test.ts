@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { exportPack, type TargetPlatform } from "../src/index.js";
+import { demoteBodyHeadings } from "../src/adapters/types.js";
 
 const EXAMPLE = path.resolve(__dirname, "../../../examples/pr-quality");
 
@@ -36,6 +37,65 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await fs.rm(tmpRoot, { recursive: true, force: true });
+});
+
+// Issue #24: the shared atom-body reconciliation. Every instruction adapter
+// funnels its body through `demoteBodyHeadings(body, sectionLevel, atomName)`,
+// so the strip/demote/CRLF behavior is tested once here against the helper.
+describe("demoteBodyHeadings (issue #24 shared rendering)", () => {
+  it("demotes a leading H1 whose text DIFFERS from the atom name (no strip)", () => {
+    const body = "# Pull Request Review Standards\n\nReview carefully.";
+    // Section header is `### ` (level 3) → leading H1 lands at `####`.
+    const out = demoteBodyHeadings(body, 3, "PR Review Standards");
+    expect(out).toBe("#### Pull Request Review Standards\n\nReview carefully.");
+    // No `^# ` H1 survives under the section header.
+    expect(out.split("\n").some((l) => /^# (?!#)/.test(l))).toBe(false);
+  });
+
+  it("STRIPS a leading H1 that equals the atom name (case-insensitive)", () => {
+    const body = "# Operator Context\n\n- be concise\n- cite sources";
+    const out = demoteBodyHeadings(body, 2, "operator context");
+    // Redundant title removed (with its trailing blank line) — common case is
+    // just the body bullets, no duplicate title and no leading blank line.
+    expect(out).toBe("- be concise\n- cite sources");
+    expect(out).not.toContain("# Operator Context");
+  });
+
+  it("strips the duplicate title but still nests remaining subsections", () => {
+    const body = ["# Operator Context", "", "Intro.", "", "## Details", "", "More."].join(
+      "\n",
+    );
+    // Section header level 2 → the highest REMAINING heading (`## Details`)
+    // must land one level below it (`### Details`), staying valid.
+    const out = demoteBodyHeadings(body, 2, "Operator Context");
+    expect(out).toBe(["Intro.", "", "### Details", "", "More."].join("\n"));
+    expect(out).not.toMatch(/^# /m);
+  });
+
+  it("tolerates CRLF line endings (demote)", () => {
+    const body = "# Title\r\n\r\nBody line.\r\n";
+    const out = demoteBodyHeadings(body, 2, "Different Name");
+    // The leading H1 is demoted (names differ) and the CRLF endings round-trip.
+    expect(out).toBe("### Title\r\n\r\nBody line.\r\n");
+  });
+
+  it("tolerates CRLF line endings (strip when name==title)", () => {
+    const body = "# Operator Context\r\n\r\n- be concise\r\n";
+    const out = demoteBodyHeadings(body, 2, "Operator Context");
+    expect(out).toBe("- be concise\r\n");
+    expect(out).not.toContain("# Operator Context");
+  });
+
+  it("is a no-op when the body does not start with an H1", () => {
+    const body = "## Already Nested\n\nBody.";
+    expect(demoteBodyHeadings(body, 2, "Anything")).toBe(body);
+  });
+
+  it("leaves `#` lines inside fenced code blocks untouched", () => {
+    const body = "# Title\n\n```sh\n# not a heading\necho hi\n```";
+    const out = demoteBodyHeadings(body, 2, "Different");
+    expect(out).toBe("### Title\n\n```sh\n# not a heading\necho hi\n```");
+  });
 });
 
 describe("adapters write expected files", () => {
@@ -198,6 +258,61 @@ describe("adapters write expected files", () => {
     expect(github["args"]).toEqual(["-y", "@modelcontextprotocol/server-github"]);
     expect(github["env_vars"]).toEqual(["GITHUB_TOKEN"]);
   });
+
+  // Issue #24: an instruction body whose first line is `# Title` must not emit
+  // an <h1> beneath the `##`/`###` section header, and must not duplicate the
+  // atom title. The example pack's `instruction:pr-review-standards` body opens
+  // with `# Pull Request Review Standards`, so the real export exercises this.
+  it.each([
+    {
+      target: "claude-code" as const,
+      file: "CLAUDE.md",
+      sectionLine: "### PR Review Standards",
+    },
+    { target: "codex" as const, file: "AGENTS.md", sectionLine: "## PR Review Standards" },
+    { target: "cursor" as const, file: "AGENTS.md", sectionLine: "## PR Review Standards" },
+    {
+      target: "generic" as const,
+      file: "AGENTS.md",
+      sectionLine: "## PR Review Standards",
+    },
+  ])(
+    "$target: instruction body starting with # X nests under the section header without a duplicate title (#24)",
+    async ({ target, file, sectionLine }) => {
+      const r = await runExport(target, "safe");
+      const doc = await fs.readFile(path.join(r.outDir, file), "utf8");
+
+      // The section header for the atom is emitted exactly once.
+      const sectionIdx = doc.indexOf(`${sectionLine}\n`);
+      expect(sectionIdx).toBeGreaterThanOrEqual(0);
+      // Scope to this atom's section only — up to the next same-or-higher-level
+      // header — so an unrelated H1 from a later skill section isn't counted.
+      const sectionLevel = sectionLine.match(/^#+/)![0].length;
+      const after = doc.slice(sectionIdx + sectionLine.length);
+      const nextHeader = after.search(new RegExp(`\\n#{1,${sectionLevel}} `));
+      const section =
+        nextHeader === -1
+          ? doc.slice(sectionIdx)
+          : doc.slice(sectionIdx, sectionIdx + sectionLine.length + nextHeader);
+
+      // The body's original `# Pull Request Review Standards` H1 was demoted —
+      // it must no longer appear at H1 level, and there must be no `^# ` heading
+      // anywhere beneath the section header.
+      const bodyLines = section.split("\n");
+      for (const line of bodyLines) {
+        expect(line).not.toMatch(/^# (?!#)/);
+      }
+
+      // The demoted title nests exactly one level below the section header.
+      const demotedTitle = `${"#".repeat(sectionLevel + 1)} Pull Request Review Standards`;
+      expect(section).toContain(`${demotedTitle}\n`);
+
+      // The title appears only once (the demoted body heading) — the section
+      // header uses the atom name, so the original title is not duplicated.
+      const titleOccurrences = doc.split("Pull Request Review Standards").length - 1;
+      expect(titleOccurrences).toBe(1);
+    },
+  );
 
   it("export refuses to write outside the outDir", async () => {
     const badOut = path.join(tmpRoot, "boundary-check");

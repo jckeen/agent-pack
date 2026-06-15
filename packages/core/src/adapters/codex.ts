@@ -3,6 +3,7 @@ import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/ty
 import {
   atomsByType,
   defineAdapter,
+  demoteBodyHeadings,
   readAtomDirectory,
   readAtomFile,
   stableJsonStringify,
@@ -79,7 +80,12 @@ export const codexAdapter = defineAdapter({
 
     for (const atom of byType.get("instruction") ?? []) {
       const body = (await readAtomFile(packRoot, atom)) ?? atom.description;
-      sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${body.trim()}\n`);
+      // Section header is `## ` (level 2). Strip a redundant leading H1 that
+      // duplicates the atom name, and demote remaining headings so they nest
+      // beneath the section header instead of emitting an <h1> under the <h2>
+      // (issue #24).
+      const text = demoteBodyHeadings(body.trim(), 2, atom.name);
+      sections.push(`## ${atom.name}\n\n_(${atom.id})_\n\n${text}\n`);
     }
     const ruleAtoms = byType.get("rule") ?? [];
     if (ruleAtoms.length > 0) {
