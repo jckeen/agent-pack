@@ -5,6 +5,7 @@ import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/ty
 import {
   atomsByType,
   defineAdapter,
+  demoteBodyHeadings,
   readAtomDirectory,
   readAtomFile,
   stableJsonStringify,
@@ -27,7 +28,12 @@ function slugFor(atom: Atom): string {
 }
 
 function renderInstructionBody(atom: Atom, body: string | null): string {
-  return `### ${atom.name}\n\n_(${atom.id})_\n\n${(body ?? atom.description).trim()}\n`;
+  // Section header is `### ` (level 3). Strip a redundant leading H1 that
+  // duplicates the atom name, and demote remaining headings so they nest
+  // beneath the section header instead of emitting an <h1> under the <h3>
+  // (issue #24).
+  const text = demoteBodyHeadings((body ?? atom.description).trim(), 3, atom.name);
+  return `### ${atom.name}\n\n_(${atom.id})_\n\n${text}\n`;
 }
 
 async function renderRuleSection(packRoot: string, atom: Atom): Promise<string> {

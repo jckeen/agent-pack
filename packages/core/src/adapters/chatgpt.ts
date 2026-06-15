@@ -2,6 +2,7 @@ import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/ty
 import {
   atomsByType,
   defineAdapter,
+  demoteBodyHeadings,
   readAtomFile,
   stableJsonStringify,
 } from "./types.js";
@@ -68,7 +69,10 @@ export const chatgptAdapter = defineAdapter({
     ];
     for (const atom of byType.get("instruction") ?? []) {
       const body = (await readAtomFile(packRoot, atom)) ?? atom.description;
-      lines.push(`## ${atom.name}\n\n${body.trim()}\n`);
+      // Strip a redundant leading H1 and demote remaining headings beneath the
+      // `## ` section header (issue #24).
+      const text = demoteBodyHeadings(body.trim(), 2, atom.name);
+      lines.push(`## ${atom.name}\n\n${text}\n`);
     }
     const ruleAtoms = byType.get("rule") ?? [];
     if (ruleAtoms.length > 0) {
