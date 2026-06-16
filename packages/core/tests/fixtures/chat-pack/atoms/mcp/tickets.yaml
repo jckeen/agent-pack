@@ -1,0 +1,9 @@
+id: tickets
+name: Tickets Connector
+transport: http
+url: "https://mcp.example.com/tickets"
+auth:
+  scheme: oauth2
+  scopes:
+    - "tickets:read"
+    - "tickets:write"

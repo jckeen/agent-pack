@@ -5,6 +5,7 @@ import {
   exportPack,
   exportPlugin,
   exportMcpb,
+  exportChat,
   type PortabilityCeiling,
   type TargetPlatform,
 } from "@agentpack/core";
@@ -242,6 +243,85 @@ export function registerPack(program: Command): void {
           );
         } catch (err) {
           spinner.fail(`.mcpb export failed: ${(err as Error).message}`);
+          if (
+            (process.env["AGENTPACK_DEBUG"] === "1" ||
+              process.env["WORKGRAPH_DEBUG"] === "1") &&
+            err instanceof Error
+          ) {
+            console.error(pc.dim(err.stack ?? ""));
+          }
+          process.exit(1);
+        }
+      },
+    );
+
+  pack
+    .command("chat [path]")
+    .description(
+      "Compile a pack into claude.ai (Claude Chat) install artifacts: uploadable skill ZIPs, a connectors.json recipe, project-instructions.md, and an install README. Chat has no bundle format — this fans the pack into copy-paste steps.",
+    )
+    .option("--profile <profile>", "install profile")
+    .option("--out <dir>", "output directory", "dist-chat")
+    .option("--only <atomIds>", "comma-separated subset of atom ids to include")
+    .option("--no-strict", "do not abort on validation errors")
+    .action(
+      async (
+        path: string | undefined,
+        options: {
+          profile?: string;
+          out: string;
+          only?: string;
+          strict?: boolean;
+        },
+      ) => {
+        const source = path ?? process.cwd();
+        const spinner = ora(`Compiling ${source} → Claude Chat artifacts`).start();
+        try {
+          const result = await exportChat({
+            source,
+            profile: options.profile,
+            outDir: options.out,
+            strict: options.strict ?? true,
+            onlyAtoms: options.only
+              ?.split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          });
+          spinner.succeed(
+            `Wrote ${result.writtenFiles.length} file(s) to ${pc.cyan(result.outDir)}`,
+          );
+          const native = result.skills.filter((s) => s.kind === "native");
+          const onInvoke = result.skills.filter((s) => s.kind === "on-invoke");
+          console.log("");
+          console.log(
+            pc.bold("Skills:") +
+              ` ${native.length} native, ${onInvoke.length} on-invoke (bridged from instruction/rule/command).`,
+          );
+          if (onInvoke.length > 0) {
+            console.log(
+              pc.yellow(
+                `  ⚠ On-invoke skills apply only when invoked — NOT ambient. There is no instruction loader in Chat.`,
+              ),
+            );
+          }
+          if (result.connectors.length > 0) {
+            console.log(
+              pc.bold("Connectors:") +
+                ` ${result.connectors.length} remote MCP — see connectors.json (add manually; Chat has no install API).`,
+            );
+          }
+          const notPortable = result.report.filter((r) => !r.portable);
+          if (notPortable.length > 0) {
+            console.log(
+              pc.yellow(
+                `  ⚠ Not portable to Chat: ${notPortable.map((r) => r.atomId).join(", ")} (see README.md).`,
+              ),
+            );
+          }
+          console.log("");
+          console.log(pc.dim(`Install: follow ${result.outDir}/README.md`));
+        } catch (err) {
+          spinner.fail(`Chat export failed: ${(err as Error).message}`);
           if (
             (process.env["AGENTPACK_DEBUG"] === "1" ||
               process.env["WORKGRAPH_DEBUG"] === "1") &&

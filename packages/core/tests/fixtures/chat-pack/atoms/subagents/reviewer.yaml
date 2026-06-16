@@ -1,0 +1,4 @@
+id: reviewer
+name: Reviewer
+instructions: |
+  Review the diff for correctness, security, and missing tests.
