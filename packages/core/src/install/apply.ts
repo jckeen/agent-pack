@@ -112,6 +112,16 @@ async function applyInstallLocked(
     target: plan.target,
     profile: plan.profile,
     plannedFiles: plannedFilesFromPlan(plan),
+    // Paths we create fresh vs. pre-existing user files we overwrite. The plan
+    // classification is taken at plan-time (created = no file on disk;
+    // modified/forced-conflict = existing file that gets backed up). Recovery
+    // unlinks createdPaths unconditionally on rollback (a partial create has a
+    // non-matching hash) and treats each requiredBackup as restore-or-fail.
+    createdPaths: plan.created.map((f) => f.path),
+    requiredBackups: [
+      ...plan.modified.map((f) => f.path),
+      ...(opts.force ? plan.conflicts.map((c) => c.file.path) : []),
+    ],
     backupDir: toRelative(ws.projectRoot, backupBase),
     actor: opts.actor ?? { type: "cli" },
     result: "partial",
@@ -361,17 +371,35 @@ async function atomicWriteFile(
   content: string,
   flag: "w" | "wx" = "w",
 ): Promise<void> {
-  // For `wx` (create-only), write directly to the target with O_EXCL so a
-  // file planted by a racing process surfaces as EEXIST rather than being
-  // silently overwritten. Otherwise use the tmp + rename pattern for
-  // crash-safe replacement of existing files.
-  if (flag === "wx") {
-    await fs.writeFile(target, content, { encoding: "utf8", flag: "wx" });
-    return;
+  const tmp = `${target}.tmp-${randomBytes(6).toString("hex")}`;
+  // Write the full content to a temp file and fsync it so a crash can never
+  // expose a partially-written file at a user-visible path. The temp file's
+  // distinctive `.tmp-<nonce>` name is never something recovery treats as a
+  // staged install file, so an orphaned temp after a crash is inert.
+  const fh = await fs.open(tmp, "wx");
+  try {
+    await fh.writeFile(content, "utf8");
+    await fh.sync();
+  } finally {
+    await fh.close();
   }
-  const tmp = `${target}.tmp-${randomBytes(3).toString("hex")}`;
-  await fs.writeFile(tmp, content, "utf8");
-  await fs.rename(tmp, target);
+  try {
+    if (flag === "wx") {
+      // Create-only: hardlink claims `target` atomically and fails with EEXIST
+      // if a file was planted between plan and apply — preserving the O_EXCL
+      // guarantee — while the temp file holds the fully-fsynced bytes, so the
+      // create is never partial on disk. See security-reviewer finding #8.
+      await fs.link(tmp, target);
+      await fs.unlink(tmp);
+    } else {
+      // Replace existing content via atomic rename.
+      await fs.rename(tmp, target);
+    }
+  } catch (err) {
+    // On failure, clean up the temp file rather than leave it behind.
+    await fs.unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
 
 /**
