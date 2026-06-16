@@ -6,6 +6,7 @@ import {
   demoteBodyHeadings,
   readAtomDirectory,
   readAtomFile,
+  readPackRelativeFile,
   stableJsonStringify,
   wrapInstructionBlock,
 } from "./types.js";
@@ -400,23 +401,7 @@ async function parseAtomYaml(
 }
 
 async function readSafeRelative(packRoot: string, relPath: string): Promise<string | null> {
-  const path = await import("node:path");
-  const fs = await import("node:fs/promises");
-  if (
-    path.isAbsolute(relPath) ||
-    relPath.startsWith("~") ||
-    relPath.split(/[\\/]+/).includes("..")
-  ) {
-    return null;
-  }
-  const target = path.resolve(packRoot, relPath);
-  const rel = path.relative(packRoot, target);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  try {
-    return await fs.readFile(target, "utf8");
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT") return null;
-    throw err;
-  }
+  // Symlink-safe pack-relative read (prompt path from an atom body). Shared
+  // trust boundary — see readPackRelativeFile (CWE-59).
+  return readPackRelativeFile(packRoot, relPath);
 }

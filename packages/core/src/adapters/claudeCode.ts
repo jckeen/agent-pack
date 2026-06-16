@@ -1,5 +1,3 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/types.js";
 import {
@@ -8,6 +6,7 @@ import {
   demoteBodyHeadings,
   readAtomDirectory,
   readAtomFile,
+  readPackRelativeFile,
   stableJsonStringify,
   wrapInstructionBlock,
   yamlFrontmatter,
@@ -365,25 +364,8 @@ export const claudeCodeAdapter = defineAdapter({
 });
 
 async function readPromptFile(packRoot: string, relPath: string): Promise<string | null> {
-  // Containment: reject absolute paths and `..` traversal — same rules as
-  // atom.path. The prompt path is a manifest-controlled string referenced
-  // from an atom body file (yaml `prompt:` field), so the trust boundary is
-  // the same as the atom itself.
-  if (
-    path.isAbsolute(relPath) ||
-    relPath.startsWith("~") ||
-    relPath.split(/[\\/]+/).includes("..")
-  ) {
-    return null;
-  }
-  const target = path.resolve(packRoot, relPath);
-  const rel = path.relative(packRoot, target);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  try {
-    return await fs.readFile(target, "utf8");
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT") return null;
-    throw err;
-  }
+  // The prompt path is a manifest-controlled string referenced from an atom
+  // body (yaml `prompt:` field). Same trust boundary as atom.path — including
+  // symlink rejection — owned by the shared helper (CWE-59).
+  return readPackRelativeFile(packRoot, relPath);
 }

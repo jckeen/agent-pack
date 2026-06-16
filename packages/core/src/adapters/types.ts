@@ -382,6 +382,66 @@ export async function readAtomDirectory(
   return results;
 }
 
+/**
+ * Read a pack-relative file referenced by manifest/atom content (e.g. a
+ * `prompt:` path or a skill companion file) — the trust boundary for files
+ * NOT named by `atom.path`. Single owner of these rules so every adapter
+ * (claudeCode, codex, exportChat, …) shares one symlink-safe gate.
+ *
+ * A pack author controls these paths, so a symlink at `relPath` pointing at
+ * `/etc/passwd` (or any file outside the pack) must NOT be followed and read
+ * into the exported/uploaded artifact. Rules, all failing CLOSED to `null`
+ * (skip the content — never hard-fail an export on a hostile pack):
+ *  - reject absolute / `~` / `..` (lexical).
+ *  - reject if the resolved path escapes packRoot (lexical).
+ *  - reject a symlink AT relPath, and reject if realpath escapes packRoot.
+ *  - only read a regular file; missing/other IO → null.
+ */
+export async function readPackRelativeFile(
+  packRoot: string,
+  relPath: string,
+): Promise<string | null> {
+  if (
+    path.isAbsolute(relPath) ||
+    relPath.startsWith("~") ||
+    relPath.split(/[\\/]+/).includes("..")
+  ) {
+    return null;
+  }
+  const target = path.resolve(packRoot, relPath);
+  if (
+    (() => {
+      const rel = path.relative(packRoot, target);
+      return rel.startsWith("..") || path.isAbsolute(rel);
+    })()
+  ) {
+    return null;
+  }
+  let lstat;
+  try {
+    lstat = await fs.lstat(target);
+  } catch {
+    return null; // missing / unreadable → skip
+  }
+  // Reject a symlink at the target outright — a pack must not redirect a
+  // prompt/companion read to an arbitrary file via a symlink (CWE-59).
+  if (lstat.isSymbolicLink() || !lstat.isFile()) return null;
+  // Defense-in-depth: confirm symlinked ancestors don't redirect outside.
+  try {
+    const realPack = await fs.realpath(packRoot);
+    const realTarget = await fs.realpath(target);
+    const realRel = path.relative(realPack, realTarget);
+    if (realRel.startsWith("..") || path.isAbsolute(realRel)) return null;
+  } catch {
+    return null;
+  }
+  try {
+    return await fs.readFile(target, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 export function atomsByType(resolved: ResolvedAtom[]): Map<string, Atom[]> {
   const byType = new Map<string, Atom[]>();
   for (const r of resolved) {
