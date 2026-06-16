@@ -290,7 +290,7 @@ pnpm dev
 ```
 
 Without `DATABASE_URL`, the registry boots in JSON-fallback mode — `/packs` and
-`/packs/[publisher]/[slug]` render from `seed/seed-packs.json` (ISC-223). The
+`/packs/[publisher]/[slug]` render from `seed/seed-packs.json`. The
 publish + token routes return 503 in that mode.
 
 ---

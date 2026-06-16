@@ -15,7 +15,7 @@ One `AGENTPACK.yaml` describes a bundle of agent configuration — skills, rules
 
 It also compiles to **Codex**, **Cursor**, **ChatGPT Apps**, and a generic `AGENTS.md` target. AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, the connector, and the adapters are all in this repo and stay free forever.
 
-> **Status — 2026-06-12:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Cross-surface reach landed 2026-06-12: `agentpack pack plugin` emits a Claude Code plugin (Directory-installable), and `@agentpack/connector` is a remote-MCP prototype that reaches every surface. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). See [`STATUS.md`](./STATUS.md) and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
+> **Status:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Cross-surface reach spans four compile/import targets — `pack plugin`, `pack mcpb`, `pack chat`, and `import` (Claude / Codex / ChatGPT-GPT) — plus `@agentpack/connector`, a remote-MCP prototype that reaches every surface. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). For the current shipped state and version see [`STATUS.md`](./STATUS.md), [`CHANGELOG.md`](./CHANGELOG.md), and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
 
 ---
 
@@ -93,8 +93,9 @@ agentpack history --project /tmp/my-claude-project
 # Sign on publish (Phase 4 — keyless via Sigstore Fulcio + Rekor; requires a hosted registry)
 agentpack publish examples/pr-quality --sign
 
-# Verify a signed install (Phase 4)
-agentpack verify agentpack.pr-quality --project /tmp/my-claude-project --sig --strict
+# Verify a signed install (Phase 4) — --sig FAILS on an unsigned lockfile;
+# use --sig-if-present to pass when no signature is recorded
+agentpack verify agentpack.pr-quality --project /tmp/my-claude-project --sig
 ```
 
 ### Hosted registry (optional)
@@ -137,12 +138,13 @@ Install profiles (**safe → standard → full → enterprise**) let you opt int
 
 The thing you configure in the terminal mostly doesn't follow you to claude.ai, Desktop, Cowork, or mobile — each surface is its own island. AgentPack bridges what's bridgeable through three vehicles, and is honest about the rest:
 
-| Vehicle           | Command                 | Carries                                             | Reaches                                            |
-| ----------------- | ----------------------- | --------------------------------------------------- | -------------------------------------------------- |
-| **Local install** | `agentpack install`     | everything, incl. hooks + ambient `CLAUDE.md`       | Claude Code only                                   |
-| **Plugin**        | `agentpack pack plugin` | skills, commands, subagents, MCP, hooks             | Code, Cowork, Desktop, the web **Directory**       |
-| **Local bundle**  | `agentpack pack mcpb`   | a local stdio `mcp_server` as a `.mcpb`             | one-click **local** MCP on Cowork + Desktop        |
-| **MCP connector** | `@agentpack/connector`  | skills/commands/instructions as prompts + resources | **every** surface, incl. claude.ai chat and mobile |
+| Vehicle            | Command                 | Carries                                               | Reaches                                            |
+| ------------------ | ----------------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| **Local install**  | `agentpack install`     | everything, incl. hooks + ambient `CLAUDE.md`         | Claude Code only                                   |
+| **Plugin**         | `agentpack pack plugin` | skills, commands, subagents, MCP, hooks               | Code, Cowork, Desktop, the web **Directory**       |
+| **Local bundle**   | `agentpack pack mcpb`   | a local stdio `mcp_server` as a `.mcpb`               | one-click **local** MCP on Cowork + Desktop        |
+| **Chat artifacts** | `agentpack pack chat`   | skill ZIPs + `connectors.json` + project instructions | **claude.ai (Chat)** — copy-paste install steps    |
+| **MCP connector**  | `@agentpack/connector`  | skills/commands/instructions as prompts + resources   | **every** surface, incl. claude.ai chat and mobile |
 
 The plugin format **is** the Claude Cowork install format — one `/plugin install` (or file upload) reaches Code, Cowork, Desktop, and the web Directory. [Hooks are a Cowork-supported plugin component](https://claude.com/docs/cowork/3p/extensions), so they ride the plugin to Cowork (not Code-only).
 
@@ -199,7 +201,7 @@ agent-pack/
 ├── docs/                     # standard, security, adapters, CLI, registry, publish, install, policy, remote-install
 ├── Plans/                    # ROADMAP, PROTOCOL, PHASE-6-GATE, algorithm-v6.4.0 changes
 ├── scripts/                  # bring-up-prod.sh, smoke-e2e.sh, seed-import.ts
-├── ISA.md                    # Project Ideal State Articulation — 267 ISCs (test harness + done condition)
+├── ISA.md                    # Project Ideal State Articulation — ISCs (test harness + done condition)
 ├── STATUS.md                 # Current shipped state
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
@@ -214,6 +216,8 @@ agent-pack/
 
 ```bash
 agentpack init                              # scaffold a starter AGENTPACK.yaml
+agentpack import [path] --id pub.slug \
+  --from claude|codex|chatgpt-gpt           # compile an existing setup into a pack
 agentpack validate [path]                   # validate manifest
 agentpack inspect [path]                    # metadata + atoms + profiles + risk
 agentpack plan [path] \
@@ -283,7 +287,7 @@ Phase 4 trust:
 
 - **Sigstore cosign keyless** signing (OIDC → Fulcio cert + Rekor witness). No publisher-managed keys.
 - `agentpack publish --sign` populates `lockfile.signatures.{manifest, cert}` (slots reserved in v0.2.0).
-- `agentpack verify --sig --strict` exits non-zero on unsigned, signature-invalid, or quarantined packs; `--expected-signer <san>` pins the Sigstore identity (without it the CLI explicitly labels the signer as unpinned).
+- `agentpack verify --sig` enforces signing by default — it exits non-zero on unsigned, signature-invalid, or quarantined packs; pass `--sig-if-present` for the lenient variant that passes when no signature is recorded. (`--strict` is a deprecated alias for `--sig`.) `--expected-signer <san>` pins the Sigstore identity (without it the CLI explicitly labels the signer as unpinned).
 - Registry serves 451 on a quarantined version; admin UI at `/admin/packs` flips status.
 
 Full details: [`docs/security.md`](./docs/security.md) and [`docs/signatures.md`](./docs/signatures.md).

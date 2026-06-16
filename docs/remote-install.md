@@ -105,7 +105,7 @@ agentpack cache clear
 
 ### Cache safety
 
-- `agentpack cache prune` never deletes outside `~/.agentpack/cache/blobs/`. Every candidate path is realpath-resolved and must be inside the blob dir (ISC-246, ISC-264).
+- `agentpack cache prune` never deletes outside `~/.agentpack/cache/blobs/`. Every candidate path is realpath-resolved and must be inside the blob dir.
 - Writes are atomic: bytes go to a `<sha>.tmp` file, sha256 is verified against the expected hash, only then `rename` into the final path. Mismatched bytes raise `IntegrityError` (exit 7) and the temp is deleted.
 - Re-fetching is idempotent: same `sha` → same path → no-op.
 
@@ -113,10 +113,10 @@ agentpack cache clear
 
 ## Authentication
 
-| Pack visibility | Token required? |
-|---|---|
-| Public | No |
-| Private | Yes — `read:private` scope or `read:private@<publisher>` |
+| Pack visibility | Token required?                                          |
+| --------------- | -------------------------------------------------------- |
+| Public          | No                                                       |
+| Private         | Yes — `read:private` scope or `read:private@<publisher>` |
 
 Tokens are read from `~/.agentpack/credentials.json` (managed by `agentpack login`).
 The CLI sends `Authorization: Bearer <token>` if present; the registry decides
@@ -128,13 +128,13 @@ Override token from env: `AGENTPACK_TOKEN=agp_live_...` — useful in CI.
 
 ## Exit codes
 
-| Code | Cause |
-|---|---|
-| 0 | Installed successfully |
-| 1 | Generic error (network, missing version, IO) |
-| 2 | Drift detected post-install during verify (existing Phase 2 behavior) |
-| 6 | Policy violation (`agentpack.policy.json` enforcement — see `docs/policy.md`) |
-| 7 | **IntegrityError** — fetched bytes' sha256 didn't match what the registry declared |
+| Code | Cause                                                                              |
+| ---- | ---------------------------------------------------------------------------------- |
+| 0    | Installed successfully                                                             |
+| 1    | Generic error (network, missing version, IO)                                       |
+| 2    | Drift detected post-install during verify (existing Phase 2 behavior)              |
+| 6    | Policy violation (`agentpack.policy.json` enforcement — see `docs/policy.md`)      |
+| 7    | **IntegrityError** — fetched bytes' sha256 didn't match what the registry declared |
 
 Exit 7 is the supply-chain integrity signal. If you see it repeatedly against
 a single pack, the registry may be compromised or the lockfile contract is

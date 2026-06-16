@@ -2,11 +2,9 @@
 
 ## Supported versions
 
-| Version | Supported           |
-|---------|---------------------|
-| 0.1.x   | :white_check_mark: |
+Security fixes land on the latest released line. For the current shipped version see [`CHANGELOG.md`](./CHANGELOG.md); pre-1.0, only the most recent release line receives fixes.
 
-This project is at v0.1 and the security model is still evolving. The MVP build closed an initial set of findings (path traversal via `atom.path`, hook command injection, MCP shell-escape, prototype pollution). See [`docs/security.md`](./docs/security.md) for the current threat model.
+The security model is still evolving. The MVP build closed an initial set of findings (path traversal via `atom.path`, hook command injection, MCP shell-escape, prototype pollution); later releases hardened the command gate, install recovery, and full-artifact signing — see [`CHANGELOG.md`](./CHANGELOG.md). See [`docs/security.md`](./docs/security.md) for the current threat model.
 
 ## Reporting a vulnerability
 
@@ -24,7 +22,7 @@ We aim to respond within 5 business days and ship a fix within 30 days for high/
 
 - Vulnerabilities in dependencies — please report those upstream and link the advisory here.
 - Issues in your own un-published packs that you exclusively own.
-- Theoretical concerns without a working proof-of-concept against the current `main` branch.
+- Theoretical concerns without a working proof-of-concept against the current `master` branch.
 
 ## Hall of fame
 
