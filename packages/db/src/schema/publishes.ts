@@ -9,13 +9,7 @@
  * Gone + status='aborted'.
  */
 
-import {
-  jsonb,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 import { packs } from "./packs.js";
@@ -40,24 +34,31 @@ export interface PresignedFileEntry {
   presignedHeaders: Record<string, string>;
 }
 
-export const publishes = pgTable("publishes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  publisherSlug: text("publisher_slug").notNull(),
-  packSlug: text("pack_slug").notNull(),
-  version: text("version").notNull(),
-  status: text("status").notNull().default("pending"),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdBy: uuid("created_by")
-    .notNull()
-    .references(() => users.id, { onDelete: "restrict" }),
-  packId: uuid("pack_id").references(() => packs.id, { onDelete: "set null" }),
-  presignedFiles: jsonb("presigned_files")
-    .notNull()
-    .$type<PresignedFileEntry[]>(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-});
+export const publishes = pgTable(
+  "publishes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    publisherSlug: text("publisher_slug").notNull(),
+    packSlug: text("pack_slug").notNull(),
+    version: text("version").notNull(),
+    status: text("status").notNull().default("pending"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    packId: uuid("pack_id").references(() => packs.id, {
+      onDelete: "set null",
+    }),
+    presignedFiles: jsonb("presigned_files").notNull().$type<PresignedFileEntry[]>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    // Reaper scan for expired pending rows: `WHERE status=? AND expires_at<?`.
+    statusExpiresIdx: index("publishes_status_expires_idx").on(t.status, t.expiresAt),
+  }),
+);
 
 export type Publish = typeof publishes.$inferSelect;
 export type NewPublish = typeof publishes.$inferInsert;

@@ -162,25 +162,33 @@ export async function POST(
 
   const nextStatus = body.status === "active" ? "published" : "quarantined";
 
-  await db
-    .update(packVersions)
-    .set({ status: nextStatus })
-    .where(eq(packVersions.id, row.versionId));
+  // Atomic: the status flip and its audit row commit together or not at all.
+  // A failure between them would leave a quarantined version with no audit
+  // record (getVersionStatus would then render the banner with reason: null),
+  // breaking the governance integrity story. The advisory-lock + FOR UPDATE
+  // head select inside appendAuditEvent nest fine under this outer tx (the
+  // passed `tx` opens a savepoint). From #36.
+  const auditEventId = await db.transaction(async (tx) => {
+    await tx
+      .update(packVersions)
+      .set({ status: nextStatus })
+      .where(eq(packVersions.id, row.versionId));
 
-  const auditEventId = await appendAuditEvent({
-    db,
-    actorUserId: session.user.id,
-    action: "version_status_changed",
-    targetType: "pack_version",
-    targetId: row.versionId,
-    payload: {
-      publisher,
-      pack,
-      version,
-      previous_status: row.previousStatus,
-      new_status: nextStatus,
-      reason: body.reason ?? null,
-    },
+    return await appendAuditEvent({
+      db: tx,
+      actorUserId: session.user.id,
+      action: "version_status_changed",
+      targetType: "pack_version",
+      targetId: row.versionId,
+      payload: {
+        publisher,
+        pack,
+        version,
+        previous_status: row.previousStatus,
+        new_status: nextStatus,
+        reason: body.reason ?? null,
+      },
+    });
   });
 
   return NextResponse.json({
