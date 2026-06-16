@@ -40,6 +40,26 @@ export {
   type CodexSubagent,
   type CodexWarning,
 } from "./importCodex.js";
+export {
+  importChatgptGptDir,
+  parseChatgptGpt,
+  buildChatgptManifest,
+  KNOWLEDGE_RAG_WARNING,
+  openapiToMcp,
+  transpileOpenApiText,
+  toToolName,
+  type ImportChatgptGptOptions,
+  type BuildChatgptManifestOptions,
+  type BuildChatgptManifestResult,
+  type ParsedChatgptGpt,
+  type ChatgptKnowledgeFile,
+  type ChatgptWarning,
+  type TranspiledMcp,
+  type McpTool,
+  type McpToolInputSchema,
+  type McpAuth,
+  type McpAuthScheme,
+} from "./importChatgptGpt.js";
 
 export interface ImportResult {
   manifest: AgentPackManifest;

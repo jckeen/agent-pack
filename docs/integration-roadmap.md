@@ -38,7 +38,7 @@ Two load-bearing facts:
 | **CoWork**                               | Works via existing `plugin` target                   | Claude Code plugin (`pack plugin`) + `.mcpb`         | `.mcpb` emitter; hooks ceiling; org-plugins positioning — [#38](https://github.com/jckeen/agent-pack/issues/38) |
 | **Claude Chat (claude.ai)**              | Partial                                              | skill ZIPs + connector recipe + project instructions | `pack chat` — [#40](https://github.com/jckeen/agent-pack/issues/40)                                             |
 | **Codex (OpenAI)**                       | Export adapter exists                                | `.codex/*` + AGENTS.md                               | `import --from codex` — [#39](https://github.com/jckeen/agent-pack/issues/39)                                   |
-| **ChatGPT (consumer GPT)**               | No import path                                       | via `pack chat`                                      | `import --from chatgpt-gpt` + OpenAPI→MCP — [#41](https://github.com/jckeen/agent-pack/issues/41)               |
+| **ChatGPT (consumer GPT)**               | `import --from chatgpt-gpt` (human-seeded)           | via `pack chat`                                      | `import --from chatgpt-gpt` + OpenAPI→MCP transpiler — [#41](https://github.com/jckeen/agent-pack/issues/41)    |
 
 ## Atom portability (validated against live docs)
 
@@ -66,6 +66,25 @@ Ordered by ROI-per-effort (rationale in each issue):
 2. **`.mcpb` emitter + CoWork repositioning** — [#38](https://github.com/jckeen/agent-pack/issues/38). One-click local MCP on CoWork/Desktop.
 3. **Chat target (`pack chat`)** — [#40](https://github.com/jckeen/agent-pack/issues/40). Broadest claude.ai reach; the missing bundle layer.
 4. **ChatGPT → Claude Chat** — [#41](https://github.com/jckeen/agent-pack/issues/41). The headline; builds on #39 + #40 + the OpenAPI→MCP transpiler.
+
+### What `import --from chatgpt-gpt` does and doesn't carry
+
+The importer takes a **human-assembled bundle** (`gpt.json` + optional
+`openapi.yaml` + `knowledge/`) — there is no GPT export API, so config is seeded
+by hand. It then maps:
+
+- **Automatable:** instructions → `instruction`/`rule` atoms (governance split);
+  conversation starters → a "Suggested prompts" instruction; Action `operationId`s
+  → MCP tools (inputSchema + auth scheme/scopes) via the OpenAPI→MCP transpiler,
+  emitted as a connector-shaped `mcp_server` atom.
+- **Human judgment required:** the transpiled tools are **scaffolding, not runnable
+  handlers** — stand up the real remote MCP endpoint, set its `url`, and review the
+  auth scopes / least-privilege the credentials before wiring it to claude.ai.
+  Decide whether `knowledge/` belongs in a `context_pack` (loaded wholesale / in a
+  Project) or behind a real retrieval MCP server.
+- **Cannot cross at all:** GPT config auto-extraction (no export API), GPT Store
+  distribution, Apps SDK iframe widgets, and managed vector-store RAG retrieval
+  semantics. The importer states each of these in its output and warnings.
 
 ## Pre-public hardening (parallel track)
 

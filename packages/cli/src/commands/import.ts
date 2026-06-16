@@ -3,6 +3,7 @@ import type { Command } from "commander";
 import ora from "ora";
 import pc from "picocolors";
 import {
+  importChatgptGptDir,
   importClaudeMd,
   importCodexDir,
   writeImport,
@@ -14,7 +15,7 @@ import { failCleanly } from "../lib/error.js";
 // `publisher.slug`, exactly one publisher segment + one slug segment.
 const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]*\.[a-z0-9][a-z0-9._-]*$/i;
 
-const SOURCES = ["claude", "codex"] as const;
+const SOURCES = ["claude", "codex", "chatgpt-gpt"] as const;
 type Source = (typeof SOURCES)[number];
 
 async function readSource(p: string): Promise<string> {
@@ -32,9 +33,13 @@ export function registerImport(program: Command): void {
   program
     .command("import <path>")
     .description(
-      "Compile an existing setup into an AgentPack. `--from claude` (default) reads a CLAUDE.md / AGENTS.md file (use `-` for stdin); `--from codex` reads a Codex setup directory.",
+      "Compile an existing setup into an AgentPack. `--from claude` (default) reads a CLAUDE.md / AGENTS.md file (use `-` for stdin); `--from codex` reads a Codex setup directory; `--from chatgpt-gpt` reads a human-assembled ChatGPT-GPT bundle directory (gpt.json + optional openapi.yaml + knowledge/).",
     )
-    .option("--from <source>", "source format: `claude` (default) or `codex`", "claude")
+    .option(
+      "--from <source>",
+      "source format: `claude` (default), `codex`, or `chatgpt-gpt`",
+      "claude",
+    )
     .option("--out <dir>", "output directory for the imported pack", "agentpack-imported")
     .option("--id <publisher.slug>", "pack id (required) — e.g. `acme.team-defaults`")
     .option("--name <name>", "human-readable pack name")
@@ -78,6 +83,8 @@ export function registerImport(program: Command): void {
           let result: ImportResult;
           if (from === "codex") {
             result = await importCodexDir(srcPath, { id, name: options.name });
+          } else if (from === "chatgpt-gpt") {
+            result = await importChatgptGptDir(srcPath, { id, name: options.name });
           } else {
             const text = await readSource(srcPath);
             result = importClaudeMd(text, { id, name: options.name });
@@ -99,7 +106,25 @@ export function registerImport(program: Command): void {
             .map(([type, n]) => `${n} ${type}`)
             .join(", ");
           console.log(pc.dim(`  ${summary}`));
+          if (from === "chatgpt-gpt") {
+            console.log(
+              pc.dim(
+                "\nHuman-judgment steps before this is usable:\n" +
+                  "  - Stand up the real remote MCP endpoint that fronts the Action API and set its `url` in atoms/mcp/*.yaml (the transpiled tools are SCAFFOLDING, not runnable handlers).\n" +
+                  "  - Review the connector auth scheme + scopes and least-privilege the credentials.\n" +
+                  "  - If you imported knowledge/, decide between a context_pack (loaded wholesale / within a Project) and a real retrieval MCP server — ChatGPT's managed RAG is not reproduced.\n" +
+                  "Cannot cross at all: GPT config auto-extraction (no export API), GPT Store distribution, Apps SDK iframe widgets, managed vector-store retrieval semantics.",
+              ),
+            );
+          }
           console.log(pc.bold(`\nNext: run \`agentpack validate ${options.out}\`.`));
+          if (from === "chatgpt-gpt") {
+            console.log(
+              pc.bold(
+                `Then: \`agentpack pack chat ${options.out}\` for the Claude Chat artifacts.`,
+              ),
+            );
+          }
         } catch (err) {
           spinner.fail("Import failed.");
           failCleanly(err);
