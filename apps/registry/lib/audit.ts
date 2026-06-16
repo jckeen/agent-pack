@@ -12,8 +12,18 @@ import { desc, eq, isNull, sql } from "drizzle-orm";
 
 import { auditEvents, type Database } from "./db";
 
+/**
+ * Either the top-level Drizzle client or an open transaction handle. Callers
+ * inside an outer `db.transaction(...)` pass the `tx` so the audit row commits
+ * atomically with their own writes (#36). A `PgTransaction` supports the same
+ * `.transaction()` / `.select` / `.insert` surface used here — the nested call
+ * opens a savepoint, and the advisory lock + `FOR UPDATE` head select nest
+ * fine under the outer transaction.
+ */
+export type AuditDb = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 export interface AppendAuditEventOptions {
-  db: Database;
+  db: AuditDb;
   actorUserId: string;
   action: string;
   targetType: string;
@@ -33,10 +43,7 @@ function canonicalize(obj: unknown): string {
   if (Array.isArray(obj)) return `[${obj.map(canonicalize).join(",")}]`;
   const keys = Object.keys(obj as Record<string, unknown>).sort();
   return `{${keys
-    .map(
-      (k) =>
-        `${JSON.stringify(k)}:${canonicalize((obj as Record<string, unknown>)[k])}`
-    )
+    .map((k) => `${JSON.stringify(k)}:${canonicalize((obj as Record<string, unknown>)[k])}`)
     .join(",")}}`;
 }
 
@@ -51,11 +58,8 @@ function canonicalize(obj: unknown): string {
  * CRITICAL-2 (iter-5). For Postgres backends; SQLite ignores `FOR UPDATE`
  * but its single-writer model already serializes.
  */
-export async function appendAuditEvent(
-  opts: AppendAuditEventOptions
-): Promise<string> {
-  const { db, actorUserId, action, targetType, targetId, payload, orgId } =
-    opts;
+export async function appendAuditEvent(opts: AppendAuditEventOptions): Promise<string> {
+  const { db, actorUserId, action, targetType, targetId, payload, orgId } = opts;
 
   return await db.transaction(async (tx) => {
     // Take a Postgres advisory lock keyed by the chain partition BEFORE

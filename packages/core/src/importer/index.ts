@@ -26,6 +26,20 @@ export {
   type BuildManifestResult,
   type ImportFile,
 } from "./buildManifest.js";
+export {
+  importCodexDir,
+  parseCodex,
+  buildCodexManifest,
+  type ImportCodexOptions,
+  type BuildCodexManifestOptions,
+  type BuildCodexManifestResult,
+  type ParsedCodex,
+  type CodexSkill,
+  type CodexMcpServer,
+  type CodexHook,
+  type CodexSubagent,
+  type CodexWarning,
+} from "./importCodex.js";
 
 export interface ImportResult {
   manifest: AgentPackManifest;

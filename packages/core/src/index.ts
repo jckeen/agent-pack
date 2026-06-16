@@ -111,6 +111,9 @@ export {
   parseClaudeMd,
   buildManifest,
   slugify,
+  importCodexDir,
+  parseCodex,
+  buildCodexManifest,
   type ImportResult,
   type ImportOptions,
   type ParsedClaudeMd,
@@ -119,6 +122,15 @@ export {
   type BuildManifestOptions,
   type BuildManifestResult,
   type ImportFile,
+  type ImportCodexOptions,
+  type BuildCodexManifestOptions,
+  type BuildCodexManifestResult,
+  type ParsedCodex,
+  type CodexSkill,
+  type CodexMcpServer,
+  type CodexHook,
+  type CodexSubagent,
+  type CodexWarning,
 } from "./importer/index.js";
 
 // Phase 2 install engine — local install/uninstall/diff/verify/rollback.
