@@ -10,12 +10,16 @@ import { requireScope, verifyBearer } from "@/lib/tokens";
 import { hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request): Promise<Response> {
-  const verified = await verifyBearer(req);
+  // Mutating publish path: skip the positive cache so a revoked token is
+  // rejected immediately rather than after the verifyBearer TTL.
+  const verified = await verifyBearer(req, { skipCache: true });
   if (!verified) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   // Each init presigns N R2 PUT URLs and writes a 24h-lived publishes row —
-  // throttle per token so a single principal can't flood pending publishes.
+  // throttle per token to slow pending-publish flooding. Best-effort and
+  // per-instance on serverless (see lib/rate-limit.ts); the per-token DB-level
+  // guards are the durable control.
   const rl = hit(`publish-init:${verified.tokenId}`, 30, 60_000);
   if (!rl.allowed) return tooManyRequests(rl);
   let body: unknown;

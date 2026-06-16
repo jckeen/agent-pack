@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { __resetRateLimit, clientKey, hit, tooManyRequests } from "@/lib/rate-limit";
+import {
+  __resetRateLimit,
+  clientKey,
+  hit,
+  MemoryRateLimitStore,
+  type RateLimitStore,
+  type RateLimitWindow,
+  tooManyRequests,
+} from "@/lib/rate-limit";
 
 afterEach(() => __resetRateLimit());
 
@@ -37,6 +45,54 @@ describe("hit (fixed-window rate limiter)", () => {
     expect(hit("k", 3, 1000, t0).remaining).toBe(2);
     expect(hit("k", 3, 1000, t0).remaining).toBe(1);
     expect(hit("k", 3, 1000, t0).remaining).toBe(0);
+  });
+});
+
+describe("pluggable RateLimitStore", () => {
+  it("hit() routes through an injected store (adapter seam)", () => {
+    // A fake store backed by a plain object so we can assert hit() goes through
+    // the interface rather than touching the module-level Map.
+    const backing = new Map<string, RateLimitWindow>();
+    let gets = 0;
+    let sets = 0;
+    const fake: RateLimitStore = {
+      get(key) {
+        gets++;
+        return backing.get(key);
+      },
+      set(key, win) {
+        sets++;
+        backing.set(key, win);
+      },
+      delete(key) {
+        backing.delete(key);
+      },
+      clear() {
+        backing.clear();
+      },
+    };
+
+    const t0 = 5_000_000;
+    const first = hit("k", 2, 1000, t0, fake);
+    expect(first.allowed).toBe(true);
+    expect(hit("k", 2, 1000, t0, fake).allowed).toBe(true);
+    expect(hit("k", 2, 1000, t0, fake).allowed).toBe(false);
+
+    // The injected store was actually consulted, and the default in-memory
+    // store was NOT touched (a fresh default hit starts at full quota).
+    expect(gets).toBeGreaterThan(0);
+    expect(sets).toBeGreaterThan(0);
+    expect(backing.has("k")).toBe(true);
+    expect(hit("default-only", 5, 1000, t0).remaining).toBe(4);
+  });
+
+  it("MemoryRateLimitStore is the default and is independently usable", () => {
+    const store = new MemoryRateLimitStore();
+    const t0 = 6_000_000;
+    expect(hit("k", 1, 1000, t0, store).allowed).toBe(true);
+    expect(hit("k", 1, 1000, t0, store).allowed).toBe(false);
+    store.clear();
+    expect(hit("k", 1, 1000, t0, store).allowed).toBe(true);
   });
 });
 
