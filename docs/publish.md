@@ -179,7 +179,7 @@ jobs:
 
       - name: Publish to AgentPack Registry
         env:
-          AGENTPACK_TOKEN: ${{ secrets.WORKGRAPH_PUBLISH_TOKEN }}
+          AGENTPACK_TOKEN: ${{ secrets.AGENTPACK_PUBLISH_TOKEN }}
         run: pnpm -r agentpack publish --yes
 ```
 

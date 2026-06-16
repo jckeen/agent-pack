@@ -1,6 +1,6 @@
 {
   "name": "@agentpack/core",
-  "version": "0.2.0",
+  "version": "0.7.0-dev",
   "private": true,
   "description": "AgentPack core: schema, parser, validator, permissions, risk, planner, adapters.",
   "license": "MIT",

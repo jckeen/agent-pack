@@ -1,6 +1,6 @@
 {
   "name": "@agentpack/cli",
-  "version": "0.2.0",
+  "version": "0.7.0-dev",
   "private": true,
   "description": "agentpack CLI — validate, inspect, plan, export, install, uninstall, verify, and rollback AgentPacks.",
   "license": "MIT",
