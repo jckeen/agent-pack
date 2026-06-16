@@ -15,6 +15,8 @@
 
 import { z } from "zod";
 
+import { releaseDescriptorSchema } from "./releaseDescriptor.js";
+
 /** Lowercase hex sha256 — same shape as everywhere else in the codebase. */
 export const sha256HexSchema = z
   .string()
@@ -64,14 +66,31 @@ export type SignatureMetadata = z.infer<typeof signatureMetadataSchema>;
  * schema bump.
  */
 export const signedManifestSchema = z.object({
-  /** What was signed — the raw 64-char hex digest of AGENTPACK.yaml bytes. */
+  /**
+   * For v1 envelopes: the raw 64-char hex digest of AGENTPACK.yaml bytes, and
+   * also the SIGNED payload. For v2 envelopes: still the manifest digest (kept
+   * for display + the registry's manifest-mismatch tie), but the SIGNED payload
+   * is `canonicalReleaseDigest(releaseDescriptor)` — see issue #35.
+   */
   manifestChecksum: sha256HexSchema,
   /** Base64-encoded Sigstore Bundle JSON. Authoritative for verification. */
   bundleB64: z.string().min(1),
   /** Surface fields decoded from the bundle for display / quick checks. */
   metadata: signatureMetadataSchema,
-  /** Schema version of this envelope — bump when we change the shape. */
-  envelopeVersion: z.literal(1).default(1),
+  /**
+   * Schema version of this envelope. v1 = manifest-only signature (legacy,
+   * partial coverage). v2 = full-artifact: `releaseDescriptor` is present and
+   * its canonical digest is what the bundle signs (#35). Defaults to 1 for
+   * back-compat with envelopes that predate the descriptor.
+   */
+  envelopeVersion: z.union([z.literal(1), z.literal(2)]).default(1),
+  /**
+   * v2 only — the canonical release descriptor whose digest the bundle signs.
+   * Carrying it in the envelope lets the verifier recompute the signed digest
+   * and check downloaded files against the SIGNED digest set rather than
+   * registry-served metadata. Absent on v1 (legacy) envelopes.
+   */
+  releaseDescriptor: releaseDescriptorSchema.optional(),
 });
 
 export type SignedManifest = z.infer<typeof signedManifestSchema>;
@@ -82,12 +101,13 @@ export type VerifyResult =
   | { valid: false; reason: VerifyFailureReason; detail?: string };
 
 export type VerifyFailureReason =
-  | "envelope_invalid"      // base64/JSON/schema problem before crypto
-  | "checksum_mismatch"     // signed checksum != observed manifest checksum
-  | "signature_invalid"     // cosign verify said no
-  | "cert_invalid"          // chain to Fulcio failed
-  | "cert_expired"          // signed outside notBefore..notAfter
-  | "rekor_inclusion_failed"// log inclusion proof did not check out
-  | "identity_mismatch"     // SAN/issuer didn't match an expected identity
-  | "network_error"         // Rekor/Fulcio unreachable
-  | "unknown_error";        // catch-all, always with a detail
+  | "envelope_invalid" // base64/JSON/schema problem before crypto
+  | "checksum_mismatch" // signed checksum != observed manifest checksum
+  | "artifact_mismatch" // a downloaded file's bytes != the SIGNED descriptor (#35)
+  | "signature_invalid" // cosign verify said no
+  | "cert_invalid" // chain to Fulcio failed
+  | "cert_expired" // signed outside notBefore..notAfter
+  | "rekor_inclusion_failed" // log inclusion proof did not check out
+  | "identity_mismatch" // SAN/issuer didn't match an expected identity
+  | "network_error" // Rekor/Fulcio unreachable
+  | "unknown_error"; // catch-all, always with a detail

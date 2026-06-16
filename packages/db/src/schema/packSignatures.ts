@@ -13,6 +13,7 @@ import {
   bigint,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -50,7 +51,14 @@ export const packSignatures = pgTable(
     manifestSha256: text("manifest_sha256").notNull(),
 
     // Envelope version — bump on schema changes to the encoded payload.
+    // 1 = manifest-only (legacy); 2 = full-artifact (release descriptor).
     envelopeVersion: integer("envelope_version").notNull().default(1),
+
+    // #35 full-artifact signing — the canonical release descriptor whose digest
+    // the bundle signs (manifest hash + every file digest). Null for legacy v1
+    // (manifest-only) signatures. Served verbatim so the installer can verify
+    // downloaded bytes against the SIGNED digest set, not registry metadata.
+    releaseDescriptor: jsonb("release_descriptor").$type<Record<string, unknown>>(),
 
     signedAt: timestamp("signed_at", { withTimezone: true }).notNull(),
     insertedAt: timestamp("inserted_at", { withTimezone: true })

@@ -15,6 +15,13 @@
       "when": 1781577676145,
       "tag": "0004_salty_risque",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781581311281,
+      "tag": "0005_ancient_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

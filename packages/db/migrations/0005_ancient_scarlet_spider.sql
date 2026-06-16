@@ -1,0 +1,1 @@
+ALTER TABLE "pack_signatures" ADD COLUMN "release_descriptor" jsonb;

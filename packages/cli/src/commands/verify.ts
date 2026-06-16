@@ -14,10 +14,19 @@ export function registerVerify(program: Command): void {
     .description("Verify that installed files still match the lockfile (drift detection).")
     .option("--project <dir>", "target project directory", process.cwd())
     .option("--chain", "also verify the history.jsonl hash chain", false)
-    .option("--sig", "also verify the Sigstore signature recorded in the lockfile", false)
+    .option(
+      "--sig",
+      "verify the Sigstore signature recorded in the lockfile; FAILS if the lockfile is unsigned",
+      false,
+    )
+    .option(
+      "--sig-if-present",
+      "like --sig, but pass on an unsigned lockfile instead of failing (the old lenient --sig behavior)",
+      false,
+    )
     .option(
       "--strict",
-      "with --sig, exit non-zero if the lockfile records no signature",
+      "(deprecated alias) same as --sig — exit non-zero when the lockfile records no signature",
       false,
     )
     .option(
@@ -31,6 +40,7 @@ export function registerVerify(program: Command): void {
           project: string;
           chain: boolean;
           sig: boolean;
+          sigIfPresent: boolean;
           strict: boolean;
           expectedSigner?: string;
         },
@@ -68,12 +78,22 @@ export function registerVerify(program: Command): void {
           }
 
           // Drift-clean — optionally also verify the signature.
-          if (options.sig) {
+          //
+          // #35 fix 2: `--sig` ENFORCES by default — an unsigned lockfile is a
+          // failure (exit 5). The old lenient "verify only if a signature
+          // exists" behavior lives behind `--sig-if-present`. `--strict` is
+          // kept as a deprecated alias for the enforcing behavior. The
+          // signature check runs whenever ANY of these flags is set.
+          const sigChecking = options.sig || options.sigIfPresent || options.strict;
+          // Enforce (fail on unsigned) unless the caller explicitly opted into
+          // lenient mode via --sig-if-present.
+          const enforceSigned = sigChecking && !options.sigIfPresent;
+          if (sigChecking) {
             const policy = await loadPolicy(options.project);
             const sigResult = await checkLockfileSignature(
               options.project,
               packId,
-              options.strict,
+              enforceSigned,
               options.expectedSigner,
               policy?.install.allowedSigners,
               policy?.install.requireIdentity,
@@ -97,10 +117,11 @@ export function registerVerify(program: Command): void {
                 );
               }
             } else if (sigResult.code === "unsigned") {
-              if (options.strict) {
+              if (enforceSigned) {
                 console.error(
                   pc.red(
-                    `✗ ${packId} clean but UNSIGNED — --strict refuses unsigned packs.`,
+                    `✗ ${packId} clean but UNSIGNED — --sig requires a signature. ` +
+                      `Pass --sig-if-present to allow unsigned packs.`,
                   ),
                 );
                 process.exit(5);
@@ -188,11 +209,26 @@ async function checkLockfileSignature(
       detail: (err as Error).message,
     };
   }
-  // Pure cryptographic verification; the identity decision is applied by the
-  // shared signer gate below (ISC-289), so `--expected-signer` and policy
+  // Cryptographic verification; the identity decision is applied by the shared
+  // signer gate below (ISC-289), so `--expected-signer` and policy
   // `install.allowedSigners` are enforced consistently with `install`.
-  const result = await signing.verifyManifestSignature({
-    manifestChecksum: lockfile.manifestChecksum,
+  //
+  // #35: a v2 (full-artifact) envelope signs the release-descriptor digest, not
+  // the manifest checksum — so it must be verified via `verifyReleaseSignature`.
+  // At this seam the original published pack files are not on disk in their
+  // signed form (the install transformed them into adapter outputs; drift of
+  // those is covered separately by `verifyInstall`). We therefore verify the
+  // signature + the descriptor↔manifest tie, passing the descriptor's own file
+  // digests as the observed set so the file-set check is satisfied by the
+  // SIGNED bytes. A v1 envelope falls back to manifest-only coverage.
+  const result = await signing.verifyReleaseSignature({
+    manifestSha256: lockfile.manifestChecksum,
+    observedFiles: envelope.releaseDescriptor
+      ? envelope.releaseDescriptor.files.map((f) => ({
+          path: f.path,
+          sha256: f.sha256,
+        }))
+      : [],
     signed: envelope,
   });
   if (!result.valid) {
