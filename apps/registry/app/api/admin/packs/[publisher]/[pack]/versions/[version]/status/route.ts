@@ -30,8 +30,10 @@ import {
   packs,
   publisherMembers,
   publishers,
+  type Database,
 } from "@/lib/db";
-import { appendAuditEvent } from "@/lib/audit";
+import type { VersionStatusEnum } from "@agentpack/db";
+import { appendAuditEvent, type AppendAuditEventOptions, type AuditDb } from "@/lib/audit";
 
 const requestSchema = z
   .object({
@@ -45,6 +47,49 @@ const requestSchema = z
       path: ["reason"],
     }
   );
+
+export interface ApplyStatusChangeOptions {
+  /** Root Drizzle db (or open transaction handle). */
+  db: Database;
+  /** Injected audit helper — defaults to the real appendAuditEvent. */
+  appendAuditFn?: (opts: AppendAuditEventOptions) => Promise<string>;
+  versionId: string;
+  nextStatus: VersionStatusEnum;
+  actorUserId: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Atomic: update pack_versions.status + append an audit event in a single
+ * transaction. Extracted from the POST handler so the transaction body can be
+ * unit-tested without Next.js session/DB dependencies (#58).
+ *
+ * If appendAuditFn throws, the status update rolls back — the invariant that
+ * every quarantine has an audit record is enforced at the DB level (#36).
+ */
+export async function applyStatusChange(opts: ApplyStatusChangeOptions): Promise<string> {
+  const { db, versionId, nextStatus, actorUserId, action, targetType, targetId, payload } = opts;
+  const auditFn = opts.appendAuditFn ?? appendAuditEvent;
+
+  return db.transaction(async (tx) => {
+    await tx
+      .update(packVersions)
+      .set({ status: nextStatus })
+      .where(eq(packVersions.id, versionId));
+
+    return auditFn({
+      db: tx as AuditDb,
+      actorUserId,
+      action,
+      targetType,
+      targetId,
+      payload,
+    });
+  });
+}
 
 /**
  * Origin/Sec-Fetch-Site CSRF guard for the admin POST. NextAuth v5 only
@@ -168,27 +213,22 @@ export async function POST(
   // breaking the governance integrity story. The advisory-lock + FOR UPDATE
   // head select inside appendAuditEvent nest fine under this outer tx (the
   // passed `tx` opens a savepoint). From #36.
-  const auditEventId = await db.transaction(async (tx) => {
-    await tx
-      .update(packVersions)
-      .set({ status: nextStatus })
-      .where(eq(packVersions.id, row.versionId));
-
-    return await appendAuditEvent({
-      db: tx,
-      actorUserId: session.user.id,
-      action: "version_status_changed",
-      targetType: "pack_version",
-      targetId: row.versionId,
-      payload: {
-        publisher,
-        pack,
-        version,
-        previous_status: row.previousStatus,
-        new_status: nextStatus,
-        reason: body.reason ?? null,
-      },
-    });
+  const auditEventId = await applyStatusChange({
+    db,
+    versionId: row.versionId,
+    nextStatus,
+    actorUserId: session.user.id,
+    action: "version_status_changed",
+    targetType: "pack_version",
+    targetId: row.versionId,
+    payload: {
+      publisher,
+      pack,
+      version,
+      previous_status: row.previousStatus,
+      new_status: nextStatus,
+      reason: body.reason ?? null,
+    },
   });
 
   return NextResponse.json({
