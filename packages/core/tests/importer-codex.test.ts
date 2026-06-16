@@ -121,6 +121,34 @@ describe("parseCodex", () => {
   });
 });
 
+describe("parseCodex — preamble preservation", () => {
+  it("captures the AGENTS.md preamble as a synthetic leading section (fixes #57)", () => {
+    // The fixture AGENTS.md has a preamble paragraph between the # title and
+    // the first ## section.  Before the fix this text was silently discarded.
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": [
+          "# Project Setup",
+          "",
+          "Project conventions for working in this repo with Codex.",
+          "",
+          "## Working Style",
+          "",
+          "body",
+        ].join("\n"),
+      }),
+    );
+    const sections = parsed.agents?.sections ?? [];
+    // Synthetic preamble section + the real ## section = 2 total.
+    expect(sections).toHaveLength(2);
+    expect(sections[0]!.heading).toBe("Project Setup");
+    expect(sections[0]!.body).toContain(
+      "Project conventions for working in this repo with Codex.",
+    );
+    expect(sections[1]!.heading).toBe("Working Style");
+  });
+});
+
 describe("buildCodexManifest", () => {
   it("emits a schema-valid, semantically-valid manifest from the fixture", async () => {
     const parsed = await readFixture();
