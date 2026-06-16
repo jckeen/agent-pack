@@ -65,6 +65,16 @@ export type {
   ExportMcpbResult,
   McpbManifest,
 } from "./exports/exportMcpb.js";
+export { exportChat } from "./exports/exportChat.js";
+export type {
+  ExportChatOptions,
+  ExportChatResult,
+  ChatSkillArtifact,
+  ChatSkillKind,
+  ChatConnector,
+  ChatConnectorsDoc,
+  ChatPortabilityEntry,
+} from "./exports/exportChat.js";
 export { portabilityFor, summarizePortability } from "./portability.js";
 export type {
   PortabilityCeiling,

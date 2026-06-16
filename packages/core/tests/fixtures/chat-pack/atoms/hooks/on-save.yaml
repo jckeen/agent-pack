@@ -1,0 +1,7 @@
+id: on-save
+name: On Save
+events:
+  claude-code:
+    - PostToolUse
+handler:
+  command: "npm run format"

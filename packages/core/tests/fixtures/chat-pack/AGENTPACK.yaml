@@ -1,0 +1,136 @@
+agentpack: "1.0"
+
+metadata:
+  id: "agentpack.chat-demo"
+  name: "Chat Demo Pack"
+  slug: "chat-demo"
+  description: "A multi-atom pack exercising the Claude Chat compile target: skills, instructions, rules, a procedure command, a remote MCP connector, plus non-portable atoms."
+  version: "0.2.0"
+  license: "MIT"
+  publisher: "agentpack"
+  authors:
+    - name: "AgentPack"
+      email: "hello@agentpack.dev"
+  homepage: "https://agentpack.dev"
+  tags:
+    - chat
+    - demo
+
+compatibility:
+  targets:
+    claude-code:
+      status: supported
+    chatgpt:
+      status: experimental
+    generic:
+      status: supported
+
+permissions:
+  mcp:
+    servers:
+      - "tickets"
+  secrets:
+    required:
+      - name: "TICKETS_TOKEN"
+        description: "OAuth token for the remote tickets MCP connector."
+        required_for:
+          - "mcp_server:tickets"
+
+security:
+  risk_level: medium
+  risk_summary: "Adds a remote MCP connector that requires an OAuth token."
+
+profiles:
+  safe:
+    description: "Skills, instructions, rules, and the procedure command only."
+    include:
+      - "skill:data-cleanup"
+      - "instruction:writing-style"
+      - "rule:no-secrets-in-logs"
+      - "command:triage"
+    exclude:
+      - "mcp_server:*"
+      - "subagent:*"
+      - "hook:*"
+  full:
+    description: "Everything, including the remote connector and non-portable atoms."
+    include:
+      - "*"
+
+atoms:
+  - id: "skill:data-cleanup"
+    type: skill
+    name: "Data Cleanup"
+    description: "Use this skill to normalize and de-duplicate tabular data before analysis."
+    path: "atoms/skills/data-cleanup"
+    skill_format: "agentskills"
+    risk_level: low
+    permissions:
+      - filesystem.read
+
+  - id: "instruction:writing-style"
+    type: instruction
+    name: "Writing Style"
+    description: "House writing style: plain language, active voice, no hype."
+    path: "atoms/instructions/writing-style.md"
+    risk_level: low
+    permissions: []
+
+  - id: "rule:no-secrets-in-logs"
+    type: rule
+    name: "No Secrets In Logs"
+    description: "Never write secrets, tokens, or credentials into logs or output."
+    path: "atoms/rules/no-secrets-in-logs.yaml"
+    risk_level: low
+    permissions: []
+
+  - id: "command:triage"
+    type: command
+    name: "Triage"
+    description: "Triage an incoming issue: classify, set priority, and draft a first response."
+    path: "atoms/commands/triage.yaml"
+    risk_level: low
+    permissions:
+      - filesystem.read
+    invocation:
+      slash: "/triage"
+      cli: "triage"
+
+  - id: "subagent:reviewer"
+    type: subagent
+    name: "Reviewer"
+    description: "Specialized reviewer subagent — has no home in Claude Chat."
+    path: "atoms/subagents/reviewer.yaml"
+    risk_level: medium
+    permissions:
+      - filesystem.read
+
+  - id: "hook:on-save"
+    type: hook
+    name: "On Save"
+    description: "Runs a formatter on save — terminal/plugin only."
+    path: "atoms/hooks/on-save.yaml"
+    risk_level: high
+    permissions:
+      - shell.execution
+
+  - id: "mcp_server:tickets"
+    type: mcp_server
+    name: "Tickets Connector"
+    description: "Remote tickets MCP connector for reading and updating support tickets."
+    path: "atoms/mcp/tickets.yaml"
+    risk_level: medium
+    permissions:
+      - network.access
+      - external_api.access
+      - secrets.env
+    transport: http
+    url: "https://mcp.example.com/tickets"
+    env:
+      TICKETS_TOKEN:
+        required: true
+        description: "OAuth bearer token for the tickets API."
+
+exports:
+  default_profile: full
+  output_dir: "dist"

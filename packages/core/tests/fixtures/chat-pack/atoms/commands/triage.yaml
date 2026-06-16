@@ -1,0 +1,6 @@
+id: triage
+name: Triage
+invocation:
+  slash: "/triage"
+  cli: "triage"
+prompt: atoms/commands/prompts/triage.md
