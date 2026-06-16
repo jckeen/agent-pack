@@ -1,6 +1,6 @@
 {
   "name": "@agentpack/connector",
-  "version": "0.1.0",
+  "version": "0.7.0-dev",
   "private": true,
   "description": "Prototype remote MCP connector that exposes an AgentPack's guidance (skills, commands, instructions, rules) as MCP prompts and resources — reaching every Claude surface, including claude.ai chat and mobile/Dispatch where plugins can't.",
   "type": "module",

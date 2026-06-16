@@ -1,6 +1,6 @@
 {
   "name": "@agentpack/db",
-  "version": "0.3.0",
+  "version": "0.7.0-dev",
   "private": true,
   "description": "AgentPack Registry database schema, queries, and migrations (Drizzle + Postgres).",
   "license": "MIT",
@@ -21,7 +21,12 @@
       "import": "./dist/queries/index.js"
     }
   },
-  "files": ["dist", "src", "migrations", "README.md"],
+  "files": [
+    "dist",
+    "src",
+    "migrations",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

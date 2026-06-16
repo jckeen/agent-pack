@@ -1,6 +1,6 @@
 {
   "name": "@agentpack/registry",
-  "version": "0.2.0",
+  "version": "0.7.0-dev",
   "private": true,
   "description": "AgentPack Registry — the web UI for AgentPacks.",
   "license": "MIT",
