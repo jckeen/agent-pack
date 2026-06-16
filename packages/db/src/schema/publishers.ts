@@ -7,6 +7,8 @@
 
 import {
   boolean,
+  check,
+  index,
   pgTable,
   primaryKey,
   text,
@@ -51,7 +53,16 @@ export const publisherMembers = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.publisherId, t.userId] }),
-  })
+    // Hot auth path: the composite PK leads with publisher_id and can't serve
+    // `WHERE user_id = $1` (verifyBearer, lib/auth, /api/me, admin status).
+    userIdIdx: index("publisher_members_user_id_idx").on(t.userId),
+    // `role` is a closed domain (`owner|maintainer`). Kept as text + CHECK
+    // rather than a pgEnum to stay non-destructive (no text→enum USING cast).
+    roleCheck: check(
+      "publisher_members_role_check",
+      sql`${t.role} in ('owner', 'maintainer')`,
+    ),
+  }),
 );
 
 export type PublisherMember = typeof publisherMembers.$inferSelect;
