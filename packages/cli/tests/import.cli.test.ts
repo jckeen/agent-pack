@@ -125,4 +125,46 @@ describe("agentpack import", () => {
     ]);
     expect(r.code).toBe(2);
   });
+
+  it("exits 2 when --from is unknown", async () => {
+    const r = await run([
+      "import",
+      TMP_ROOT,
+      "--from",
+      "bogus",
+      "--id",
+      "acme.team",
+      "--out",
+      path.join(TMP_ROOT, "z"),
+    ]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("--from");
+  });
+
+  it("imports a Codex setup directory with --from codex and validates", async () => {
+    const codexFixture = path.resolve(__dirname, "../../core/tests/fixtures/codex");
+    const outDir = path.join(TMP_ROOT, "out-codex");
+    const imp = await run([
+      "import",
+      codexFixture,
+      "--from",
+      "codex",
+      "--out",
+      outDir,
+      "--id",
+      "acme.codex",
+      "--name",
+      "Acme Codex",
+    ]);
+    expect(imp.code).toBe(0);
+
+    // Manifest + Codex-native atom files exist.
+    await fs.access(path.join(outDir, "AGENTPACK.yaml"));
+    await fs.access(path.join(outDir, "atoms/skills/code-review/SKILL.md"));
+    await fs.access(path.join(outDir, "atoms/mcp/github.yaml"));
+
+    const validate = await run(["validate", outDir]);
+    expect(validate.code).toBe(0);
+    expect(validate.stdout).toContain("✓ Manifest is valid.");
+  });
 });
