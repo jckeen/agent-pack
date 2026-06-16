@@ -18,12 +18,31 @@ export {
   signerIdentitySchema,
 } from "./types.js";
 
+export type {
+  ReleaseDescriptor,
+  ReleaseFileEntry,
+  FileVerifyResult,
+} from "./releaseDescriptor.js";
+
+export {
+  releaseDescriptorSchema,
+  releaseFileEntrySchema,
+  buildReleaseDescriptor,
+  canonicalReleaseDigest,
+  verifyFilesAgainstDescriptor,
+} from "./releaseDescriptor.js";
+
 export {
   signManifestChecksum,
+  signReleaseDescriptor,
   verifyManifestSignature,
+  verifyReleaseSignature,
   SigningError,
   type SignOptions,
+  type SignReleaseOptions,
   type VerifyOptions,
+  type VerifyReleaseOptions,
+  type ReleaseVerifyResult,
 } from "./sigstore.js";
 
 export {

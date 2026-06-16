@@ -100,6 +100,11 @@ export function registerInstall(program: Command): void {
             process.exit(2);
           }
           let source = pack ?? process.cwd();
+          // #35 fix 3: when --require-sig verifies a signature, carry the
+          // verified envelope here so it gets persisted into AGENTPACK.lock's
+          // signatures.manifest — otherwise a later `verify --sig` would falsely
+          // report the install unsigned.
+          let verifiedSignatureB64: string | undefined;
 
           // Source detection order (v0.5): local path → git source → registry id.
           //
@@ -185,6 +190,7 @@ export function registerInstall(program: Command): void {
             // than the one being installed (code-reviewer finding, iter-9).
             let resolvedVersion: string | undefined;
             let resolvedManifestSha: string | undefined;
+            let observedFiles: Array<{ path: string; sha256: string }> = [];
             try {
               const remote = await fetchRemotePack({
                 publisher,
@@ -198,6 +204,7 @@ export function registerInstall(program: Command): void {
               source = remote.tmpRoot;
               resolvedVersion = remote.resolvedVersion;
               resolvedManifestSha = remote.manifestSha256;
+              observedFiles = remote.observedFiles;
             } catch (err) {
               // Bare network errors ("fetch failed") give an agent nothing to
               // act on — say which registry was contacted and note the common
@@ -220,6 +227,7 @@ export function registerInstall(program: Command): void {
                 pack: packSlug,
                 version: resolvedVersion,
                 expectedManifestSha256: resolvedManifestSha,
+                observedFiles,
               });
               if (sigCheck.code === "unsigned") {
                 console.error(
@@ -271,11 +279,20 @@ export function registerInstall(program: Command): void {
                 }
                 process.exit(4);
               }
+              // The signature verified and the signer is acceptable — stash the
+              // verified envelope so applyInstall persists it to the lockfile.
+              verifiedSignatureB64 = sigCheck.envelopeB64;
+              const coverageNote =
+                sigCheck.coverage === "manifest-only"
+                  ? pc.yellow(
+                      " (legacy signature — covers AGENTPACK.yaml only, NOT atom file bytes; re-publish to get full-artifact coverage)",
+                    )
+                  : pc.dim(" (full-artifact coverage)");
               if (gate.mode === "pinned") {
                 console.log(
                   pc.green(
                     `  ✓ signature verified — signed by ${gate.signerSan} (identity pinned)`,
-                  ),
+                  ) + coverageNote,
                 );
               } else {
                 // Trust-on-first-use: valid signature, unpinned signer.
@@ -283,7 +300,7 @@ export function registerInstall(program: Command): void {
                 console.log(
                   pc.green(
                     `  ✓ signature cryptographically valid — signer: ${gate.signerSan}`,
-                  ),
+                  ) + coverageNote,
                 );
                 console.log(
                   pc.yellow(
@@ -315,6 +332,14 @@ export function registerInstall(program: Command): void {
             projectRoot: options.project,
             generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
           });
+
+          // #35 fix 3: persist the verified signature envelope into the lockfile
+          // so a later `verify --sig` recognizes the install as signed. The
+          // envelope is base64-encoded JSON, matching what `verify --sig`
+          // decodes from signatures.manifest.
+          if (verifiedSignatureB64) {
+            plan.lockfile.signatures.manifest = verifiedSignatureB64;
+          }
 
           const planJson = () => ({
             packId: plan.packId,
@@ -481,7 +506,17 @@ async function fetchRemotePack(params: {
   target: TargetPlatform;
   profile: string;
   projectRoot: string;
-}): Promise<{ tmpRoot: string; resolvedVersion: string; manifestSha256: string }> {
+}): Promise<{
+  tmpRoot: string;
+  resolvedVersion: string;
+  manifestSha256: string;
+  /**
+   * sha256 of the ACTUAL bytes written for every non-manifest file (#35). Used
+   * to verify downloads against the SIGNED release descriptor rather than the
+   * registry-served per-file metadata.
+   */
+  observedFiles: Array<{ path: string; sha256: string }>;
+}> {
   const registry = params.registry.replace(/\/+$/, "");
   const token = (await getToken(registry)) ?? undefined;
   const client: RegistryClient = new HttpRegistryClient({
@@ -559,6 +594,7 @@ async function fetchRemotePack(params: {
   }
   await fs.writeFile(path.join(tmpRoot, "AGENTPACK.yaml"), manifestBytes);
 
+  const observedFiles: Array<{ path: string; sha256: string }> = [];
   for (const file of versionMeta.files) {
     try {
       // Use the cache so repeat installs are fast.
@@ -575,6 +611,15 @@ async function fetchRemotePack(params: {
       const dest = path.join(tmpRoot, file.path);
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.writeFile(dest, bytes);
+      // Hash the ACTUAL bytes we wrote (#35). client.fetchAtomFile checks bytes
+      // against the registry-served `file.sha256`; that does NOT catch a
+      // compromised registry serving a malicious hash that matches malicious
+      // bytes. The release-descriptor check below compares this to the SIGNED
+      // digest set, which a registry/R2 swap cannot forge.
+      observedFiles.push({
+        path: file.path,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
       // Tickle the cache to record this blob is hot.
       void cache;
     } catch (err) {
@@ -592,7 +637,12 @@ async function fetchRemotePack(params: {
   console.log(
     pc.dim(`Installed from registry: ${params.publisher}/${params.pack}@${version}`),
   );
-  return { tmpRoot, resolvedVersion: version, manifestSha256: actualManifestSha };
+  return {
+    tmpRoot,
+    resolvedVersion: version,
+    manifestSha256: actualManifestSha,
+    observedFiles,
+  };
 }
 
 async function peekAtomTypes(
@@ -644,6 +694,10 @@ async function fetchManifestExtra(
 interface SigOk {
   code: "ok";
   san: string;
+  /** Base64 envelope to persist into the lockfile (#35 fix 3). */
+  envelopeB64: string;
+  /** full-artifact = v2 descriptor verified; manifest-only = legacy v1. */
+  coverage: "full-artifact" | "manifest-only";
 }
 interface SigUnsigned {
   code: "unsigned";
@@ -667,6 +721,12 @@ async function verifyRegistrySignature(params: {
    * stale `latest` pointer) and is rejected.
    */
   expectedManifestSha256?: string | undefined;
+  /**
+   * sha256 of the ACTUAL bytes downloaded for every non-manifest file (#35).
+   * Checked against the SIGNED release descriptor so a registry/R2 swap of atom
+   * bytes (with a matching malicious per-file hash) is rejected.
+   */
+  observedFiles: Array<{ path: string; sha256: string }>;
 }): Promise<SigCheck> {
   const versionPath = params.version ?? "latest";
   const url = `${params.registry.replace(/\/+$/, "")}/api/v1/packs/${params.publisher}/${params.pack}/versions/${versionPath}/signatures`;
@@ -693,6 +753,7 @@ async function verifyRegistrySignature(params: {
       bundleB64: string;
       manifestChecksum: string;
       envelopeVersion: number;
+      releaseDescriptor?: signing.ReleaseDescriptor;
       metadata: signing.SignatureMetadata;
     }>;
   };
@@ -716,25 +777,35 @@ async function verifyRegistrySignature(params: {
   // Verify the newest signature (registry sorts newest-first).
   const latest = data.signatures[0];
   if (!latest) return { code: "unsigned" };
-  // Pure cryptographic verification — confirm the bundle is a valid Sigstore
-  // signature over this manifest checksum and surface the signer SAN. The
-  // identity decision (is this signer *trusted*?) is applied by the caller
-  // via `evaluateSignerGate`, which pins against `--expected-signer` and the
-  // policy `install.allowedSigners` allowlist (ISC-289). A registry that
-  // serves a bound per-publisher SAN automatically is a later enhancement
-  // that needs the live registry; until then the pin source is the client's
-  // CLI flag and policy file.
-  const result = await signing.verifyManifestSignature({
-    manifestChecksum: data.manifestSha256,
-    signed: {
-      manifestChecksum: latest.manifestChecksum,
-      bundleB64: latest.bundleB64,
-      metadata: latest.metadata,
-      envelopeVersion: 1,
-    },
+  // Reconstruct the envelope as served by the registry. A v2 envelope carries
+  // the release descriptor; a legacy v1 row does not.
+  const envelopeVersion: 1 | 2 = latest.envelopeVersion === 2 ? 2 : 1;
+  const envelope: signing.SignedManifest = {
+    manifestChecksum: latest.manifestChecksum,
+    bundleB64: latest.bundleB64,
+    metadata: latest.metadata,
+    envelopeVersion,
+    ...(latest.releaseDescriptor ? { releaseDescriptor: latest.releaseDescriptor } : {}),
+  };
+  // Full-artifact verification (#35). For a v2 envelope this confirms the
+  // bundle signs the release-descriptor digest AND that every downloaded file
+  // matches the SIGNED digest set — a registry/R2 byte swap cannot pass even if
+  // the served per-file metadata was forged to match. For a legacy v1 envelope
+  // it falls back to manifest-only coverage. The identity decision (is this
+  // signer *trusted*?) is applied by the caller via `evaluateSignerGate`.
+  const result = await signing.verifyReleaseSignature({
+    manifestSha256: data.manifestSha256,
+    observedFiles: params.observedFiles,
+    signed: envelope,
   });
   if (result.valid) {
-    return { code: "ok", san: result.metadata.identity.san };
+    const envelopeB64 = Buffer.from(JSON.stringify(envelope), "utf-8").toString("base64");
+    return {
+      code: "ok",
+      san: result.metadata.identity.san,
+      envelopeB64,
+      coverage: result.coverage,
+    };
   }
   return {
     code: "invalid",

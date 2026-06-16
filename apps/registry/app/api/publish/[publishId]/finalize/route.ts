@@ -80,14 +80,22 @@ export async function POST(
           );
         }
         parsedSignature = parsed.data;
-        // Cryptographically verify against the manifest hash the publisher
+        // Cryptographically verify against the file digests the publisher
         // declared at init time. If they disagree, refuse before persistence.
         const manifestFileForSig = pub.presignedFiles.find(
           (f) => f.path === "AGENTPACK.yaml",
         );
         const expectedChecksum = manifestFileForSig?.sha256 ?? "";
-        const result = await signing.verifyManifestSignature({
-          manifestChecksum: expectedChecksum,
+        // #35: a v2 envelope signs the full release descriptor. Verify the
+        // declared per-file digests against the SIGNED descriptor so a publish
+        // can't ship a signature that covers different bytes than the upload
+        // manifest. A v1 (legacy) envelope still verifies manifest-only.
+        const observedFiles = pub.presignedFiles
+          .filter((f) => f.path !== "AGENTPACK.yaml")
+          .map((f) => ({ path: f.path, sha256: f.sha256 }));
+        const result = await signing.verifyReleaseSignature({
+          manifestSha256: expectedChecksum,
+          observedFiles,
           signed: parsedSignature,
         });
         if (!result.valid) {
@@ -237,6 +245,9 @@ export async function POST(
           rekorLogUrl: parsedSignature.metadata.rekorLogUrl,
           manifestSha256: parsedSignature.manifestChecksum,
           envelopeVersion: parsedSignature.envelopeVersion,
+          // #35: persist the v2 release descriptor verbatim so installers can
+          // verify downloaded bytes against the SIGNED digest set. Null for v1.
+          releaseDescriptor: parsedSignature.releaseDescriptor ?? null,
           signedAt: new Date(parsedSignature.metadata.signedAt),
         });
       }

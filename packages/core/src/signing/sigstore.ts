@@ -28,8 +28,20 @@
 import { bundleFromJSON, bundleToJSON, type Bundle } from "@sigstore/bundle";
 import { DSSEBundleBuilder, FulcioSigner, RekorWitness } from "@sigstore/sign";
 
-import type { SignatureMetadata, SignedManifest, VerifyResult } from "./types.js";
+import type {
+  SignatureMetadata,
+  SignedManifest,
+  VerifyFailureReason,
+  VerifyResult,
+} from "./types.js";
 import { signedManifestSchema } from "./types.js";
+import {
+  buildReleaseDescriptor,
+  canonicalReleaseDigest,
+  verifyFilesAgainstDescriptor,
+  type ReleaseDescriptor,
+  type ReleaseFileEntry,
+} from "./releaseDescriptor.js";
 
 const DEFAULT_FULCIO_URL = "https://fulcio.sigstore.dev";
 const DEFAULT_REKOR_URL = "https://rekor.sigstore.dev";
@@ -46,6 +58,24 @@ export interface SignOptions {
   /** Override Rekor URL — test/staging. */
   rekorBaseURL?: string;
 }
+
+/**
+ * Options for `signReleaseDescriptor` (issue #35). Supply EITHER a prebuilt
+ * `descriptor` OR `manifestSha256` + `files` to have one built canonically.
+ */
+export type SignReleaseOptions = {
+  /** OIDC token; falls back to env if omitted. */
+  identityToken?: string;
+  /** OIDC issuer hint for ambient detection. */
+  oidcIssuer?: string;
+  /** Override Fulcio CA URL — test/staging. */
+  fulcioBaseURL?: string;
+  /** Override Rekor URL — test/staging. */
+  rekorBaseURL?: string;
+} & (
+  | { descriptor: ReleaseDescriptor; manifestSha256?: never; files?: never }
+  | { descriptor?: never; manifestSha256: string; files: ReleaseFileEntry[] }
+);
 
 export interface VerifyOptions {
   /** What we observed locally; sign- and verify-time must agree. */
@@ -68,6 +98,39 @@ export interface VerifyOptions {
    */
   requireIdentity?: boolean;
 }
+
+/**
+ * Options for `verifyReleaseSignature` (issue #35) — full-artifact trust gate.
+ */
+export interface VerifyReleaseOptions {
+  /** sha256 of the AGENTPACK.yaml bytes actually materialized on disk. */
+  manifestSha256: string;
+  /**
+   * sha256 of every installable file actually downloaded. Checked against the
+   * SIGNED descriptor — the bytes, not registry-served metadata.
+   */
+  observedFiles: Array<{ path: string; sha256: string }>;
+  /** The envelope as served by the registry / stored in the lockfile. */
+  signed: SignedManifest;
+  /** If set, fail when the cert SAN does not equal this string. */
+  expectedSAN?: string;
+  /** If set, fail when the cert issuer does not equal this string. */
+  expectedIssuer?: string;
+  /** Allow offline verification — skip Rekor network check. Default false. */
+  offline?: boolean;
+  /** See VerifyOptions.requireIdentity. */
+  requireIdentity?: boolean;
+}
+
+/** Outcome of `verifyReleaseSignature` — adds the coverage level. */
+export type ReleaseVerifyResult =
+  | {
+      valid: true;
+      metadata: SignatureMetadata;
+      /** full-artifact = v2 descriptor signed; manifest-only = legacy v1. */
+      coverage: "full-artifact" | "manifest-only";
+    }
+  | { valid: false; reason: VerifyFailureReason; detail?: string };
 
 /**
  * Sign the `manifestChecksum` using Sigstore keyless flow. Returns the
@@ -121,6 +184,70 @@ export async function signManifestChecksum(opts: SignOptions): Promise<SignedMan
 }
 
 /**
+ * Sign a full release artifact (issue #35). Builds the canonical release
+ * descriptor from the manifest digest + every installable file digest, signs
+ * the descriptor's digest via Sigstore keyless, and returns a v2 envelope that
+ * embeds the descriptor. The signature therefore covers the WHOLE artifact, not
+ * just the manifest.
+ */
+export async function signReleaseDescriptor(
+  opts: SignReleaseOptions,
+): Promise<SignedManifest> {
+  const identityToken = resolveIdentityToken(opts);
+  if (!identityToken) {
+    throw new SigningError(
+      "no_oidc_token",
+      "No OIDC token available. Set SIGSTORE_ID_TOKEN, run under GitHub Actions, or pass identityToken.",
+    );
+  }
+
+  const descriptor: ReleaseDescriptor = opts.descriptor
+    ? opts.descriptor
+    : buildReleaseDescriptor({
+        manifestSha256: opts.manifestSha256,
+        files: opts.files,
+      });
+  const releaseDigest = canonicalReleaseDigest(descriptor);
+
+  const signer = new FulcioSigner({
+    fulcioBaseURL: opts.fulcioBaseURL ?? DEFAULT_FULCIO_URL,
+    identityProvider: { getToken: async () => identityToken },
+  });
+  const rekor = new RekorWitness({
+    rekorBaseURL: opts.rekorBaseURL ?? DEFAULT_REKOR_URL,
+  });
+  const bundler = new DSSEBundleBuilder({
+    signer,
+    witnesses: [rekor],
+    certificateChain: true,
+  });
+
+  let bundle: Bundle;
+  try {
+    bundle = await bundler.create({
+      type: "application/vnd.agentpack.release+text",
+      data: Buffer.from(releaseDigest, "utf-8"),
+    });
+  } catch (err) {
+    throw new SigningError("sign_failed", (err as Error).message);
+  }
+
+  const bundleJson = bundleToJSON(bundle);
+  const bundleB64 = Buffer.from(JSON.stringify(bundleJson), "utf-8").toString("base64");
+  const metadata = extractMetadata(bundle);
+
+  const envelope: SignedManifest = {
+    manifestChecksum: descriptor.manifestSha256,
+    bundleB64,
+    metadata,
+    envelopeVersion: 2,
+    releaseDescriptor: descriptor,
+  };
+
+  return signedManifestSchema.parse(envelope);
+}
+
+/**
  * Verify a signed manifest against the observed `manifestChecksum`. Returns
  * a discriminated union — no exceptions for verification failure.
  */
@@ -146,6 +273,108 @@ export async function verifyManifestSignature(opts: VerifyOptions): Promise<Veri
     };
   }
 
+  // 3-5. Identity gate + crypto + authoritative cert identity. For a v1
+  // (manifest-only) envelope the SIGNED payload IS the manifest checksum.
+  return verifyIdentityAndCrypto(envelope, opts.manifestChecksum, opts);
+}
+
+/**
+ * Full-artifact verification (issue #35). Verifies a v2 envelope whose Sigstore
+ * bundle signs the RELEASE DESCRIPTOR digest (manifest hash + every file
+ * digest), then checks the OBSERVED downloaded files against that SIGNED
+ * descriptor — closing the gap where the registry served the per-file hashes.
+ *
+ * A v1 (legacy) envelope is accepted with `coverage: "manifest-only"` so old
+ * signatures still verify; the caller surfaces a partial-coverage note. A v2
+ * envelope is `coverage: "full-artifact"`.
+ */
+export async function verifyReleaseSignature(
+  opts: VerifyReleaseOptions,
+): Promise<ReleaseVerifyResult> {
+  // 1. Schema sanity.
+  let envelope: SignedManifest;
+  try {
+    envelope = signedManifestSchema.parse(opts.signed);
+  } catch (err) {
+    return { valid: false, reason: "envelope_invalid", detail: (err as Error).message };
+  }
+
+  // 2. The envelope's manifest digest must match what we observed locally —
+  // same tie as the v1 path; protects the manifest leg regardless of version.
+  if (envelope.manifestChecksum !== opts.manifestSha256) {
+    return {
+      valid: false,
+      reason: "checksum_mismatch",
+      detail: `signed-manifest=${envelope.manifestChecksum} observed=${opts.manifestSha256}`,
+    };
+  }
+
+  // 3. Legacy v1 envelope — no descriptor. The signature covers the manifest
+  // ONLY. Verify it as such and report partial coverage; the file-set check is
+  // not possible (the bytes were never signed).
+  if (envelope.envelopeVersion === 1 || !envelope.releaseDescriptor) {
+    const crypto = await verifyIdentityAndCrypto(envelope, envelope.manifestChecksum, opts);
+    if (!crypto.valid) return crypto;
+    return { valid: true, metadata: crypto.metadata, coverage: "manifest-only" };
+  }
+
+  // 4. v2 envelope — the SIGNED payload is the descriptor digest. The
+  // descriptor's own manifestSha256 must also match what we observed (it's part
+  // of the signed bytes, but checking here gives a precise failure reason).
+  const descriptor = envelope.releaseDescriptor;
+  if (descriptor.manifestSha256 !== opts.manifestSha256) {
+    return {
+      valid: false,
+      reason: "checksum_mismatch",
+      detail: `descriptor-manifest=${descriptor.manifestSha256} observed=${opts.manifestSha256}`,
+    };
+  }
+  const releaseDigest = canonicalReleaseDigest(descriptor);
+  const crypto = await verifyIdentityAndCrypto(envelope, releaseDigest, opts);
+  if (!crypto.valid) return crypto;
+
+  // 5. Check the OBSERVED downloaded files against the SIGNED descriptor. This
+  // is the control the manifest-only signature lacked: swapped atom bytes are
+  // rejected even when the registry served a matching (malicious) per-file
+  // hash, because the descriptor — not registry metadata — is the source of
+  // truth and the descriptor is covered by the verified signature.
+  const fileCheck = verifyFilesAgainstDescriptor(descriptor, opts.observedFiles);
+  if (!fileCheck.ok) {
+    const parts: string[] = [];
+    if (fileCheck.mismatches.length > 0) {
+      parts.push(`tampered: ${fileCheck.mismatches.map((m) => m.path).join(", ")}`);
+    }
+    if (fileCheck.missing.length > 0) {
+      parts.push(`missing: ${fileCheck.missing.join(", ")}`);
+    }
+    if (fileCheck.extra.length > 0) {
+      parts.push(`unexpected: ${fileCheck.extra.join(", ")}`);
+    }
+    return { valid: false, reason: "artifact_mismatch", detail: parts.join("; ") };
+  }
+  return { valid: true, metadata: crypto.metadata, coverage: "full-artifact" };
+}
+
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared steps 3-5 of verification, parameterized by the SIGNED payload string.
+ * For a manifest-only signature this is the manifest checksum; for a
+ * full-artifact signature it's the release-descriptor digest. The identity gate
+ * and the authoritative cert re-derivation are identical in both cases.
+ */
+async function verifyIdentityAndCrypto(
+  envelope: SignedManifest,
+  signedPayload: string,
+  opts: {
+    expectedSAN?: string;
+    expectedIssuer?: string;
+    offline?: boolean;
+    requireIdentity?: boolean;
+  },
+): Promise<VerifyResult> {
   // 3. Identity gate — refuse early if the surfaced SAN/issuer doesn't match.
   // When `requireIdentity: true` is passed, an absent expectedSAN AND
   // expectedIssuer is itself a failure — without that, ANY valid Sigstore
@@ -205,13 +434,9 @@ export async function verifyManifestSignature(opts: VerifyOptions): Promise<Veri
     // The umbrella's verify() consults Sigstore's trusted root TUF data,
     // checks the cert chain, signature over the payload, and Rekor inclusion.
     // It throws on failure; success returns void.
-    await sigstore.verify(
-      bundleJson as never,
-      Buffer.from(opts.manifestChecksum, "utf-8"),
-      {
-        tlogThreshold: opts.offline ? 0 : 1,
-      },
-    );
+    await sigstore.verify(bundleJson as never, Buffer.from(signedPayload, "utf-8"), {
+      tlogThreshold: opts.offline ? 0 : 1,
+    });
   } catch (err) {
     return classifyVerifyError(err as Error);
   }
@@ -251,11 +476,7 @@ export async function verifyManifestSignature(opts: VerifyOptions): Promise<Veri
   return { valid: true, metadata: verifiedMetadata };
 }
 
-// ---------------------------------------------------------------------------
-// Internals
-// ---------------------------------------------------------------------------
-
-function resolveIdentityToken(opts: SignOptions): string | undefined {
+function resolveIdentityToken(opts: { identityToken?: string }): string | undefined {
   if (opts.identityToken) return opts.identityToken;
   const env = process.env;
   if (env["SIGSTORE_ID_TOKEN"]) return env["SIGSTORE_ID_TOKEN"];

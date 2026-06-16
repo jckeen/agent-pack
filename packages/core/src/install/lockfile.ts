@@ -92,8 +92,20 @@ export interface BuildLockfileInput {
     sourceBytes: string;
     files: AdapterOutputFile[];
     /** sha256 of every file (precomputed so test code can share). */
-    fileHashes: Array<{ path: string; sha256: string; bytes: number; action: "create" | "modify" }>;
+    fileHashes: Array<{
+      path: string;
+      sha256: string;
+      bytes: number;
+      action: "create" | "modify";
+    }>;
   }>;
+  /**
+   * Optional base64-encoded signed-manifest envelope to persist into
+   * `signatures.manifest`. Set by `install --require-sig` after a signature
+   * verifies, so a later `verify --sig` doesn't falsely report unsigned (#35
+   * fix 3). Omitted on unsigned installs — `signatures` stays `{}`.
+   */
+  signatureManifestB64?: string;
 }
 
 /**
@@ -134,7 +146,7 @@ export function buildLockfile(input: BuildLockfileInput): LockfileV1 {
     canonicalization: { ...CANONICALIZATION },
     atoms,
     dependencies: [],
-    signatures: {},
+    signatures: input.signatureManifestB64 ? { manifest: input.signatureManifestB64 } : {},
   };
 }
 

@@ -76,6 +76,10 @@ export async function GET(
       bundleB64: s.bundleB64,
       manifestChecksum: s.manifestSha256,
       envelopeVersion: s.envelopeVersion,
+      // #35: serve the v2 release descriptor so `agentpack install`/`verify`
+      // can check downloaded bytes against the SIGNED digest set. Omitted when
+      // null (legacy v1, manifest-only signature).
+      ...(s.releaseDescriptor ? { releaseDescriptor: s.releaseDescriptor } : {}),
       metadata: {
         identity: {
           san: s.signerSan,

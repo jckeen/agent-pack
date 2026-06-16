@@ -52,21 +52,19 @@ export function registerPublish(program: Command): void {
     .option(
       "--sign",
       "sign the manifest with Sigstore keyless (default if OIDC token available)",
-      true
+      true,
     )
     .option("--no-sign", "skip signing; pack will be unsigned in the registry")
     .action(
       async (
         pathArg: string | undefined,
-        options: { registry: string; yes: boolean; sign: boolean }
+        options: { registry: string; yes: boolean; sign: boolean },
       ) => {
         try {
           const registry = options.registry.replace(/\/+$/, "");
           const token = await getToken(registry);
           if (!token) {
-            console.error(
-              pc.red("Not logged in. Run `agentpack login` first.")
-            );
+            console.error(pc.red("Not logged in. Run `agentpack login` first."));
             process.exit(ExitCode.Generic);
           }
           const source = pathArg ?? process.cwd();
@@ -78,9 +76,13 @@ export function registerPublish(program: Command): void {
           const files = await collectFiles(loaded.packRoot, manifest);
 
           console.log(pc.bold(`\nPublish summary`));
-          console.log(`  ${manifest.metadata.publisher}/${manifest.metadata.slug}@${manifest.metadata.version}`);
+          console.log(
+            `  ${manifest.metadata.publisher}/${manifest.metadata.slug}@${manifest.metadata.version}`,
+          );
           console.log(`  registry: ${registry}`);
-          console.log(`  files: ${files.length + 1} (${humanBytes(manifestBytes.length + files.reduce((s, f) => s + f.bytes, 0))})`);
+          console.log(
+            `  files: ${files.length + 1} (${humanBytes(manifestBytes.length + files.reduce((s, f) => s + f.bytes, 0))})`,
+          );
           for (const f of files) {
             console.log(pc.dim(`    + ${f.path} (${humanBytes(f.bytes)})`));
           }
@@ -123,7 +125,7 @@ export function registerPublish(program: Command): void {
                   ([target, value]) => ({
                     target,
                     status: value?.status ?? "experimental",
-                  })
+                  }),
                 ),
               },
             }),
@@ -140,8 +142,8 @@ export function registerPublish(program: Command): void {
           if (initRes.status === 409) {
             console.error(
               pc.red(
-                `Version ${manifest.metadata.version} already published. Bump the version and re-run.`
-              )
+                `Version ${manifest.metadata.version} already published. Bump the version and re-run.`,
+              ),
             );
             process.exit(ExitCode.Conflict);
           }
@@ -155,7 +157,11 @@ export function registerPublish(program: Command): void {
           // 2. PUT each presigned upload.
           const presignedByPath = new Map(init.presignedUploads.map((p) => [p.path, p]));
           // Upload manifest.
-          await putBlob(presignedByPath.get("AGENTPACK.yaml"), manifestBytes, "AGENTPACK.yaml");
+          await putBlob(
+            presignedByPath.get("AGENTPACK.yaml"),
+            manifestBytes,
+            "AGENTPACK.yaml",
+          );
           for (const f of files) {
             const presigned = presignedByPath.get(f.path);
             const bytes = await fs.readFile(f.absPath);
@@ -175,20 +181,32 @@ export function registerPublish(program: Command): void {
                   "\n⚠ --sign was requested but no OIDC token is available. " +
                     "Set SIGSTORE_ID_TOKEN (e.g. `gh auth token`) or pass --no-sign.\n" +
                     "Aborting before finalize so you don't ship an unsigned version " +
-                    "you meant to sign."
-                )
+                    "you meant to sign.",
+                ),
               );
               process.exit(ExitCode.Generic);
             }
             try {
-              console.log(pc.dim("  signing manifest via Sigstore Fulcio + Rekor…"));
-              signedEnvelope = await signing.signManifestChecksum({
-                manifestChecksum: manifestSha256,
+              // #35: sign the full release artifact (manifest digest + every
+              // installable file digest), not just the manifest. The v2
+              // envelope embeds the canonical release descriptor so verifiers
+              // check downloaded bytes against the SIGNED digest set.
+              console.log(
+                pc.dim("  signing release artifact via Sigstore Fulcio + Rekor…"),
+              );
+              signedEnvelope = await signing.signReleaseDescriptor({
+                manifestSha256,
+                files: files.map((f) => ({
+                  path: f.path,
+                  sha256: f.sha256,
+                  bytes: f.bytes,
+                  ...(f.atomId ? { atomId: f.atomId } : {}),
+                })),
               });
               console.log(
                 pc.green(
-                  `  ✓ signed by ${signedEnvelope.metadata.identity.san} (rekor #${signedEnvelope.metadata.rekorLogIndex})`
-                )
+                  `  ✓ signed by ${signedEnvelope.metadata.identity.san} (rekor #${signedEnvelope.metadata.rekorLogIndex}) — covers ${files.length + 1} files`,
+                ),
               );
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
@@ -210,7 +228,7 @@ export function registerPublish(program: Command): void {
                 publishId: init.publishId,
                 ...(signedEnvelope ? { signature: signedEnvelope } : {}),
               }),
-            }
+            },
           );
           if (finalizeRes.status === 410) {
             console.error(pc.red("Publish expired. Re-run `agentpack publish`."));
@@ -219,29 +237,31 @@ export function registerPublish(program: Command): void {
           if (finalizeRes.status === 422) {
             const body = (await finalizeRes.json()) as {
               error: string;
-              mismatched?: Array<{ path: string; expected: number; got: number | "missing" }>;
+              mismatched?: Array<{
+                path: string;
+                expected: number;
+                got: number | "missing";
+              }>;
             };
             console.error(pc.red(`finalize: ${body.error}`));
             if (body.mismatched) {
               for (const m of body.mismatched) {
-                console.error(
-                  pc.red(`  ! ${m.path}: expected ${m.expected} got ${m.got}`)
-                );
+                console.error(pc.red(`  ! ${m.path}: expected ${m.expected} got ${m.got}`));
               }
             }
             process.exit(ExitCode.Generic);
           }
           if (!finalizeRes.ok) {
             console.error(
-              pc.red(`finalize → HTTP ${finalizeRes.status} ${finalizeRes.statusText}`)
+              pc.red(`finalize → HTTP ${finalizeRes.status} ${finalizeRes.statusText}`),
             );
             process.exit(ExitCode.Generic);
           }
           const final = (await finalizeRes.json()) as FinalizeResponse;
           console.log(
             pc.green(
-              `\n✓ Published ${manifest.metadata.publisher}/${manifest.metadata.slug}@${manifest.metadata.version}`
-            )
+              `\n✓ Published ${manifest.metadata.publisher}/${manifest.metadata.slug}@${manifest.metadata.version}`,
+            ),
           );
           console.log(pc.dim(`  ${final.url}`));
         } catch (err) {
@@ -249,13 +269,13 @@ export function registerPublish(program: Command): void {
           console.error(pc.red(`publish failed: ${msg}`));
           process.exit(ExitCode.Generic);
         }
-      }
+      },
     );
 }
 
 async function collectFiles(
   packRoot: string,
-  manifest: AgentPackManifest
+  manifest: AgentPackManifest,
 ): Promise<PublishFile[]> {
   const out: PublishFile[] = [];
   const allAtoms = resolveAtoms({ manifest, profile: "full" });
@@ -315,7 +335,7 @@ async function* walkFiles(root: string): AsyncGenerator<string> {
 async function putBlob(
   presigned: PresignedUpload | undefined,
   bytes: Buffer,
-  filePath: string
+  filePath: string,
 ): Promise<void> {
   if (!presigned) {
     throw new Error(`missing presigned upload for ${filePath}`);
