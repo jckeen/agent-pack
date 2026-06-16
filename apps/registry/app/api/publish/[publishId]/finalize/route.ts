@@ -22,7 +22,9 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ publishId: string }> },
 ): Promise<Response> {
-  const verified = await verifyBearer(req);
+  // Mutating publish path: skip the positive cache so a revoked token is
+  // rejected immediately rather than after the verifyBearer TTL.
+  const verified = await verifyBearer(req, { skipCache: true });
   if (!verified) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

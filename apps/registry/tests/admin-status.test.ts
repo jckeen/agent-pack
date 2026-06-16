@@ -6,9 +6,10 @@
  *   - request schema validation
  *   - CSRF guard logic (ISC-291 / #16)
  *   - canonicalization invariants of the audit helper (pure functions)
+ *   - atomicity of the status change + audit append (#36)
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -224,5 +225,107 @@ describe("csrfGuard (ISC-291 / #16) — CSRF rejection paths", () => {
     );
     // No Sec-Fetch-Site, no Origin, no registry URL set — guard passes.
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Atomicity: status change + audit append (#36)
+//
+// The route wraps the `UPDATE pack_versions SET status` and `appendAuditEvent`
+// in ONE `db.transaction`, passing the open `tx` into the audit helper. The
+// invariant under test: if the audit append throws, the status update must NOT
+// commit — otherwise a quarantined version could exist with no audit record
+// (getVersionStatus would then render the banner with reason: null).
+//
+// The real route needs session + live DB, so we model the exact tx body here
+// against a fake db. The fake's `transaction(fn)` buffers writes against `tx`
+// and only commits them when `fn` resolves; if `fn` throws, the buffer is
+// discarded (Postgres rollback semantics). This is the contract the route's
+// `db.transaction(...)` wrapper relies on.
+// ---------------------------------------------------------------------------
+describe("admin status route — atomic status + audit (#36)", () => {
+  /**
+   * Mirror of the route's transactional body (route.ts:165-184 after #36).
+   * Kept byte-equivalent in shape: update first, then audit append, both on
+   * the same `tx`. Returns the audit event id.
+   */
+  async function applyStatusChange(
+    db: {
+      transaction: <T>(fn: (tx: FakeTx) => Promise<T>) => Promise<T>;
+    },
+    appendAuditEvent: (opts: { db: FakeTx }) => Promise<string>,
+    versionId: string,
+    nextStatus: string,
+  ): Promise<string> {
+    return db.transaction(async (tx) => {
+      tx.update(versionId, nextStatus);
+      return appendAuditEvent({ db: tx });
+    });
+  }
+
+  interface FakeTx {
+    update: (versionId: string, status: string) => void;
+  }
+
+  /**
+   * Fake db with rollback semantics: writes recorded against `tx` are only
+   * flushed to `committed` if the transaction callback resolves.
+   */
+  function makeTxDb() {
+    const committed: Array<{ versionId: string; status: string }> = [];
+    const db = {
+      committed,
+      async transaction<T>(fn: (tx: FakeTx) => Promise<T>): Promise<T> {
+        const buffer: Array<{ versionId: string; status: string }> = [];
+        const tx: FakeTx = {
+          update: (versionId, status) => buffer.push({ versionId, status }),
+        };
+        const result = await fn(tx); // throws → buffer never flushed (rollback)
+        committed.push(...buffer); // commit
+        return result;
+      },
+    };
+    return db;
+  }
+
+  it("commits the status update only when the audit append succeeds", async () => {
+    const db = makeTxDb();
+    const append = vi.fn(async () => "audit-evt-1");
+
+    const id = await applyStatusChange(db, append, "ver-1", "quarantined");
+
+    expect(id).toBe("audit-evt-1");
+    expect(append).toHaveBeenCalledOnce();
+    expect(db.committed).toEqual([{ versionId: "ver-1", status: "quarantined" }]);
+  });
+
+  it("rolls back the status update when the audit append throws", async () => {
+    const db = makeTxDb();
+    const append = vi.fn(async () => {
+      throw new Error("audit_append_failed");
+    });
+
+    await expect(applyStatusChange(db, append, "ver-1", "quarantined")).rejects.toThrow(
+      "audit_append_failed",
+    );
+
+    // The whole point of #36: no quarantined version without its audit row.
+    expect(db.committed).toEqual([]);
+  });
+
+  it("passes the open tx (not the outer db) into appendAuditEvent", async () => {
+    const db = makeTxDb();
+    let receivedTx: unknown;
+    const append = vi.fn(async (opts: { db: unknown }) => {
+      receivedTx = opts.db;
+      return "audit-evt-2";
+    });
+
+    await applyStatusChange(db, append, "ver-2", "published");
+
+    // The audit helper must receive the transaction handle, not the root db,
+    // so its insert participates in the same atomic unit.
+    expect(receivedTx).not.toBe(db);
+    expect(receivedTx).toHaveProperty("update");
   });
 });

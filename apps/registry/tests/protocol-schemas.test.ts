@@ -29,14 +29,12 @@ describe("publishInitRequestSchema", () => {
 
   it("rejects bad publisher slug", () => {
     expect(() =>
-      publishInitRequestSchema.parse({ ...ok, publisher: "Bad Slug!" })
+      publishInitRequestSchema.parse({ ...ok, publisher: "Bad Slug!" }),
     ).toThrow();
   });
 
   it("rejects non-semver version", () => {
-    expect(() =>
-      publishInitRequestSchema.parse({ ...ok, version: "v0.1.0" })
-    ).toThrow();
+    expect(() => publishInitRequestSchema.parse({ ...ok, version: "v0.1.0" })).toThrow();
   });
 
   it("rejects file path with ..", () => {
@@ -44,28 +42,46 @@ describe("publishInitRequestSchema", () => {
       publishInitRequestSchema.parse({
         ...ok,
         files: [{ path: "../secret", sha256: "b".repeat(64), bytes: 1024 }],
-      })
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a nested .. segment in a file path", () => {
+    expect(() =>
+      publishInitRequestSchema.parse({
+        ...ok,
+        files: [{ path: "a/../../secret", sha256: "b".repeat(64), bytes: 1024 }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an absolute (leading-slash) file path", () => {
+    // Both legs of M4: leading slash would escape the publisher/pack/version
+    // prefix when composed into the R2 key.
+    expect(() =>
+      publishInitRequestSchema.parse({
+        ...ok,
+        files: [{ path: "/etc/passwd", sha256: "b".repeat(64), bytes: 1024 }],
+      }),
     ).toThrow();
   });
 
   it("rejects non-hex sha256", () => {
     expect(() =>
-      publishInitRequestSchema.parse({ ...ok, manifestSha256: "x".repeat(64) })
+      publishInitRequestSchema.parse({ ...ok, manifestSha256: "x".repeat(64) }),
     ).toThrow();
   });
 });
 
 describe("publishFinalizeRequestSchema", () => {
   it("requires uuid publishId", () => {
-    expect(() =>
-      publishFinalizeRequestSchema.parse({ publishId: "not-a-uuid" })
-    ).toThrow();
+    expect(() => publishFinalizeRequestSchema.parse({ publishId: "not-a-uuid" })).toThrow();
   });
   it("accepts uuid publishId", () => {
     expect(() =>
       publishFinalizeRequestSchema.parse({
         publishId: "550e8400-e29b-41d4-a716-446655440000",
-      })
+      }),
     ).not.toThrow();
   });
 });
@@ -84,13 +100,7 @@ describe("TOKEN_REGEX", () => {
 
 describe("versionStatusSchema", () => {
   it("accepts canonical statuses", () => {
-    for (const s of [
-      "published",
-      "deprecated",
-      "yanked",
-      "quarantined",
-      "blocked",
-    ]) {
+    for (const s of ["published", "deprecated", "yanked", "quarantined", "blocked"]) {
       expect(() => versionStatusSchema.parse(s)).not.toThrow();
     }
   });

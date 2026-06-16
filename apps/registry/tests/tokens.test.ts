@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   __resetBearerCacheForTests,
+  evictBearerToken,
   findUngrantableScope,
   generateToken,
   hashToken,
@@ -303,5 +304,136 @@ describe("verifyBearer TTL cache", () => {
     vi.advanceTimersByTime(VERIFY_BEARER_TTL_MS + 1);
     const afterTTL = await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN));
     expect(afterTTL).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// verifyBearer({ skipCache: true }) — immediate revocation on mutating paths.
+//
+// Mutating-scope routes (publish init/finalize, token revoke) must observe
+// revocation immediately rather than waiting out the positive-cache TTL. The
+// skipCache option bypasses the positive cache READ so a revoked token is
+// rejected at once, while negative caching is preserved (a bad token still
+// can't hammer the DB on repeated probes).
+// ---------------------------------------------------------------------------
+
+describe("verifyBearer({ skipCache }) — fresh verification on mutating paths", () => {
+  beforeEach(() => {
+    _mockDb.selectCalls = 0;
+    _mockDb.tokenExists = true;
+    _mockDb.fakeRow.tokenSha256 = hashToken(CACHE_FAKE_TOKEN);
+    __resetBearerCacheForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeAuthReq(token: string): Request {
+    return new Request("https://registry.example.com/api/publish/init", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+  }
+
+  it("rejects a revoked token immediately within the cache TTL", async () => {
+    vi.useFakeTimers();
+    const { verifyBearer } = await import("@/lib/tokens");
+
+    // Warm the positive cache via a normal (cache-using) call.
+    const before = await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN));
+    expect(before).not.toBeNull();
+
+    // Revoke: the DB would now return no row for this token.
+    _mockDb.tokenExists = false;
+
+    // A normal call within TTL would return the stale principal — but a
+    // skipCache call must hit the DB and observe the revocation immediately.
+    const fresh = await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN), {
+      skipCache: true,
+    });
+    expect(fresh).toBeNull();
+  });
+
+  it("always issues a DB query even on a warm positive cache hit", async () => {
+    const { verifyBearer } = await import("@/lib/tokens");
+
+    // Warm the cache.
+    await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN));
+    const afterWarm = _mockDb.selectCalls;
+
+    // skipCache must re-query (token + memberships) rather than serve the cache.
+    await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN), { skipCache: true });
+    expect(_mockDb.selectCalls).toBeGreaterThan(afterWarm);
+  });
+
+  it("still serves the negative cache so bad-token probes do not hit the DB", async () => {
+    _mockDb.tokenExists = false;
+    const { verifyBearer } = await import("@/lib/tokens");
+
+    // First skipCache probe of an invalid token populates the negative cache.
+    const r1 = await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN), {
+      skipCache: true,
+    });
+    const afterFirst = _mockDb.selectCalls;
+
+    // A second skipCache probe of the same invalid token is served from the
+    // negative cache — no additional DB select.
+    const r2 = await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN), {
+      skipCache: true,
+    });
+
+    expect(r1).toBeNull();
+    expect(r2).toBeNull();
+    expect(_mockDb.selectCalls).toBe(afterFirst);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// evictBearerToken — proactive cache eviction on revoke.
+//
+// When a token is revoked via DELETE /api/tokens/[id], the route evicts it from
+// the local cache so it can't be used from this warm instance. (Other instances
+// still pick up the revocation on their next cache miss or via skipCache on
+// mutating paths.)
+// ---------------------------------------------------------------------------
+
+describe("evictBearerToken", () => {
+  beforeEach(() => {
+    _mockDb.selectCalls = 0;
+    _mockDb.tokenExists = true;
+    _mockDb.fakeRow.tokenSha256 = hashToken(CACHE_FAKE_TOKEN);
+    __resetBearerCacheForTests();
+  });
+
+  function makeAuthReq(token: string): Request {
+    return new Request("https://registry.example.com/api/packs", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+  }
+
+  it("evicting a cached token forces the next verifyBearer to re-query", async () => {
+    const { verifyBearer } = await import("@/lib/tokens");
+
+    // Warm the cache.
+    await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN));
+    const afterWarm = _mockDb.selectCalls;
+
+    // Warm hit: no extra selects.
+    await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN));
+    expect(_mockDb.selectCalls).toBe(afterWarm);
+
+    // Evict, then revoke in the DB.
+    evictBearerToken(CACHE_FAKE_TOKEN);
+    _mockDb.tokenExists = false;
+
+    // Next call is a cache miss → re-queries → sees the revocation → null.
+    const after = await verifyBearer(makeAuthReq(CACHE_FAKE_TOKEN));
+    expect(_mockDb.selectCalls).toBeGreaterThan(afterWarm);
+    expect(after).toBeNull();
+  });
+
+  it("is a no-op for an un-cached / empty token", () => {
+    expect(() => evictBearerToken("agp_live_" + "z".repeat(32))).not.toThrow();
+    expect(() => evictBearerToken("")).not.toThrow();
   });
 });

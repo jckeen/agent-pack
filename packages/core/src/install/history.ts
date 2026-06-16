@@ -33,6 +33,14 @@ export const historyEntrySchema = z.object({
   plannedFiles: z
     .array(z.object({ path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }))
     .optional(),
+  // Project-relative paths this install will CREATE fresh (no pre-existing
+  // user file). Safe to unlink unconditionally on rollback. Optional for
+  // backward compatibility with begin entries written before this field.
+  createdPaths: z.array(z.string()).optional(),
+  // Project-relative paths of pre-existing user files this install will
+  // overwrite and therefore MUST be able to restore from backup on rollback.
+  // A failed restore of any of these is a data-loss event, not a success.
+  requiredBackups: z.array(z.string()).optional(),
   backupDir: z.string().optional(),
   rolledBackTo: z.string().optional(),
   recoveredBegin: z.string().optional(),
