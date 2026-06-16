@@ -26,6 +26,9 @@ LIVING packages/*/README.md
 SOURCE examples/*/atoms/*.md
 LIVING examples/*/README.md
 SOURCE .github/PULL_REQUEST_TEMPLATE.md
+# Test-fixture markdown is config-as-test-data (importer inputs, sample packs),
+# not prose surfaces — exempt from LIVING currency + checkbox rules.
+SOURCE packages/*/tests/fixtures/*
 
 # Open work lives in GitHub issues, never as doc checkboxes.
 BANNED:LIVING,GENERATED ^[[:space:]]*[-*] \[ \]
