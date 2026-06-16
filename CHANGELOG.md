@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0-dev — 2026-06-16 (iteration-10: review/QA sweep, hardening backlog, cross-surface build-out)
+
+A `/max` session: a parallel review fleet (security + backend-architecture + an independent Codex second-opinion + end-to-end QA), the full pre-public hardening backlog it surfaced, and four new cross-surface compile/import targets — every change landed via its own PR with required CI gating the merge. The security review and Codex independently cleared the load-bearing invariants (Sigstore SAN-binding; install-recovery happy path); E2E QA drove every CLI atom against real packs with no functional bugs.
+
+**Security & correctness**
+
+- **Command-gate RCE (CRITICAL, #33).** The MCP/hook gate was a denylist that `env BASH_ENV=…`, `git -c core.pager='!cmd'`, `find -exec`, `xargs`, `make`, `ssh`, and editor `:!cmd` shapes bypassed — emitted verbatim into `.mcp.json`/settings for the host to run → arbitrary execution on `install`. Now rejects indirection/exec-wrapper basenames outright; documented that a _declared interpreter running shipped code_ is the install-consent surface, not the gate's job.
+- **Install-recovery crash-time data-loss (#34).** Rollback only unlinked staged files whose hash matched, stranding partially-written _created_ files; and a swallowed backup-restore failure was recorded as success. The WAL `install_begin` now records `createdPaths`/`requiredBackups`; rollback unlinks created paths unconditionally, create-writes use temp+fsync+atomic-link, and an unrestored required backup fails loud (`result:"failed"`) instead of claiming success. Backward compatible with old entries.
+- **Sign the full install artifact (#35).** The Sigstore bundle covered only the manifest, so a registry/R2 atom-byte swap with a matching hash still verified. Introduced a signed _release descriptor_ (`manifestSha256` + sorted per-file `{path,sha256,bytes,atomId}`); `install` now hashes downloaded bytes against the signed set (`artifact_mismatch` on swap). `verify --sig` enforces by default (`--sig-if-present` for the old lenient behavior); verified signatures persist to the lockfile. v1 manifest-only signatures still verify (`coverage:manifest-only`).
+- **Symlink-safe pack-relative reads (CWE-59, #50).** `exportChat`/`codex`/`claudeCode` prompt-path readers rejected `..`/absolute/`~` but not symlinks — a pack could ship `leak.md → /etc/passwd` and read it into the exported artifact. Unified behind one symlink-safe `readPackRelativeFile` helper (lstat + realpath re-containment, fail-closed).
+- **Registry hardening.** Orphan publish-token before user-code validation fixed (#33); concurrent same-version finalize → `409 version_exists` not 500 (#33); pack-detail `latestVersion` now semver-sorted, not lexical (#33); immediate token revocation on mutating paths + a pluggable `RateLimitStore` seam (in-memory default; durable KV is the documented prod upgrade) (#37); schema gained hot-path indexes (`publisher_members.user_id` et al.), CHECK constraints, and an atomic quarantine-status+audit transaction (#36).
+- **git-source** authenticated GitHub fetches use `redirect:"error"` so a cross-origin redirect can't leak the bearer token (#33).
+
+**Issue #25 — closed.** Registry route tests for `me`, `v1/health`, `packs` list+detail, `signatures`, `reviews`, and the `cli/auth` device flow (incl. an orphan-token regression), plus the finalize-409 path. A coverage **gate** now enforces thresholds scoped to `app/api`+`lib` (UI excluded as a brittle floor) — measured _and_ gated in CI.
+
+**Cross-surface build-out** (see `docs/integration-roadmap.md`)
+
+- **`import --from codex` (#39)** — Codex setup → pack, near-lossless (shared SKILL.md/MCP/hooks/subagents/AGENTS.md); round-trips back through the codex adapter.
+- **`.mcpb` emitter + CoWork (#38)** — new `agentpack pack mcpb` (MCP Bundle v0.3, secrets→`user_config`) for one-click local MCP install on CoWork/Desktop; corrected the hooks portability ceiling (CoWork _does_ run plugin hooks); repositioned `pack plugin` as the CoWork + org-plugins governance path.
+- **`pack chat` (#40)** — Claude Chat compile target: skill ZIPs (native + on-invoke bridges for instructions/rules/commands) + a `connectors.json` install recipe + `project-instructions.md` + a portability README.
+- **`import --from chatgpt-gpt` + OpenAPI→MCP transpiler (#41)** — the "move a ChatGPT GPT to Claude Chat" path; the transpiler (operationId→MCP tool, auth→secrets/scopes) is the reusable interop primitive across Codex/Apps SDK/Claude, since MCP is the shared spine. Honest about what can't cross (no GPT export API, GPT Store, Apps widgets, managed RAG).
+
+Tests: `pnpm verify` exit 0 — **786** total (460 core + 44 cli + 79 db + 50 connector + 153 registry), up from 645. Deferred deeper items remain tracked in their issues where applicable (live-DB smoke for the finalize transaction body + valid-signature crypto via `scripts/smoke-e2e.sh`).
+
 ## 0.6.13-dev — 2026-06-15 (pre-public issue sweep: importer, adapters, registry routes)
 
 Closes the open DX/correctness issues and adds the CLAUDE.md→pack importer, ahead of the public visibility flip. Every change landed via PR with required CI checks gating the merge.
