@@ -24,10 +24,40 @@ describe("parseClaudeMd", () => {
   });
 
   it("treats the first # before any ## as the title, not an atom", () => {
-    const text = `# My Doc\n\nintro\n\n## Section One\n\ncontent\n`;
+    const text = `# My Doc\n\n## Section One\n\ncontent\n`;
     const parsed = parseClaudeMd(text);
     expect(parsed.title).toBe("My Doc");
     expect(parsed.sections.map((s) => s.heading)).toEqual(["Section One"]);
+  });
+
+  it("captures preamble text (between title and first ##) as a synthetic leading section", () => {
+    const text = `# My Doc\n\nThis is the preamble.\nMore preamble.\n\n## Section One\n\ncontent\n`;
+    const parsed = parseClaudeMd(text);
+    expect(parsed.title).toBe("My Doc");
+    // Preamble becomes a synthetic section with the title as heading, followed
+    // by the real ## section — two sections total, no silent data loss.
+    expect(parsed.sections).toHaveLength(2);
+    expect(parsed.sections[0]!.heading).toBe("My Doc");
+    expect(parsed.sections[0]!.body).toContain("This is the preamble.");
+    expect(parsed.sections[0]!.body).toContain("More preamble.");
+    expect(parsed.sections[1]!.heading).toBe("Section One");
+  });
+
+  it("uses 'Overview' as synthetic heading when the document has no title", () => {
+    const text = `Some preamble text.\n\n## Real Section\n\ncontent\n`;
+    const parsed = parseClaudeMd(text);
+    expect(parsed.title).toBeNull();
+    expect(parsed.sections).toHaveLength(2);
+    expect(parsed.sections[0]!.heading).toBe("Overview");
+    expect(parsed.sections[0]!.body).toContain("Some preamble text.");
+  });
+
+  it("does not emit a synthetic section when there is no preamble text", () => {
+    // Title immediately followed by ##, with no body between them.
+    const text = `# My Doc\n\n## Section One\n\ncontent\n`;
+    const parsed = parseClaudeMd(text);
+    expect(parsed.sections).toHaveLength(1);
+    expect(parsed.sections[0]!.heading).toBe("Section One");
   });
 
   it("handles a document with no title", () => {
@@ -81,8 +111,9 @@ describe("parseClaudeMd", () => {
 });
 
 describe("buildManifest", () => {
-  it("throws when there are no sections", () => {
-    const parsed = parseClaudeMd("# Only A Title\n\nno sections here\n");
+  it("throws when there are no sections and no preamble", () => {
+    // A title with no body and no ## sections produces nothing to import.
+    const parsed = parseClaudeMd("# Only A Title\n");
     expect(() => buildManifest(parsed, OPTS)).toThrow(/no .*section/i);
   });
 
