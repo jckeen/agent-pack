@@ -6,12 +6,18 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "build:deps": "tsc -b ../../packages/core ../../packages/db",
+    "predev": "pnpm build:deps",
     "dev": "next dev -p 3030",
+    "prebuild": "pnpm build:deps",
     "build": "next build",
     "start": "next start -p 3030",
+    "pretypecheck": "pnpm build:deps",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint: not configured'",
+    "pretest": "pnpm build:deps",
     "test": "vitest run",
+    "pretest:coverage": "pnpm build:deps",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },

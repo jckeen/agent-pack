@@ -14,12 +14,12 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
     "dev": "tsx src/index.ts",
-    "prebuild:check": "tsc -p tsconfig.json --noEmit",
-    "pretest": "pnpm --filter @agentpack/core build && tsc -p tsconfig.json",
-    "pretest:coverage": "pnpm --filter @agentpack/core build && tsc -p tsconfig.json",
+    "prebuild:check": "tsc -b tsconfig.json",
+    "pretest": "tsc -b tsconfig.json",
+    "pretest:coverage": "tsc -b tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
