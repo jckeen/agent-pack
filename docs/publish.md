@@ -64,12 +64,12 @@ One token per registry. `--registry <url>` flag selects which entry to use.
 
 ### Token scopes
 
-| Scope | Allows |
-|---|---|
-| `read:packs` | Fetching public manifests + atoms (rarely needed — those routes are unauthenticated) |
-| `read:private` | Fetching private packs (`visibility: private` on the registry row). Scoped form: `read:private@<publisher>` |
-| `publish:packs` | Publishing new versions to **any** publisher you have membership in. Scoped form: `publish:packs@<publisher>` — narrow to a single publisher |
-| `admin:registry` | Registry-administrative actions (quarantine/block versions). Not granted by default — registry admins only |
+| Scope            | Allows                                                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read:packs`     | Fetching public manifests + atoms (rarely needed — those routes are unauthenticated)                                                         |
+| `read:private`   | Fetching private packs (`visibility: private` on the registry row). Scoped form: `read:private@<publisher>`                                  |
+| `publish:packs`  | Publishing new versions to **any** publisher you have membership in. Scoped form: `publish:packs@<publisher>` — narrow to a single publisher |
+| `admin:registry` | Registry-administrative actions (quarantine/block versions). Not granted by default — registry admins only                                   |
 
 The default scope granted by `agentpack login` is `read:packs publish:packs` — the
 minimum for the round-trip.
@@ -122,15 +122,15 @@ registry verifies the uploaded blob's size matches the declared size; on
 mismatch the publish aborts with 422 (no DB rows written).
 
 **The CLI sends only structural metadata** — no env vars, no local secrets, no
-files outside the pack directory (ISC-263).
+files outside the pack directory.
 
 ### Exit codes
 
-| Code | Meaning |
-|---|---|
-| 0 | Published successfully |
-| 1 | Generic error (network, IO, missing manifest) |
-| 9 | `409 version_exists` — that `(publisher, pack, version)` already published |
+| Code | Meaning                                                                    |
+| ---- | -------------------------------------------------------------------------- |
+| 0    | Published successfully                                                     |
+| 1    | Generic error (network, IO, missing manifest)                              |
+| 9    | `409 version_exists` — that `(publisher, pack, version)` already published |
 
 On 409 the CLI prints the existing version's `publishedAt` and `publishedBy`
 metadata, so the user can decide to bump the version.

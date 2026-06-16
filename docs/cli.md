@@ -48,9 +48,9 @@ Resolves atoms for the profile, computes risk + permissions, runs the adapter to
 
 Computes the same plan as `install`, but prints a unified diff between current project files and what the install would write. Read-only — exits without writing.
 
-### `agentpack verify <packId> [--project <dir>] [--sig] [--strict] [--chain] [--expected-signer <san>]`
+### `agentpack verify <packId> [--project <dir>] [--sig] [--sig-if-present] [--chain] [--expected-signer <san>]`
 
-Computes per-file SHA-256 of every lockfile-tracked file under `--project`, reports `clean` or per-path `drift[]`/`missing[]`. Files installed via **merge** (shared `CLAUDE.md` / `AGENTS.md` / JSON configs — see [`install.md`](./install.md)) are checked at fragment level: only the pack's own marker span / JSON entries must be intact, so the user editing their own sections of a shared file is not drift. With `--sig`, also verifies the Sigstore signature on the manifest. With `--strict`, exits non-zero on unsigned packs. With `--expected-signer <san>`, the certificate identity must equal `<san>`; the signer is also accepted if it matches `install.allowedSigners` in `agentpack.policy.json`. Without any pin, a valid signature from ANY Sigstore identity passes and the CLI says so explicitly — unless policy `install.requireIdentity` is set, which refuses an unpinned signer (exit 4). With `--chain`, validates the hash-chain integrity of `.agentpack/history.jsonl`.
+Computes per-file SHA-256 of every lockfile-tracked file under `--project`, reports `clean` or per-path `drift[]`/`missing[]`. Files installed via **merge** (shared `CLAUDE.md` / `AGENTS.md` / JSON configs — see [`install.md`](./install.md)) are checked at fragment level: only the pack's own marker span / JSON entries must be intact, so the user editing their own sections of a shared file is not drift. With `--sig`, also verifies the Sigstore signature on the manifest and **fails (exit 5) if the lockfile is unsigned** — signing is enforced by default. Pass `--sig-if-present` for the lenient variant that passes on an unsigned lockfile (the old `--sig` behavior); `--strict` is a deprecated alias for `--sig`. With `--expected-signer <san>`, the certificate identity must equal `<san>`; the signer is also accepted if it matches `install.allowedSigners` in `agentpack.policy.json`. Without any pin, a valid signature from ANY Sigstore identity passes and the CLI says so explicitly — unless policy `install.requireIdentity` is set, which refuses an unpinned signer (exit 4). With `--chain`, validates the hash-chain integrity of `.agentpack/history.jsonl`.
 
 Exit codes follow the project taxonomy (see below).
 
@@ -107,6 +107,29 @@ agentpack pack mcpb [path] [--profile <profile>] [--out <dir>] [--only <ids>] [-
 Compiles a pack's **stdio `mcp_server` atom** into a `.mcpb` ([MCP Bundle](https://blog.modelcontextprotocol.io/posts/2025-11-20-adopting-mcpb/)) — a ZIP with a root `manifest.json` (spec `manifest_version: "0.3"`) for **one-click local MCP install** on Claude Cowork and Desktop. This is the portable path for _local_ stdio servers there; the adapters' `.mcp.json`/connector output covers project-scoped and remote (http/sse) servers.
 
 The same gates as `.mcp.json` apply: a server must be declared in `permissions.mcp.servers`, and shell-escape command shapes are refused. Required secrets (atom `env` entries marked `required`) become `user_config` fields wired into the manifest's `mcp_config.env` via `${user_config.KEY}` substitution — credentials are prompted at install time, never baked into the bundle. An `.mcpb` manifest describes a single server; if a pack has several eligible servers the first is bundled and the rest are reported.
+
+### `agentpack pack chat`
+
+```
+agentpack pack chat [path] [--profile <profile>] [--out <dir>] [--only <ids>] [--no-strict]
+```
+
+Compiles a pack into **claude.ai (Claude Chat)** install artifacts written to `--out` (default `dist-chat`): uploadable skill ZIPs (native skills plus on-invoke bridges for `instruction`/`rule`/`command` atoms), a `connectors.json` recipe for remote MCP servers, a `project-instructions.md`, and an install `README.md`. Chat has no bundle format, so this fans the pack into copy-paste install steps. The command reports native vs on-invoke skill counts and warns that on-invoke skills apply **only when invoked** — there is no ambient instruction loader in Chat — and lists any atoms not portable to Chat.
+
+### `agentpack import <path>`
+
+```
+agentpack import <path> --id <publisher.slug> \
+  [--from claude|codex|chatgpt-gpt] [--out <dir>] [--name <name>]
+```
+
+Compiles an existing setup into an AgentPack written to `--out` (default `agentpack-imported`). `--id <publisher.slug>` is **required** (e.g. `acme.team-defaults`). Sources via `--from`:
+
+- **`claude`** (default) — reads a `CLAUDE.md` / `AGENTS.md` file. Pass `-` as `<path>` to read from stdin.
+- **`codex`** — reads a Codex setup directory (shared `SKILL.md` / MCP / hooks / subagents / `AGENTS.md`); near-lossless and round-trips back through the `codex` adapter.
+- **`chatgpt-gpt`** — reads a human-assembled ChatGPT-GPT bundle directory (`gpt.json` + optional `openapi.yaml` + `knowledge/`). The OpenAPI→MCP transpiler scaffolds tools (operationId→tool, auth→secrets/scopes); the emitted MCP servers are **scaffolding**, not runnable handlers, and the command prints the human-judgment steps required before the pack is usable.
+
+Prints the imported atom count + per-type summary and any warnings, then suggests `agentpack validate <out>` (and `agentpack pack chat <out>` for the `chatgpt-gpt` path). Bad `--from` or a missing/malformed `--id` is a usage error (exit 2).
 
 ## Install commands (write to `--project`)
 
