@@ -59,6 +59,12 @@ export { createInstallPlan } from "./planner/createInstallPlan.js";
 export { exportPack } from "./exports/exportPack.js";
 export { exportPlugin } from "./exports/exportPlugin.js";
 export type { ExportPluginOptions, ExportPluginResult } from "./exports/exportPlugin.js";
+export { exportMcpb } from "./exports/exportMcpb.js";
+export type {
+  ExportMcpbOptions,
+  ExportMcpbResult,
+  McpbManifest,
+} from "./exports/exportMcpb.js";
 export { portabilityFor, summarizePortability } from "./portability.js";
 export type {
   PortabilityCeiling,

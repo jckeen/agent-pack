@@ -86,11 +86,27 @@ The same engine as `plan`, but writes the planned files to `--out`. `--no-strict
 agentpack pack plugin [path] [--profile <profile>] [--out <dir>] [--only <ids>] [--no-strict] [--no-marketplace]
 ```
 
-Compiles a pack into a **Claude Code plugin** directory — `.claude-plugin/plugin.json` (+ `marketplace.json` unless `--no-marketplace`) with `skills/`, `commands/`, `agents/`, `hooks/hooks.json`, and `.mcp.json` at the plugin root. The directory is installable via the unified Directory or `/plugin marketplace add <repo>` then `/plugin install <name>@<name>-marketplace`, so one install reaches **Claude Code, Cowork, Desktop, and the web Directory** — not just the terminal.
+Compiles a pack into a **Claude Code plugin** directory — `.claude-plugin/plugin.json` (+ `marketplace.json` unless `--no-marketplace`) with `skills/`, `commands/`, `agents/`, `hooks/hooks.json`, and `.mcp.json` at the plugin root. The plugin format **is** the Claude Cowork install format: the directory is installable via the unified Directory or `/plugin marketplace add <repo>` then `/plugin install <name>@<name>-marketplace`, so one install reaches **Claude Code, Cowork, Desktop, and the web Directory** — not just the terminal.
 
-It reuses the `claude-code` adapter and relocates its output into plugin layout. Because instruction/rule atoms have no ambient home outside Claude Code, their content is bundled into an on-invoke `<slug>-guidance` skill — available everywhere the plugin installs, but explicitly **not ambient** the way `CLAUDE.md` is in Code. Hooks are emitted, but fire **only in Claude Code** (inert on Cowork/web/Desktop). The command prints a **portability** breakdown of the bundled atoms (see `inspect`).
+It reuses the `claude-code` adapter and relocates its output into plugin layout. Because instruction/rule atoms have no ambient home outside Claude Code, their content is bundled into an on-invoke `<slug>-guidance` skill — available everywhere the plugin installs, but explicitly **not ambient** the way `CLAUDE.md` is in Code. Hooks ride the plugin too: [Hooks are a Cowork-supported plugin component](https://claude.com/docs/cowork/3p/extensions), so they reach Cowork (not Code-only). The command prints a **portability** breakdown of the bundled atoms (see `inspect`).
 
-**Portability ceilings** (shown by `inspect` and `pack plugin`): `universal` (skills, MCP — reach every surface), `plugin` (commands, subagents — plugin-aware surfaces), `sdk` (workflows — Agent SDK/Managed Agents only), `terminal` (hooks, instructions, rules — Claude Code only). A pack's overall reach is bounded by its least-portable atom.
+**Portability ceilings** (shown by `inspect` and `pack plugin`): `universal` (skills, MCP — reach every surface), `plugin` (commands, subagents, hooks — plugin-aware surfaces incl. Cowork), `sdk` (workflows — Agent SDK/Managed Agents only), `terminal` (instructions, rules — Claude Code only, no `CLAUDE.md` loader elsewhere). A pack's overall reach is bounded by its least-portable atom.
+
+#### Org-governance: distributing a governed plugin org-wide
+
+The plugin target is the **admin-distribution** path for the compiler-plus-governance model. A pack carries risk scoring, a permission summary, and install profiles; compiling it with a chosen profile (e.g. `--profile enterprise`) produces a plugin whose contents are reproducible from one source pack and auditable before rollout.
+
+To make it required org-wide, an admin distributes the compiled directory through Cowork **org-plugins**: place it in the system-wide `org-plugins/` location on each device (e.g. macOS `~/Library/Application Support/Claude/org-plugins/`). Org-plugins are **auto-installed, take precedence over user plugins, and support per-tool policy locks** — so a governed pack becomes a locked, mandatory plugin across the org. AgentPack's role is upstream: it makes the artifact you drop into `org-plugins/` deterministic and inspectable (`agentpack inspect`, `agentpack plan`) rather than hand-assembled.
+
+### `agentpack pack mcpb`
+
+```
+agentpack pack mcpb [path] [--profile <profile>] [--out <dir>] [--only <ids>] [--no-strict]
+```
+
+Compiles a pack's **stdio `mcp_server` atom** into a `.mcpb` ([MCP Bundle](https://blog.modelcontextprotocol.io/posts/2025-11-20-adopting-mcpb/)) — a ZIP with a root `manifest.json` (spec `manifest_version: "0.3"`) for **one-click local MCP install** on Claude Cowork and Desktop. This is the portable path for _local_ stdio servers there; the adapters' `.mcp.json`/connector output covers project-scoped and remote (http/sse) servers.
+
+The same gates as `.mcp.json` apply: a server must be declared in `permissions.mcp.servers`, and shell-escape command shapes are refused. Required secrets (atom `env` entries marked `required`) become `user_config` fields wired into the manifest's `mcp_config.env` via `${user_config.KEY}` substitution — credentials are prompted at install time, never baked into the bundle. An `.mcpb` manifest describes a single server; if a pack has several eligible servers the first is bundled and the rest are reported.
 
 ## Install commands (write to `--project`)
 

@@ -4,6 +4,7 @@ import ora from "ora";
 import {
   exportPack,
   exportPlugin,
+  exportMcpb,
   type PortabilityCeiling,
   type TargetPlatform,
 } from "@agentpack/core";
@@ -159,7 +160,7 @@ export function registerPack(program: Command): void {
           if (result.portability.byCeiling.terminal.length > 0) {
             console.log(
               pc.yellow(
-                `\n  ⚠ Hooks fire only in Claude Code; instruction/rule guidance is bundled as an on-invoke skill (not ambient) outside Code.`,
+                `\n  ⚠ Instruction/rule guidance is bundled as an on-invoke skill (not ambient) outside Claude Code — there's no CLAUDE.md loader on Cowork/web.`,
               ),
             );
           }
@@ -172,6 +173,75 @@ export function registerPack(program: Command): void {
           console.log(pc.dim(`outDir: ${result.outDir}`));
         } catch (err) {
           spinner.fail(`Plugin export failed: ${(err as Error).message}`);
+          if (
+            (process.env["AGENTPACK_DEBUG"] === "1" ||
+              process.env["WORKGRAPH_DEBUG"] === "1") &&
+            err instanceof Error
+          ) {
+            console.error(pc.dim(err.stack ?? ""));
+          }
+          process.exit(1);
+        }
+      },
+    );
+
+  pack
+    .command("mcpb [path]")
+    .description(
+      "Compile a pack's stdio mcp_server atom(s) into a `.mcpb` MCP Bundle (one-click LOCAL MCP install on Cowork and Desktop).",
+    )
+    .option("--profile <profile>", "install profile")
+    .option("--out <dir>", "output directory", "dist-mcpb")
+    .option("--only <atomIds>", "comma-separated subset of atom ids to include")
+    .option("--no-strict", "do not abort on validation errors")
+    .action(
+      async (
+        path: string | undefined,
+        options: {
+          profile?: string;
+          out: string;
+          only?: string;
+          strict?: boolean;
+        },
+      ) => {
+        const source = path ?? process.cwd();
+        const spinner = ora(`Compiling ${source} → .mcpb bundle`).start();
+        try {
+          const result = await exportMcpb({
+            source,
+            profile: options.profile,
+            outDir: options.out,
+            strict: options.strict ?? true,
+            onlyAtoms: options.only
+              ?.split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          });
+          spinner.succeed(
+            `Wrote ${pc.cyan(result.bundlePath)} — server: ${result.serverNames[0]}`,
+          );
+          if (result.skippedServers.length > 0) {
+            console.log(
+              pc.yellow(
+                `\n  ⚠ A .mcpb describes ONE server. Bundled the first; not included: ${result.skippedServers.join(", ")}. Split these into separate packs/bundles.`,
+              ),
+            );
+          }
+          const secrets = Object.keys(result.manifest.user_config ?? {});
+          if (secrets.length > 0) {
+            console.log(
+              pc.dim(
+                `\n  Required at install time (prompted, never baked in): ${secrets.join(", ")}`,
+              ),
+            );
+          }
+          console.log(
+            pc.dim(
+              `\nInstall: open the .mcpb in Claude Desktop, or upload it in Cowork's connector settings.`,
+            ),
+          );
+        } catch (err) {
+          spinner.fail(`.mcpb export failed: ${(err as Error).message}`);
           if (
             (process.env["AGENTPACK_DEBUG"] === "1" ||
               process.env["WORKGRAPH_DEBUG"] === "1") &&

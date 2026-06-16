@@ -90,14 +90,15 @@ describe("exportPlugin", () => {
     await fs.rm(out, { recursive: true, force: true });
   });
 
-  it("reports portability — universal skills/mcp, terminal hooks/instructions", async () => {
+  it("reports portability — universal skills/mcp, plugin hooks, terminal instructions", async () => {
     const out = await tmp();
     const result = await exportPlugin({ source: EXAMPLE, profile: "full", outDir: out });
     expect(result.portability.byCeiling.universal).toEqual(
       expect.arrayContaining(["skill", "mcp_server"]),
     );
-    expect(result.portability.byCeiling.terminal).toEqual(expect.arrayContaining(["hook"]));
-    // The whole pack's reach is bounded by its least-portable atom.
+    // Hooks are a Cowork-supported plugin component → plugin ceiling, not terminal.
+    expect(result.portability.byCeiling.plugin).toEqual(expect.arrayContaining(["hook"]));
+    // The whole pack's reach is still bounded by its instruction/rule atoms.
     expect(result.portability.overall).toBe("terminal");
     await fs.rm(out, { recursive: true, force: true });
   });
@@ -119,7 +120,7 @@ describe("portability", () => {
     expect(portabilityFor("mcp_server").ceiling).toBe("universal");
     expect(portabilityFor("command").ceiling).toBe("plugin");
     expect(portabilityFor("subagent").ceiling).toBe("plugin");
-    expect(portabilityFor("hook").ceiling).toBe("terminal");
+    expect(portabilityFor("hook").ceiling).toBe("plugin");
     expect(portabilityFor("instruction").ceiling).toBe("terminal");
     expect(portabilityFor("workflow").ceiling).toBe("sdk");
     for (const t of ["skill", "hook", "command", "workflow"] as const) {
@@ -132,14 +133,15 @@ describe("portability", () => {
     expect(summarizePortability(["skill", "mcp_server"]).overall).toBe("universal");
     expect(summarizePortability(["skill", "command"]).overall).toBe("plugin");
     expect(summarizePortability(["skill", "workflow"]).overall).toBe("sdk");
-    expect(summarizePortability(["skill", "hook"]).overall).toBe("terminal");
+    expect(summarizePortability(["skill", "hook"]).overall).toBe("plugin");
+    expect(summarizePortability(["skill", "instruction"]).overall).toBe("terminal");
     expect(summarizePortability([]).overall).toBe("universal");
   });
 
   it("groups types by ceiling without duplicates", () => {
-    const s = summarizePortability(["skill", "skill", "hook", "command"]);
+    const s = summarizePortability(["skill", "skill", "hook", "command", "instruction"]);
     expect(s.byCeiling.universal).toEqual(["skill"]);
-    expect(s.byCeiling.plugin).toEqual(["command"]);
-    expect(s.byCeiling.terminal).toEqual(["hook"]);
+    expect(s.byCeiling.plugin).toEqual(["hook", "command"]);
+    expect(s.byCeiling.terminal).toEqual(["instruction"]);
   });
 });

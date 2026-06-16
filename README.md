@@ -140,32 +140,43 @@ The thing you configure in the terminal mostly doesn't follow you to claude.ai, 
 | Vehicle           | Command                 | Carries                                             | Reaches                                            |
 | ----------------- | ----------------------- | --------------------------------------------------- | -------------------------------------------------- |
 | **Local install** | `agentpack install`     | everything, incl. hooks + ambient `CLAUDE.md`       | Claude Code only                                   |
-| **Plugin**        | `agentpack pack plugin` | skills, commands, subagents, MCP, hooks\*           | Code, Cowork, Desktop, the web **Directory**       |
+| **Plugin**        | `agentpack pack plugin` | skills, commands, subagents, MCP, hooks             | Code, Cowork, Desktop, the web **Directory**       |
+| **Local bundle**  | `agentpack pack mcpb`   | a local stdio `mcp_server` as a `.mcpb`             | one-click **local** MCP on Cowork + Desktop        |
 | **MCP connector** | `@agentpack/connector`  | skills/commands/instructions as prompts + resources | **every** surface, incl. claude.ai chat and mobile |
 
-\* Hooks are emitted into the plugin but fire **only in Claude Code** — inert on Cowork/web/Desktop.
+The plugin format **is** the Claude Cowork install format — one `/plugin install` (or file upload) reaches Code, Cowork, Desktop, and the web Directory. [Hooks are a Cowork-supported plugin component](https://claude.com/docs/cowork/3p/extensions), so they ride the plugin to Cowork (not Code-only).
 
 Every atom type has a **portability ceiling** that `inspect` and `pack plugin` print:
 
-| Ceiling     | Atom types                                                        | Meaning                                       |
-| ----------- | ----------------------------------------------------------------- | --------------------------------------------- |
-| `universal` | `skill`, `mcp_server`                                             | account-level — reaches every Claude surface  |
-| `plugin`    | `command`, `subagent`, `plugin`                                   | reaches plugin-aware surfaces inside a plugin |
-| `sdk`       | `workflow`                                                        | Agent SDK / Managed Agents only               |
-| `terminal`  | `hook`, `instruction`, `rule`, `context_pack`, `template`, `eval` | Claude Code only — no ambient home elsewhere  |
+| Ceiling     | Atom types                                                | Meaning                                       |
+| ----------- | --------------------------------------------------------- | --------------------------------------------- |
+| `universal` | `skill`, `mcp_server`                                     | account-level — reaches every Claude surface  |
+| `plugin`    | `command`, `subagent`, `hook`, `plugin`                   | reaches plugin-aware surfaces inside a plugin |
+| `sdk`       | `workflow`                                                | Agent SDK / Managed Agents only               |
+| `terminal`  | `instruction`, `rule`, `context_pack`, `template`, `eval` | Claude Code only — no ambient home elsewhere  |
 
-A pack's overall reach is bounded by its least-portable atom. Instruction/rule content (terminal-only as _ambient_ behavior) is bundled into an on-invoke `*-guidance` skill so the guidance still travels — just not ambiently. This is deliberate honesty: no vehicle can make hooks or an ambient `CLAUDE.md` work on claude.ai or Cowork, because those surfaces have no hook engine and no `CLAUDE.md` loader.
+A pack's overall reach is bounded by its least-portable atom. Instruction/rule content (terminal-only as _ambient_ behavior) is bundled into an on-invoke `*-guidance` skill so the guidance still travels — just not ambiently. This is deliberate honesty: no vehicle can make an ambient `CLAUDE.md` work on claude.ai or Cowork, because those surfaces have no `CLAUDE.md` loader.
 
 ```bash
-# Compile to a Directory-installable Claude Code plugin
+# Compile to a Directory-installable Claude Code plugin — this IS the Cowork install format
 agentpack pack plugin examples/pr-quality --profile full --out dist-plugin
 #   → /plugin marketplace add <repo> ; /plugin install pr-quality@pr-quality-marketplace
+
+# Compile a local stdio MCP server into a .mcpb bundle (one-click LOCAL install on Cowork + Desktop)
+agentpack pack mcpb examples/pr-quality --profile full --out dist-mcpb
+#   → open dist-mcpb/pr-quality.mcpb in Claude Desktop, or upload it in Cowork connector settings
 
 # Run a remote MCP connector that reaches every surface (prototype; auth-by-default)
 AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 24) \
   node packages/connector/dist/serve.js examples/pr-quality
 #   → add the /mcp URL as a Custom Connector in claude.ai or Desktop (Bearer = the token)
 ```
+
+### The plugin target is the Cowork + org-governance path
+
+`agentpack pack plugin` is not a Code-only convenience — the Claude Code plugin format **is** the install format for Claude Cowork, Desktop, and the web Directory. One compiled plugin reaches all of them.
+
+This is where the **compiler + governance** positioning lands hardest. A governed pack (risk-scored, permission-summarized, profile-gated) compiles into a plugin that an admin distributes through Cowork **org-plugins**: drop the compiled directory into the system-wide `org-plugins/` location on each device and it becomes a **required, auto-installed, policy-locked** plugin org-wide — with org precedence over user plugins and per-tool policy locks. AgentPack's job is to make the artifact you drop in there auditable and reproducible from a single source pack. See [`docs/cli.md`](docs/cli.md) for the admin-distribution flow.
 
 ---
 
