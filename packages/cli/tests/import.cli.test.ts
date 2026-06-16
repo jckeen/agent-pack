@@ -167,4 +167,32 @@ describe("agentpack import", () => {
     expect(validate.code).toBe(0);
     expect(validate.stdout).toContain("✓ Manifest is valid.");
   });
+
+  it("imports a ChatGPT-GPT bundle with --from chatgpt-gpt and validates", async () => {
+    const bundle = path.resolve(__dirname, "../../core/tests/fixtures/chatgpt");
+    const outDir = path.join(TMP_ROOT, "out-chatgpt");
+    const imp = await run([
+      "import",
+      bundle,
+      "--from",
+      "chatgpt-gpt",
+      "--out",
+      outDir,
+      "--id",
+      "acme.support-triage",
+      "--name",
+      "Support Triage",
+    ]);
+    expect(imp.code).toBe(0);
+    // Honest can't-cross + human-judgment guidance is surfaced.
+    expect(imp.stdout).toContain("Human-judgment steps");
+    expect(imp.stdout).toContain("managed vector-store retrieval");
+
+    await fs.access(path.join(outDir, "AGENTPACK.yaml"));
+    await fs.access(path.join(outDir, "atoms/context/knowledge/refund-policy.md"));
+
+    const validate = await run(["validate", outDir]);
+    expect(validate.code).toBe(0);
+    expect(validate.stdout).toContain("✓ Manifest is valid.");
+  });
 });

@@ -1,0 +1,61 @@
+openapi: 3.1.0
+info:
+  title: Tickets API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /tickets:
+    get:
+      operationId: listTickets
+      summary: List support tickets
+      parameters:
+        - name: status
+          in: query
+          description: Filter by ticket status.
+          required: false
+          schema:
+            type: string
+            enum: [open, closed, pending]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+    post:
+      operationId: createTicket
+      summary: Create a support ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject]
+              properties:
+                subject:
+                  type: string
+                  description: Short ticket subject.
+                body:
+                  type: string
+                priority:
+                  type: string
+                  enum: [low, high]
+  /tickets/{ticketId}:
+    get:
+      operationId: getTicket
+      summary: Get a single ticket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+security:
+  - apiKey: []

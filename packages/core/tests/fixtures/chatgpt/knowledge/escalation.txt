@@ -1,0 +1,4 @@
+Escalation paths:
+- Severity 1 (outage): page on-call within 15 minutes.
+- Severity 2 (degraded): assign to the platform team same day.
+- Severity 3 (question): respond within 2 business days.
