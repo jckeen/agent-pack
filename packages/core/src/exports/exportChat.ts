@@ -13,7 +13,11 @@ import type {
 import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
 import { resolveAtoms, UnknownProfileError } from "../planner/resolveAtoms.js";
-import { readAtomDirectory, readAtomFile } from "../adapters/types.js";
+import {
+  readAtomDirectory,
+  readAtomFile,
+  readPackRelativeFile,
+} from "../adapters/types.js";
 import {
   conformSkillMd,
   normalizeSkillSlug,
@@ -693,24 +697,9 @@ async function parseAtomYaml(
 }
 
 async function readRelativeFile(packRoot: string, relPath: string): Promise<string | null> {
-  // Same containment rules as atom paths: reject absolute / `~` / `..`.
-  if (
-    path.isAbsolute(relPath) ||
-    relPath.startsWith("~") ||
-    relPath.split(/[\\/]+/).includes("..")
-  ) {
-    return null;
-  }
-  const target = path.resolve(packRoot, relPath);
-  const rel = path.relative(packRoot, target);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  try {
-    return await fs.readFile(target, "utf8");
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT") return null;
-    throw err;
-  }
+  // Symlink-safe pack-relative read (skill prompt/companion path). Shared
+  // trust boundary — see readPackRelativeFile (CWE-59).
+  return readPackRelativeFile(packRoot, relPath);
 }
 
 function resolveProfile(
