@@ -7,10 +7,48 @@
  *   - CSRF guard logic (ISC-291 / #16)
  *   - canonicalization invariants of the audit helper (pure functions)
  *   - atomicity of the status change + audit append (#36)
+ *
+ * The atomicity tests (#36) now import the REAL `applyStatusChange` function
+ * extracted from the route (#58) — no mirror copy. The route and the test
+ * exercise the same code path.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// Module mocks — must be declared before any import of the route module.
+// The route imports next/server, @/lib/auth, @/lib/db, @/lib/audit; stub
+// them so vitest can load the route without a real Next.js / Postgres env.
+// ---------------------------------------------------------------------------
+
+vi.mock("next/server", () => ({
+  NextResponse: {
+    json: (body: unknown, init?: { status?: number }) => ({
+      body,
+      status: init?.status ?? 200,
+    }),
+  },
+}));
+
+vi.mock("@/lib/auth", () => ({
+  auth: vi.fn(async () => null),
+}));
+
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => null),
+  packVersions: { id: "id", status: "status" },
+  packs: { id: "id", publisherId: "publisherId", slug: "slug" },
+  publishers: { id: "id", slug: "slug" },
+  publisherMembers: { publisherId: "publisherId", userId: "userId", role: "role" },
+}));
+
+vi.mock("@/lib/audit", () => ({
+  appendAuditEvent: vi.fn(async () => "audit-evt-mock"),
+}));
+
+// Imported after mocks so the stubbed modules are already in place.
+import { applyStatusChange } from "@/app/api/admin/packs/[publisher]/[pack]/versions/[version]/status/route";
 
 // ---------------------------------------------------------------------------
 // CSRF guard — extracted as a pure function so it can be unit-tested without
@@ -237,34 +275,41 @@ describe("csrfGuard (ISC-291 / #16) — CSRF rejection paths", () => {
 // commit — otherwise a quarantined version could exist with no audit record
 // (getVersionStatus would then render the banner with reason: null).
 //
-// The real route needs session + live DB, so we model the exact tx body here
-// against a fake db. The fake's `transaction(fn)` buffers writes against `tx`
-// and only commits them when `fn` resolves; if `fn` throws, the buffer is
-// discarded (Postgres rollback semantics). This is the contract the route's
-// `db.transaction(...)` wrapper relies on.
+// These tests now import and call the REAL `applyStatusChange` extracted from
+// the route (#58). No mirror copy — route and test exercise the same function.
+//
+// The fake db's `transaction(fn)` buffers writes against `tx` and only commits
+// them when `fn` resolves; if `fn` throws, the buffer is discarded (Postgres
+// rollback semantics). This is the contract the route's `db.transaction(...)`
+// wrapper relies on.
 // ---------------------------------------------------------------------------
 describe("admin status route — atomic status + audit (#36)", () => {
   /**
-   * Mirror of the route's transactional body (route.ts:165-184 after #36).
-   * Kept byte-equivalent in shape: update first, then audit append, both on
-   * the same `tx`. Returns the audit event id.
+   * Drizzle query-builder write recorded in the buffer. The real route calls
+   * tx.update(table).set({status}).where(condition) — we capture the `status`
+   * value from `.set()` and the condition is ignored (we only care that a write
+   * was buffered, not which row).
    */
-  async function applyStatusChange(
-    db: {
-      transaction: <T>(fn: (tx: FakeTx) => Promise<T>) => Promise<T>;
-    },
-    appendAuditEvent: (opts: { db: FakeTx }) => Promise<string>,
-    versionId: string,
-    nextStatus: string,
-  ): Promise<string> {
-    return db.transaction(async (tx) => {
-      tx.update(versionId, nextStatus);
-      return appendAuditEvent({ db: tx });
-    });
+  interface BufferedWrite {
+    status: string;
   }
 
-  interface FakeTx {
-    update: (versionId: string, status: string) => void;
+  /**
+   * Fake tx that supports the Drizzle fluent update chain used by the route:
+   *   tx.update(table).set({ status }).where(condition)
+   * Writes are recorded into `buffer` as `{ status }`.
+   */
+  function makeFakeTx(buffer: BufferedWrite[]) {
+    return {
+      update: (_table: unknown) => ({
+        set: (values: { status: string }) => ({
+          where: (_condition: unknown) => {
+            buffer.push({ status: values.status });
+            return Promise.resolve();
+          },
+        }),
+      }),
+    };
   }
 
   /**
@@ -272,14 +317,14 @@ describe("admin status route — atomic status + audit (#36)", () => {
    * flushed to `committed` if the transaction callback resolves.
    */
   function makeTxDb() {
-    const committed: Array<{ versionId: string; status: string }> = [];
+    const committed: BufferedWrite[] = [];
     const db = {
       committed,
-      async transaction<T>(fn: (tx: FakeTx) => Promise<T>): Promise<T> {
-        const buffer: Array<{ versionId: string; status: string }> = [];
-        const tx: FakeTx = {
-          update: (versionId, status) => buffer.push({ versionId, status }),
-        };
+      async transaction<T>(
+        fn: (tx: ReturnType<typeof makeFakeTx>) => Promise<T>,
+      ): Promise<T> {
+        const buffer: BufferedWrite[] = [];
+        const tx = makeFakeTx(buffer);
         const result = await fn(tx); // throws → buffer never flushed (rollback)
         committed.push(...buffer); // commit
         return result;
@@ -290,24 +335,48 @@ describe("admin status route — atomic status + audit (#36)", () => {
 
   it("commits the status update only when the audit append succeeds", async () => {
     const db = makeTxDb();
-    const append = vi.fn(async () => "audit-evt-1");
+    const appendAuditFn = vi.fn(async () => "audit-evt-1");
 
-    const id = await applyStatusChange(db, append, "ver-1", "quarantined");
+    const id = await applyStatusChange({
+      db: db as unknown as Parameters<typeof applyStatusChange>[0]["db"],
+      appendAuditFn: appendAuditFn as unknown as Parameters<
+        typeof applyStatusChange
+      >[0]["appendAuditFn"],
+      versionId: "ver-1",
+      nextStatus: "quarantined",
+      actorUserId: "user-1",
+      action: "version_status_changed",
+      targetType: "pack_version",
+      targetId: "ver-1",
+      payload: { reason: "exploit" },
+    });
 
     expect(id).toBe("audit-evt-1");
-    expect(append).toHaveBeenCalledOnce();
-    expect(db.committed).toEqual([{ versionId: "ver-1", status: "quarantined" }]);
+    expect(appendAuditFn).toHaveBeenCalledOnce();
+    expect(db.committed).toEqual([{ status: "quarantined" }]);
   });
 
   it("rolls back the status update when the audit append throws", async () => {
     const db = makeTxDb();
-    const append = vi.fn(async () => {
+    const appendAuditFn = vi.fn(async () => {
       throw new Error("audit_append_failed");
     });
 
-    await expect(applyStatusChange(db, append, "ver-1", "quarantined")).rejects.toThrow(
-      "audit_append_failed",
-    );
+    await expect(
+      applyStatusChange({
+        db: db as unknown as Parameters<typeof applyStatusChange>[0]["db"],
+        appendAuditFn: appendAuditFn as unknown as Parameters<
+          typeof applyStatusChange
+        >[0]["appendAuditFn"],
+        versionId: "ver-1",
+        nextStatus: "quarantined",
+        actorUserId: "user-1",
+        action: "version_status_changed",
+        targetType: "pack_version",
+        targetId: "ver-1",
+        payload: { reason: "exploit" },
+      }),
+    ).rejects.toThrow("audit_append_failed");
 
     // The whole point of #36: no quarantined version without its audit row.
     expect(db.committed).toEqual([]);
@@ -315,17 +384,28 @@ describe("admin status route — atomic status + audit (#36)", () => {
 
   it("passes the open tx (not the outer db) into appendAuditEvent", async () => {
     const db = makeTxDb();
-    let receivedTx: unknown;
-    const append = vi.fn(async (opts: { db: unknown }) => {
-      receivedTx = opts.db;
+    let receivedDb: unknown;
+    const appendAuditFn = vi.fn(async (opts: { db: unknown }) => {
+      receivedDb = opts.db;
       return "audit-evt-2";
     });
 
-    await applyStatusChange(db, append, "ver-2", "published");
+    await applyStatusChange({
+      db: db as unknown as Parameters<typeof applyStatusChange>[0]["db"],
+      appendAuditFn: appendAuditFn as unknown as Parameters<
+        typeof applyStatusChange
+      >[0]["appendAuditFn"],
+      versionId: "ver-2",
+      nextStatus: "published",
+      actorUserId: "user-1",
+      action: "version_status_changed",
+      targetType: "pack_version",
+      targetId: "ver-2",
+      payload: {},
+    });
 
     // The audit helper must receive the transaction handle, not the root db,
     // so its insert participates in the same atomic unit.
-    expect(receivedTx).not.toBe(db);
-    expect(receivedTx).toHaveProperty("update");
+    expect(receivedDb).not.toBe(db);
   });
 });
