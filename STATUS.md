@@ -1,6 +1,6 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-15 (iteration-10 — parallel review/QA sweep, command-gate RCE fix + Issue #25 closed in PR #33, cross-surface integration roadmap; see `docs/integration-roadmap.md`. Prior: deferred-verify issue sweep, CHANGELOG 0.6.11)
+Last updated: 2026-06-16 (iteration-10 complete — review/QA sweep, full hardening backlog #34–#38/#50 merged, four cross-surface targets #39/#38/#40/#41, Issue #25 closed; 786 tests. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`. Prior: pre-public issue sweep, CHANGELOG 0.6.13)
 
 ## Where we are
 
@@ -19,19 +19,30 @@ compiler already reaches most surfaces; the durable value is the bundle + policy
   is tracked in issues #39 (Codex importer), #40 (`pack chat`), #41 (ChatGPT→Chat),
   #38 (`.mcpb` + CoWork). Pre-public hardening: #34–#37.
 
-## Iteration-10 highlights (2026-06-15)
+## Iteration-10 highlights (2026-06-16)
 
-- **Parallel review/QA sweep** (security + backend-architecture + independent
-  Codex second-opinion + E2E QA). Both the security review and Codex independently
-  cleared the load-bearing invariants (Sigstore SAN-binding; install-recovery
-  happy path). E2E QA drove every CLI atom against real packs — no functional bugs.
-- **PR #33 (merged)**: command-gate RCE hardened (denylist → indirection/wrapper
-  rejection; `env BASH_ENV=…`/`git -c`/`find -exec`/… closed); orphan publish-token
-  fixed; finalize 409 vs 500; pack-detail semver; git-source redirect hardening;
-  **Issue #25 closed** — registry route tests (111→141) + enforced coverage gate.
-- **Hardening backlog filed** (#34–#38): install-recovery crash-time data-loss,
-  sign-the-full-artifact, registry schema indexes/CHECKs, abuse-control
-  durability, CoWork accuracy.
+A `/max` session — parallel review fleet (security + backend-architecture +
+independent Codex second-opinion + E2E QA), the full hardening backlog it
+surfaced, and four cross-surface targets. All landed via PR with required CI;
+see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
+(#25, #34–#41) are closed; no open issues remain.**
+
+- **Review/QA sweep**: the security review and Codex independently cleared the
+  load-bearing invariants (Sigstore SAN-binding; install-recovery happy path);
+  E2E QA drove every CLI atom against real packs — no functional bugs.
+- **Security/correctness (merged)**: command-gate RCE (#33, CRITICAL — denylist→
+  indirection/wrapper rejection); install-recovery crash-time data-loss (#34);
+  sign-the-full-artifact + `verify --sig` enforce-by-default (#35); symlink-safe
+  pack-relative reads CWE-59 (#50); orphan-token / finalize-409 / pack-detail-
+  semver / git-redirect (#33); immediate token revocation + pluggable rate-limit
+  (#37); registry schema indexes/CHECKs + atomic quarantine audit (#36).
+- **Issue #25 closed**: registry route tests + enforced coverage gate (scoped to
+  app/api+lib).
+- **Cross-surface build-out**: `import --from codex` (#39); `.mcpb` emitter +
+  CoWork hooks-ceiling fix + plugin repositioning (#38); `pack chat` Claude Chat
+  target (#40); `import --from chatgpt-gpt` + OpenAPI→MCP transpiler (#41).
+- **Tests**: `pnpm verify` exit 0 — **786** (460 core + 44 cli + 79 db + 50
+  connector + 153 registry), up from 645.
 
 ## Iteration-9 highlights (2026-06-13)
 
@@ -87,7 +98,7 @@ compiler already reaches most surfaces; the durable value is the bundle + policy
 
 ## Test status
 
-- **488 tests passing**: 322 core + 40 cli + 19 db + 35 connector + 72 registry (iteration-9 added the signer-gate, signature-identity-binding, exit-code, connector-auth, audit/CSRF, and verifyBearer-cache suites).
+- **786 tests passing**: 460 core + 44 cli + 79 db + 50 connector + 153 registry (iteration-10 added the command-gate, recovery-data-loss, release-descriptor/verify-sig, symlink-safe-read, codex/chatgpt importer, mcpb/chat export, schema, and abuse-control suites).
 - All workspace packages typecheck + lint + build cleanly.
 - Registry builds Next.js 15.5.18 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.
