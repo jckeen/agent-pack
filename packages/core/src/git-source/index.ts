@@ -166,6 +166,9 @@ async function resolveDefaultBranch(
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const res = await fetchImpl(url, {
     headers: githubHeaders({ Accept: "application/vnd.github+json" }),
+    // Never follow a redirect with the bearer token attached — a cross-origin
+    // 30x would re-send Authorization to the redirect target. (security H3)
+    redirect: "error",
   });
   if (!res.ok) {
     throw describeGitHubFailure(res, url, "resolving the default branch");
@@ -198,6 +201,9 @@ async function resolveRefToSha(
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
   const res = await fetchImpl(url, {
     headers: githubHeaders({ Accept: "application/vnd.github+json" }),
+    // Never follow a redirect with the bearer token attached — a cross-origin
+    // 30x would re-send Authorization to the redirect target. (security H3)
+    redirect: "error",
   });
   if (!res.ok) {
     throw describeGitHubFailure(res, url, `pinning ref "${ref}" to a commit SHA`);
@@ -223,6 +229,9 @@ async function listTree(
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}?recursive=1`;
   const res = await fetchImpl(url, {
     headers: githubHeaders({ Accept: "application/vnd.github+json" }),
+    // Never follow a redirect with the bearer token attached — a cross-origin
+    // 30x would re-send Authorization to the redirect target. (security H3)
+    redirect: "error",
   });
   if (!res.ok) {
     throw describeGitHubFailure(res, url, "listing the repository tree");
@@ -346,7 +355,11 @@ export async function fetchGitPack(
       );
     }
     const fileUrl = rawUrl(source.owner, source.repo, ref, repoPath);
-    const fileRes = await fetchImpl(fileUrl, { headers: githubHeaders() });
+    const fileRes = await fetchImpl(fileUrl, {
+      headers: githubHeaders(),
+      // No credential-leaking redirect follow (security H3).
+      redirect: "error",
+    });
     if (!fileRes.ok) {
       throw describeGitHubFailure(fileRes, fileUrl, `fetching "${repoPath}"`);
     }

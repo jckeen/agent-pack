@@ -22,6 +22,48 @@ const SHELL_BASENAMES = new Set([
   "tcsh",
 ]);
 
+/**
+ * Command wrappers whose entire purpose is to launch *another* program (or open
+ * an editor with a shell-out). None of these is ever a real MCP-server or hook
+ * launch command, and each defeats the gate's core assumption — "the declared
+ * command is what runs":
+ *  - `env` rewrites the exec target and can plant `BASH_ENV` / `LD_PRELOAD` /
+ *    `PATH` (so `env BASH_ENV=./payload.sh bash` runs a script with no `-c`).
+ *  - `find -exec` / `xargs` / `watch` / `timeout` / `nohup` / `setsid` /
+ *    `nice` / `stdbuf` / `flock` run an arbitrary trailing command.
+ *  - `git -c core.pager='!cmd'` (and aliases) execute shell.
+ *  - `make -f -`, `ssh host cmd`, `socat EXEC:…`, `nc -e`, `expect -c`,
+ *    `gdb -ex`, and editors (`vim -c '!cmd'`) all reach a shell.
+ * Rejected outright — they are indirection, not servers. (security-reviewer C1)
+ */
+const REJECTED_WRAPPER_BASENAMES = new Set([
+  "env",
+  "find",
+  "xargs",
+  "watch",
+  "timeout",
+  "nohup",
+  "setsid",
+  "nice",
+  "stdbuf",
+  "flock",
+  "git",
+  "make",
+  "ssh",
+  "socat",
+  "nc",
+  "ncat",
+  "netcat",
+  "expect",
+  "gdb",
+  "vim",
+  "vi",
+  "nvim",
+  "view",
+  "ed",
+  "emacs",
+]);
+
 const INTERPRETER_EVAL_FLAGS: Record<string, RegExp> = {
   node: /^(-e|--eval|-p|--print)$/,
   deno: /^(eval)$/,
@@ -61,6 +103,13 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   if (!command) return true;
   const base = basename(command);
   if (base === "eval") return true;
+  // Indirection wrappers (env/find/xargs/git/make/…) run an arbitrary trailing
+  // command and have no legitimate MCP-server/hook shape — reject outright.
+  // NOTE: a *direct* interpreter running shipped code (`node server.js`,
+  // `python -m pkg`) is NOT caught here and intentionally so — running bundled
+  // code is what an MCP server IS. That risk is surfaced for install-time
+  // consent by the risk engine, not blocked by this gate.
+  if (REJECTED_WRAPPER_BASENAMES.has(base)) return true;
   if (SHELL_BASENAMES.has(base)) {
     return args.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
   }
