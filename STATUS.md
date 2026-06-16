@@ -1,12 +1,37 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-13 (deferred-verify issue sweep — all of #14–#21 resolved + connector auth + registry hardening; see CHANGELOG 0.6.11 / ISA Iteration-9. Prior: Agent Skills spec conformance, CHANGELOG 0.6.9)
+Last updated: 2026-06-15 (iteration-10 — parallel review/QA sweep, command-gate RCE fix + Issue #25 closed in PR #33, cross-surface integration roadmap; see `docs/integration-roadmap.md`. Prior: deferred-verify issue sweep, CHANGELOG 0.6.11)
 
 ## Where we are
 
 **AgentPack is OPEN SOURCE.** Standard, registry, CLI, connector, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
 **Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; iteration-8 (2026-06-12) landed Agent Skills spec conformance (emit + ingest + CI gate, CHANGELOG 0.6.9); v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+
+## Cross-surface integration (2026-06-15)
+
+A live-docs research sweep mapped AgentPack onto every Claude surface (Code
+cloud/mobile, CoWork, Chat) + the OpenAI ecosystem (GPTs, Apps SDK, Codex). The
+compiler already reaches most surfaces; the durable value is the bundle + policy
+
+- governance layer over their ungoverned, one-at-a-time install models. Strategy
+- matrix + build sequence live in **`docs/integration-roadmap.md`**; build work
+  is tracked in issues #39 (Codex importer), #40 (`pack chat`), #41 (ChatGPT→Chat),
+  #38 (`.mcpb` + CoWork). Pre-public hardening: #34–#37.
+
+## Iteration-10 highlights (2026-06-15)
+
+- **Parallel review/QA sweep** (security + backend-architecture + independent
+  Codex second-opinion + E2E QA). Both the security review and Codex independently
+  cleared the load-bearing invariants (Sigstore SAN-binding; install-recovery
+  happy path). E2E QA drove every CLI atom against real packs — no functional bugs.
+- **PR #33 (merged)**: command-gate RCE hardened (denylist → indirection/wrapper
+  rejection; `env BASH_ENV=…`/`git -c`/`find -exec`/… closed); orphan publish-token
+  fixed; finalize 409 vs 500; pack-detail semver; git-source redirect hardening;
+  **Issue #25 closed** — registry route tests (111→141) + enforced coverage gate.
+- **Hardening backlog filed** (#34–#38): install-recovery crash-time data-loss,
+  sign-the-full-artifact, registry schema indexes/CHECKs, abuse-control
+  durability, CoWork accuracy.
 
 ## Iteration-9 highlights (2026-06-13)
 

@@ -170,6 +170,23 @@ export interface HistoryEntryV1 {
   /** For action=install_begin: file paths the install plans to write. */
   plannedFiles?: Array<{ path: string; sha256: string }>;
   /**
+   * For action=install_begin: project-relative paths this install CREATES
+   * fresh (no pre-existing user file). On rollback these are unlinked
+   * unconditionally — a partial/corrupt create has a non-matching hash, so the
+   * legacy "unlink only on hash match" rule would leave it behind. Never
+   * includes a path that pre-existed on disk, so a user's file is never
+   * destroyed. Optional for backward compatibility with older begin entries.
+   */
+  createdPaths?: string[];
+  /**
+   * For action=install_begin: project-relative paths of pre-existing user
+   * files this install overwrites. Each MUST be restorable from `backupDir` on
+   * rollback; a failed restore is a data-loss event that classifies the
+   * recovery as unresolved/failed rather than success. Optional for backward
+   * compatibility with older begin entries.
+   */
+  requiredBackups?: string[];
+  /**
    * For action=install_begin: project-relative backup directory for this
    * install attempt. Lets the recovery sweep restore overwritten user files
    * when rolling back a crashed install — without this, backups exist on
