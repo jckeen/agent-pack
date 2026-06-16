@@ -1,6 +1,6 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-16 (iteration-10 complete — review/QA sweep, full hardening backlog #34–#38/#50 merged, four cross-surface targets #39/#38/#40/#41, Issue #25 closed; 786 tests. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`. Prior: pre-public issue sweep, CHANGELOG 0.6.13)
+Last updated: 2026-06-16 (iteration-10 complete — review/QA sweep, full hardening backlog #34–#38/#50 merged, four cross-surface targets #38–#41 shipped, Issue #25 closed. Run `pnpm test` for the current count. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`. Prior: pre-public issue sweep, CHANGELOG 0.6.13)
 
 ## Where we are
 
@@ -8,16 +8,22 @@ Last updated: 2026-06-16 (iteration-10 complete — review/QA sweep, full harden
 
 **Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; iteration-8 (2026-06-12) landed Agent Skills spec conformance (emit + ingest + CI gate, CHANGELOG 0.6.9); v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
 
-## Cross-surface integration (2026-06-15)
+## Cross-surface integration
 
 A live-docs research sweep mapped AgentPack onto every Claude surface (Code
 cloud/mobile, CoWork, Chat) + the OpenAI ecosystem (GPTs, Apps SDK, Codex). The
-compiler already reaches most surfaces; the durable value is the bundle + policy
+compiler already reaches most surfaces; the durable value is the bundle, policy,
+and governance layer over their ungoverned, one-at-a-time install models. The
+strategy matrix + build sequence live in **`docs/integration-roadmap.md`**.
 
-- governance layer over their ungoverned, one-at-a-time install models. Strategy
-- matrix + build sequence live in **`docs/integration-roadmap.md`**; build work
-  is tracked in issues #39 (Codex importer), #40 (`pack chat`), #41 (ChatGPT→Chat),
-  #38 (`.mcpb` + CoWork). Pre-public hardening: #34–#37.
+All four cross-surface targets shipped in iteration-10 (see "Iteration-10
+highlights" below): `.mcpb` + CoWork ([#38](https://github.com/jckeen/agent-pack/issues/38)),
+`import --from codex` ([#39](https://github.com/jckeen/agent-pack/issues/39)),
+`pack chat` ([#40](https://github.com/jckeen/agent-pack/issues/40)), and
+`import --from chatgpt-gpt` + the OpenAPI→MCP transpiler
+([#41](https://github.com/jckeen/agent-pack/issues/41)). The pre-public hardening
+backlog ([#34](https://github.com/jckeen/agent-pack/issues/34)–[#37](https://github.com/jckeen/agent-pack/issues/37))
+landed in the same iteration.
 
 ## Iteration-10 highlights (2026-06-16)
 
@@ -41,8 +47,9 @@ see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
 - **Cross-surface build-out**: `import --from codex` (#39); `.mcpb` emitter +
   CoWork hooks-ceiling fix + plugin repositioning (#38); `pack chat` Claude Chat
   target (#40); `import --from chatgpt-gpt` + OpenAPI→MCP transpiler (#41).
-- **Tests**: `pnpm verify` exit 0 — **786** (460 core + 44 cli + 79 db + 50
-  connector + 153 registry), up from 645.
+- **Tests**: `pnpm verify` exit 0 across all five workspace packages (core, cli,
+  db, connector, registry), up from 645 at the start of the iteration. Run
+  `pnpm test` for the current per-package counts.
 
 ## Iteration-9 highlights (2026-06-13)
 
@@ -98,9 +105,9 @@ see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
 
 ## Test status
 
-- **786 tests passing**: 460 core + 44 cli + 79 db + 50 connector + 153 registry (iteration-10 added the command-gate, recovery-data-loss, release-descriptor/verify-sig, symlink-safe-read, codex/chatgpt importer, mcpb/chat export, schema, and abuse-control suites).
+- **All workspace test suites pass** across core, cli, db, connector, and registry — run `pnpm test` for the current per-package counts. Iteration-10 added the command-gate, recovery-data-loss, release-descriptor/verify-sig, symlink-safe-read, codex/chatgpt importer, mcpb/chat export, schema, and abuse-control suites.
 - All workspace packages typecheck + lint + build cleanly.
-- Registry builds Next.js 15.5.18 production output: 20 dynamic + static pages, 17 API routes (one new `/admin/packs` page + one new `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route).
+- Registry builds Next.js 15.5.18 production output (run `pnpm --filter @agentpack/registry build` for the current page/route counts), including the `/admin/packs` page and the `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route.
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.
 - `pnpm audit --prod` — **no known vulnerabilities** (iteration-9 patched `diff`/`yaml` and added a `postcss ≥8.5.10` override).
 - Iteration-5 dep bumps (2026-05-19): `next 15.1.3 → 15.5.18` (patches 2 CRITICAL + 8 HIGH per `pnpm audit`), `vitest 2.1.8 → 2.1.9` (patches 1 CRITICAL RCE).
@@ -130,7 +137,7 @@ For DB-backed mode (browseable AT a public URL with real publish/install round-t
 
 ## Living docs
 
-- Project ISA: `ISA.md` — 267+ ISCs total. Iterating on the project IS iterating on this file.
+- Project ISA: `ISA.md` — the canonical, sequentially-numbered ISC list (see the highest `ISC-NNN` in that file for the current high-water mark). Iterating on the project IS iterating on this file.
 - Wire contract: `Plans/PROTOCOL.md`.
 - Roadmap: `Plans/ROADMAP.md`.
 - Phase 6 gate: `Plans/PHASE-6-GATE.md`.
