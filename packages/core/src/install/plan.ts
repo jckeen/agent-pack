@@ -179,6 +179,7 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       target: opts.target,
       profile: opts.profile,
       atoms: result.plan.atoms,
+      atomTypes: result.plan.atomTypes,
       riskLevel: result.plan.riskLevel,
       permissions: result.plan.permissions,
       warnings: result.plan.warnings,

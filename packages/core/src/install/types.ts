@@ -216,6 +216,12 @@ export interface InstallPlanV2 {
   target: TargetPlatform;
   profile: ProfileName;
   atoms: string[];
+  /**
+   * Resolved atoms with their declared `type` — the authoritative typed list
+   * for type-keyed security gates (e.g. the executable-surface gate). See the
+   * note on `InstallPlan.atomTypes`.
+   */
+  atomTypes: Array<{ id: string; type: AtomType }>;
   riskLevel: RiskLevel;
   permissions: PermissionSummary;
   warnings: string[];

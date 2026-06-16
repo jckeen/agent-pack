@@ -68,6 +68,11 @@ export function registerInstall(program: Command): void {
       false,
     )
     .option(
+      "--allow-exec",
+      "permit installing an UNVERIFIED pack that ships executable atoms (hook / mcp_server) — refused even with --yes unless the install is signature-verified via --require-sig",
+      false,
+    )
+    .option(
       "--fail-on-unsupported",
       "exit non-zero instead of installing when any selected atom is dropped (target-incompatible or refused by a security gate)",
       false,
@@ -87,6 +92,7 @@ export function registerInstall(program: Command): void {
           json: boolean;
           expectedSigner?: string;
           allowCritical: boolean;
+          allowExec: boolean;
           failOnUnsupported: boolean;
         },
       ) => {
@@ -406,6 +412,72 @@ export function registerInstall(program: Command): void {
               console.error(
                 pc.red(
                   `\n✗ Computed risk level is CRITICAL. Re-run with --allow-critical to proceed (this flag is intentionally separate from --yes).`,
+                ),
+              );
+            }
+            process.exit(ExitCode.PolicyViolation);
+          }
+
+          // Executable-surface gate (#63 / audit finding B1). A pack can ship
+          // `hook` atoms (shell commands fired on agent lifecycle events) and
+          // `mcp_server` atoms (launch configs like `node server.js` that run on
+          // the user's next agent session). Either runs author-supplied code on
+          // the user's machine. The command gate intentionally does NOT block a
+          // legitimate interpreter running shipped code (that's what an
+          // mcp_server IS), so the control here is provenance/consent, not the
+          // gate.
+          //
+          // Rule: if the plan contains any hook/mcp_server atom AND the install
+          // is NOT signature-verified, refuse unless --allow-exec is passed.
+          // `verifiedSignatureB64` is set ONLY on the --require-sig success path
+          // (a cryptographically valid signature whose signer passed the
+          // identity gate), so its presence is the precise "provenance
+          // established" marker — a signed install carrying exec atoms is NOT
+          // gated. Git-sourced installs reject --require-sig outright, so they
+          // are never verified and always fall under this gate. Like
+          // --allow-critical, a single -y must not cross it: the opt-in is
+          // explicit and greppable.
+          const signatureVerified = verifiedSignatureB64 !== undefined;
+          // Key off the authoritative typed atom list, NOT the `<type>:<slug>`
+          // id prefix — an atom can declare an id prefix that differs from its
+          // real `type`, which would let a mislabeled hook/mcp_server slip past
+          // a prefix-based check. `plan.lockfile.atoms` is also unsuitable: it
+          // collapses to a synthetic `*pack` entry when output files can't be
+          // mapped back to atoms.
+          const execAtoms = plan.atomTypes.filter(
+            (a) => a.type === "hook" || a.type === "mcp_server",
+          );
+          if (execAtoms.length > 0 && !signatureVerified && !options.allowExec) {
+            // Atom ids are already `<type>:<slug>` (schema-enforced), so the id
+            // alone is the canonical label naming both the atom and its type.
+            const labels = execAtoms.map((a) => a.id);
+            if (options.json) {
+              console.log(
+                JSON.stringify({
+                  ...planJson(),
+                  installed: false,
+                  error: "exec_atoms_refused",
+                  execAtoms: labels,
+                  hint: "re-run with --allow-exec (intentionally separate from --yes), or install a signed pack with --require-sig",
+                }),
+              );
+            } else {
+              console.error(
+                pc.red(
+                  `\n✗ This pack ships executable atom(s) and the install is NOT signature-verified:`,
+                ),
+              );
+              for (const a of execAtoms) {
+                const what =
+                  a.type === "hook"
+                    ? "shell command run on agent lifecycle events"
+                    : "launch config run on your next agent session";
+                console.error(pc.red(`  • ${a.id} (${a.type}) — ${what}`));
+              }
+              console.error(
+                pc.red(
+                  `  Re-run with --allow-exec to proceed (intentionally separate from --yes).\n` +
+                    `  A signed pack verified with --require-sig (registry source) would not require it.`,
                 ),
               );
             }
