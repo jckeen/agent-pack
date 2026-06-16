@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { getTableConfig } from "drizzle-orm/pg-core";
 
 import {
   apiTokens,
@@ -210,5 +211,61 @@ describe("schema column inference", () => {
       expires: new Date(),
     };
     expect(row.identifier).toBe("i");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schema hardening (#36) — assert the new indexes and CHECK constraints are
+// declared on the Drizzle table objects. These compile from the table config
+// without a live DB; the generated migration (0004_salty_risque.sql) carries
+// the same set into Postgres.
+// ---------------------------------------------------------------------------
+describe("schema hardening indexes (#36)", () => {
+  function indexNames(table: Parameters<typeof getTableConfig>[0]): string[] {
+    return getTableConfig(table).indexes.map((i) => i.config.name);
+  }
+
+  it("publisher_members has the user_id auth-path index", () => {
+    expect(indexNames(publisherMembers)).toContain("publisher_members_user_id_idx");
+  });
+
+  it("audit_events has chain-head and target lookup indexes", () => {
+    const names = indexNames(auditEvents);
+    expect(names).toContain("audit_events_org_created_idx");
+    expect(names).toContain("audit_events_target_idx");
+  });
+
+  it("audit_events org/created index orders created_at descending", () => {
+    const idx = getTableConfig(auditEvents).indexes.find(
+      (i) => i.config.name === "audit_events_org_created_idx",
+    );
+    expect(idx).toBeDefined();
+    // The trailing column is created_at DESC (chain-head ORDER BY ... DESC).
+    const last = idx!.config.columns[idx!.config.columns.length - 1] as {
+      indexConfig?: { order?: string };
+    };
+    expect(last.indexConfig?.order).toBe("desc");
+  });
+
+  it("publishes has the (status, expires_at) reaper index", () => {
+    expect(indexNames(publishes)).toContain("publishes_status_expires_idx");
+  });
+});
+
+describe("schema hardening CHECK constraints (#36)", () => {
+  function checkNames(table: Parameters<typeof getTableConfig>[0]): string[] {
+    return getTableConfig(table).checks.map((c) => c.name);
+  }
+
+  it("reviews bounds rating between 1 and 5", () => {
+    expect(checkNames(reviews)).toContain("reviews_rating_range");
+  });
+
+  it("publisher_members restricts role to the owner|maintainer domain", () => {
+    expect(checkNames(publisherMembers)).toContain("publisher_members_role_check");
+  });
+
+  it("compatibilities restricts status to its documented domain", () => {
+    expect(checkNames(compatibilities)).toContain("compatibilities_status_check");
   });
 });

@@ -6,7 +6,8 @@
  * (`supported|partial|experimental|unsupported`).
  */
 
-import { pgTable, primaryKey, text, uuid } from "drizzle-orm/pg-core";
+import { check, pgTable, primaryKey, text, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 import { packVersions } from "./packVersions.js";
 
@@ -21,7 +22,13 @@ export const compatibilities = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.packVersionId, t.target] }),
-  })
+    // Closed domain from `compatibilityStatusSchema` in @agentpack/core.
+    // Kept as text + CHECK rather than pgEnum to stay non-destructive.
+    statusCheck: check(
+      "compatibilities_status_check",
+      sql`${t.status} in ('supported', 'partial', 'experimental', 'unsupported')`,
+    ),
+  }),
 );
 
 export type Compatibility = typeof compatibilities.$inferSelect;
