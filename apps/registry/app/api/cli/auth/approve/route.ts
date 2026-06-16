@@ -27,14 +27,6 @@ export async function POST(req: Request): Promise<Response> {
 
   const { token, prefix, sha256 } = generateToken();
 
-  await db.insert(apiTokens).values({
-    userId: session.user.id,
-    name: "agentpack-cli",
-    tokenPrefix: prefix,
-    tokenSha256: sha256,
-    scopes: ["read:packs", "publish:packs"],
-  });
-
   const u = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   const memberships = await db
     .select({ slug: publishers.slug })
@@ -42,6 +34,11 @@ export async function POST(req: Request): Promise<Response> {
     .innerJoin(publishers, eq(publisherMembers.publisherId, publishers.id))
     .where(eq(publisherMembers.userId, session.user.id));
 
+  // Bind the freshly-generated token to the pending device-code FIRST. A bad
+  // (or guessed) userCode must NOT leave a live, never-delivered token behind:
+  // minting before validating accumulated one orphan publish-capable credential
+  // per failed approve. Only persist the token after the bind succeeds.
+  // (backend-architect H2 / security-reviewer device-auth)
   const entry = approveUserCode(body.userCode, token, {
     userId: session.user.id,
     username: u[0]?.username ?? session.user.name ?? "user",
@@ -50,5 +47,14 @@ export async function POST(req: Request): Promise<Response> {
   if (!entry) {
     return NextResponse.json({ error: "invalid_user_code" }, { status: 404 });
   }
+
+  await db.insert(apiTokens).values({
+    userId: session.user.id,
+    name: "agentpack-cli",
+    tokenPrefix: prefix,
+    tokenSha256: sha256,
+    scopes: ["read:packs", "publish:packs"],
+  });
+
   return new Response(null, { status: 204 });
 }

@@ -271,6 +271,14 @@ export async function POST(
     versionId = result.versionId;
   } catch (err) {
     // The whole publish rolled back atomically — no half-published version.
+    // A unique-violation on pack_versions_pack_version_uq means another publish
+    // won the race for this (pack, version): that's "already exists" (409), not
+    // a server error. Duplicate-version is only pre-checked at init, so the
+    // finalize transaction is the real serialization point. (backend-architect H1)
+    const pgCode = (err as { code?: string } | null)?.code;
+    if (pgCode === "23505") {
+      return NextResponse.json({ error: "version_exists" }, { status: 409 });
+    }
     const reason =
       err instanceof Error &&
       (err.message === "pack_insert_failed" || err.message === "version_insert_failed")

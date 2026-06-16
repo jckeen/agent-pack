@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
+import { compareSemver } from "@agentpack/db";
+
 import { getDb, packVersions, packs, publishers } from "@/lib/db";
 
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ publisher: string; pack: string }> }
+  { params }: { params: Promise<{ publisher: string; pack: string }> },
 ): Promise<Response> {
   const { publisher, pack } = await params;
   const db = getDb();
@@ -50,6 +52,8 @@ export async function GET(
     latestVersion:
       versions
         .filter((v) => v.status === "published")
-        .sort((a, b) => b.version.localeCompare(a.version))[0]?.version ?? null,
+        // Semver order, not lexical — lexical sorts 0.10.0 < 0.9.0, picking the
+        // wrong "latest". Reuse the canonical comparator. (backend-architect M4)
+        .sort((a, b) => compareSemver(b.version, a.version))[0]?.version ?? null,
   });
 }

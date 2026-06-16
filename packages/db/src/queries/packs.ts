@@ -31,7 +31,7 @@ export interface PackWithPublisher extends Pack {
 
 export async function listPacks(
   db: Database,
-  opts: ListPacksOptions = {}
+  opts: ListPacksOptions = {},
 ): Promise<{ packs: PackWithPublisher[]; total: number }> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
   const offset = Math.max(opts.offset ?? 0, 0);
@@ -68,7 +68,7 @@ export async function listPacks(
 export async function getPackBySlug(
   db: Database,
   publisherSlug: string,
-  packSlug: string
+  packSlug: string,
 ): Promise<{ pack: Pack; publisher: Publisher } | null> {
   const row = await db
     .select({ pack: packs, publisher: publishers })
@@ -82,7 +82,7 @@ export async function getPackBySlug(
 
 export async function listPackVersions(
   db: Database,
-  packId: string
+  packId: string,
 ): Promise<PackVersion[]> {
   return db
     .select()
@@ -93,14 +93,12 @@ export async function listPackVersions(
 
 export async function getLatestVersion(
   db: Database,
-  packId: string
+  packId: string,
 ): Promise<PackVersion | null> {
   const rows = await db
     .select()
     .from(packVersions)
-    .where(
-      and(eq(packVersions.packId, packId), eq(packVersions.status, "published"))
-    )
+    .where(and(eq(packVersions.packId, packId), eq(packVersions.status, "published")))
     .orderBy(desc(packVersions.publishedAt));
   // Pick highest semver from published rows (most recent wins on ties).
   const sorted = rows.slice().sort((a, b) => compareSemver(b.version, a.version));
@@ -110,7 +108,7 @@ export async function getLatestVersion(
 export async function getVersion(
   db: Database,
   packId: string,
-  version: string
+  version: string,
 ): Promise<PackVersion | null> {
   const row = await db
     .select()
@@ -120,7 +118,7 @@ export async function getVersion(
   return row[0] ?? null;
 }
 
-function compareSemver(a: string, b: string): number {
+export function compareSemver(a: string, b: string): number {
   const [ax = "0", bx = "0"] = [a, b];
   const re = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/;
   const am = ax.match(re);

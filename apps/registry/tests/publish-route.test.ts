@@ -34,10 +34,16 @@ interface VerifiedToken {
 
 const _auth: { verified: VerifiedToken | null } = { verified: null };
 
-const _db: { configured: boolean; queue: unknown[][]; transactionResult: unknown } = {
+const _db: {
+  configured: boolean;
+  queue: unknown[][];
+  transactionResult: unknown;
+  transactionThrows: unknown;
+} = {
   configured: true,
   queue: [],
   transactionResult: null,
+  transactionThrows: null,
 };
 
 const _r2: {
@@ -79,7 +85,10 @@ function fakeDb(): Record<string, unknown> {
     select: () => next(),
     insert: () => next(),
     update: () => next(),
-    transaction: async () => _db.transactionResult,
+    transaction: async () => {
+      if (_db.transactionThrows) throw _db.transactionThrows;
+      return _db.transactionResult;
+    },
   };
 }
 
@@ -168,6 +177,7 @@ beforeEach(() => {
   _db.configured = true;
   _db.queue = [];
   _db.transactionResult = null;
+  _db.transactionThrows = null;
   _r2.presign = { url: "https://r2.example/put", headers: { "content-length": "1" } };
   _r2.presignThrows = null;
   _r2.head = {};
@@ -427,6 +437,43 @@ describe("POST /api/publish/[publishId]/finalize — integrity + ownership gates
     expect(json.packId).toBe("pack-1");
     expect(json.versionId).toBe("ver-1");
     expect(json.url).toContain("/packs/acme/mypack/1.0.0");
+  });
+
+  it("409s when a concurrent publish won the version race (unique violation → version_exists)", async () => {
+    _auth.verified = TOKEN(["publish:packs"], ["acme"]);
+    _r2.head = {
+      "acme/mypack/1.0.0/AGENTPACK.yaml": { contentLength: 100, etag: "e" },
+      "acme/mypack/1.0.0/atoms/a.md": { contentLength: 50, etag: "e" },
+    };
+    _db.queue = [[pendingPublish()], [{ id: "pub-uuid" }]];
+    // The finalize transaction is the real serialization point — a Postgres
+    // unique-violation on pack_versions_pack_version_uq must surface as 409,
+    // not a generic 500, so the CLI stops retrying. (backend-architect H1)
+    _db.transactionThrows = Object.assign(new Error("duplicate key value"), {
+      code: "23505",
+    });
+    const res = await publishFinalize(
+      bearerReq("https://x/api/publish/pub-1/finalize"),
+      ctx("pub-1"),
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("version_exists");
+  });
+
+  it("500s with finalize_failed on a non-unique-violation transaction error", async () => {
+    _auth.verified = TOKEN(["publish:packs"], ["acme"]);
+    _r2.head = {
+      "acme/mypack/1.0.0/AGENTPACK.yaml": { contentLength: 100, etag: "e" },
+      "acme/mypack/1.0.0/atoms/a.md": { contentLength: 50, etag: "e" },
+    };
+    _db.queue = [[pendingPublish()], [{ id: "pub-uuid" }]];
+    _db.transactionThrows = new Error("connection reset");
+    const res = await publishFinalize(
+      bearerReq("https://x/api/publish/pub-1/finalize"),
+      ctx("pub-1"),
+    );
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("finalize_failed");
   });
 
   it("422s when a malformed signature envelope is supplied (rejects before persistence)", async () => {
