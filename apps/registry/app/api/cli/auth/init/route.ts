@@ -4,7 +4,8 @@ import { createDeviceCode } from "@/lib/cli-auth-store";
 import { clientKey, hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request): Promise<Response> {
-  // Cap device-code minting per IP so the in-memory store can't be flooded.
+  // Throttle device-code minting per IP. Best-effort and per-instance on
+  // serverless (see lib/rate-limit.ts) — narrows, not eliminates, flooding.
   const rl = hit(clientKey(req, "auth-init"), 20, 60_000);
   if (!rl.allowed) return tooManyRequests(rl);
   const entry = createDeviceCode();

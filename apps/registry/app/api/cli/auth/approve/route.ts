@@ -13,7 +13,9 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   // Throttle approve attempts per user — a guessed userCode lets an attacker
-  // bind their token to a victim's CLI session, so cap enumeration velocity.
+  // bind their token to a victim's CLI session, so slow enumeration velocity.
+  // Best-effort and per-instance on serverless (see lib/rate-limit.ts); the
+  // userCode's own entropy + short TTL is the primary guard.
   const rl = hit(`approve:${session.user.id}`, 10, 60_000);
   if (!rl.allowed) return tooManyRequests(rl);
   const body = (await req.json().catch(() => null)) as { userCode?: string } | null;
