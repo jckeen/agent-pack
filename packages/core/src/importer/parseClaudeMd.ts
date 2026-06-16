@@ -3,9 +3,11 @@
 // Splits a Markdown instruction document into top-level `## ` sections, with a
 // fence-aware line scan so a `##` inside a fenced code block is never treated
 // as a section boundary. The leading `# ` title (before any `##`) is captured
-// separately and is NOT emitted as a section. YAML frontmatter is stripped and
-// `@import` directives are surfaced as warnings (they cannot be represented as
-// pack atoms — the imported pack is self-contained).
+// separately and is NOT emitted as a section. Body text between the `# ` title
+// and the first `## ` section (the "preamble") is captured as a synthetic
+// leading section so no content is silently dropped. YAML frontmatter is
+// stripped and `@import` directives are surfaced as warnings (they cannot be
+// represented as pack atoms — the imported pack is self-contained).
 
 export interface ParsedSection {
   /** The `## ` heading text (without the leading `## `). */
@@ -116,8 +118,33 @@ export function parseClaudeMd(text: string): ParsedClaudeMd {
     bodyLines.push(line);
   }
 
+  // Capture the preamble: lines between the title and the first `## ` boundary.
+  // bodyLines[i] is null for stripped lines (title, @import); the preamble
+  // occupies indices 0..(boundaries[0].lineStart - 2) inclusive (0-based), i.e.
+  // all bodyLines before the first `##` heading line.
+  const preambleEnd =
+    boundaries.length > 0 ? boundaries[0]!.lineStart - 1 : bodyLines.length;
+  const preambleText = bodyLines
+    .slice(0, preambleEnd)
+    .filter((l): l is string => l !== null)
+    .join("\n")
+    .replace(/^\n+/, "")
+    .replace(/\s+$/, "");
+
   // Second pass: slice bodies between boundaries.
   const sections: ParsedSection[] = [];
+
+  // Synthetic leading section for preamble text, so no content is silently
+  // dropped. Use the document title as the heading; fall back to "Overview".
+  if (preambleText.length > 0) {
+    sections.push({
+      heading: title ?? "Overview",
+      body: preambleText,
+      level: 2,
+      lineStart: offset + 1,
+    });
+  }
+
   for (let b = 0; b < boundaries.length; b++) {
     const start = boundaries[b]!.lineStart; // 1-based index of heading line
     const end = b + 1 < boundaries.length ? boundaries[b + 1]!.lineStart - 1 : lines.length;
