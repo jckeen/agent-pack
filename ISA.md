@@ -856,7 +856,7 @@ A joint Claude + Codex security/usability review, then a build-out that takes a 
 
 ### Iteration-7 decisions
 
-- **Honesty over reach-theater**: no vehicle can make hooks or an ambient `CLAUDE.md` work on claude.ai/Cowork (no hook engine, no CLAUDE.md loader). Instructions are bridged as on-invoke skills and labeled as such; the portability ceiling is shown, not hidden.
+- **Honesty over reach-theater**: no vehicle can make an ambient `CLAUDE.md` work on claude.ai/Cowork (no CLAUDE.md loader). Instructions are bridged as on-invoke skills and labeled as such; the portability ceiling is shown, not hidden. _(Superseded by ISC-330: hooks ARE a Cowork-supported plugin component and ride the plugin to Cowork; the hook ceiling was corrected `terminal`→`plugin`.)_
 - **Plugin via relocation, not a new adapter**: the plugin emitter reuses the `claude-code` adapter output and moves it into plugin layout — one source of truth for rendering.
 - **Connector is a prototype with deferred hosting**: code + tests landed; bearer-auth, DNS-rebinding protection, and recurring hosted infra are documented in the package README, not provisioned (cost policy).
 - **Reposition to governance + reach**: README/STATUS now lead with the durable moat (policy/lockfile/risk/provenance) and treat cross-platform compile as supporting — the compile layer is the most platform-absorbable part.
@@ -904,3 +904,16 @@ Resolves the eight `[DEFERRED-VERIFY]` findings (ISC-289..296, GitHub #14–#21)
 - **Governance-layer answer for #14, not registry-side**: signer-identity enforcement lives in `agentpack.policy.json` (`allowedSigners`/`requireIdentity`) + the CLI flag — the part that needs no live infra. The registry serving a bound per-publisher SAN automatically stays a documented follow-up, honestly deferred rather than fake-closed.
 - **Auth at the boundary for the connector**: the prototype's "no auth" note was a real gap, not an acceptable prototype shortcut; fixed auth-by-default with no skip-auth branch, per the project's standing auth rule.
 - **Parallel worktrees by package ownership**: core/cli, registry+db, connector edited in disjoint trees and squash-merged — no merge commits (the commit-msg hook requires bare conventional prefixes).
+
+## Iteration-10 — .mcpb emitter + Cowork hooks-ceiling fix (2026-06-15, #38)
+
+### Iteration-10 ISCs
+
+- [x] ISC-330 (#38, accuracy): Hook portability ceiling corrected `terminal`→`plugin`. The live extensions doc (claude.com/docs/cowork/3p/extensions) lists Hooks as a Cowork-supported plugin component ("Hook definitions that run on agent lifecycle events"), contradicting the prior "inert on Cowork" claim. Swept the duplicated claim across `portability.ts`, the `pack plugin` CLI strings, README.md, and docs/cli.md; updated `plugin-export.test.ts` ceiling assertions.
+- [x] ISC-331 (#38): `agentpack pack mcpb` — `exports/exportMcpb.ts` packages a pack's stdio `mcp_server` atom into a valid `.mcpb` MCP Bundle (ZIP + root `manifest.json`, spec `manifest_version: "0.3"`), for one-click local MCP install on Cowork/Desktop. Reuses `resolveAtoms` + the `permissions.mcp.servers` declaration gate + shell-escape refusal; required secrets become `user_config` fields wired into `mcp_config.env` via `${user_config.KEY}` (never baked in). Verified against the live MCPB manifest spec; `mcpb-export.test.ts` (3 tests) asserts manifest shape, zip structure, secret→user_config wiring, round-trip, and refusal when no stdio server is present. Zip lib: `fflate@0.8.3` (zero-dep, synchronous).
+- [x] ISC-332 (#38, positioning): README + docs/cli.md reposition the plugin target as the Cowork + org-governance path — `pack plugin` IS the Cowork install format, and compiling a governed pack into Cowork `org-plugins/` (precedence + per-tool policy locks) is the admin-distribution story.
+
+### Iteration-10 decisions
+
+- **Accuracy fix verified against live docs, not memory**: the hooks ceiling was corrected only after confirming Hooks as a Cowork plugin component in the current extensions doc; the `CLAUDE.md`-loader limitation (instructions/rules stay `terminal`) is unchanged because that surface genuinely doesn't exist on Cowork.
+- **`.mcpb` is the LOCAL path, distinct from connectors**: `.mcpb` bundles local stdio servers for Cowork/Desktop; remote http/sse servers stay on the connector/`.mcp.json` path. The emitter reuses the existing MCP security gates rather than introducing a parallel trust boundary.
