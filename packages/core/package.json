@@ -41,6 +41,7 @@
     "@sigstore/bundle": "3.1.0",
     "@sigstore/sign": "4.1.0",
     "diff": "9.0.0",
+    "fflate": "0.8.3",
     "sigstore": "4.0.0",
     "yaml": "2.9.0",
     "zod": "3.23.8"

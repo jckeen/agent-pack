@@ -7,9 +7,10 @@ import type { AtomType } from "./schema/types.js";
  *
  * This is an intrinsic property of the atom TYPE, not author-declared — like
  * risk, it's computed. It encodes the cross-surface research (June 2026):
- * Skills and MCP servers are account-level and reach every surface; commands
- * and subagents ride only inside a plugin on plugin-aware surfaces; hooks and
- * ambient instructions/rules have no home outside Claude Code.
+ * Skills and MCP servers are account-level and reach every surface; commands,
+ * subagents, and hooks ride inside a plugin on plugin-aware surfaces (Hooks are
+ * a Cowork-supported plugin component); ambient instructions/rules have no home
+ * outside Claude Code.
  *
  * Ceilings:
  *  - `universal`   — reaches every Claude surface (account-level GA).
@@ -60,9 +61,9 @@ const PORTABILITY: Record<AtomType, PortabilityInfo> = {
     note: "Workflows are a runtime construct — only reachable programmatically via the SDK or Managed Agents.",
   },
   hook: {
-    ceiling: "terminal",
-    mechanism: "Claude Code settings / plugin hooks (Code only)",
-    note: "Event-loop callbacks specific to Claude Code. Plugin hooks fire ONLY in Code — inert on Cowork/web/Desktop.",
+    ceiling: "plugin",
+    mechanism: "plugin hooks (hooks/hooks.json)",
+    note: "Lifecycle callbacks ride inside a plugin: Hooks are a Cowork-supported plugin component (claude.com/docs/cowork/3p/extensions), so they reach Code and Cowork. No home in plain claude.ai chat.",
   },
   instruction: {
     ceiling: "terminal",
