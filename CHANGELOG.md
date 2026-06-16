@@ -22,7 +22,13 @@ A `/max` session: a parallel review fleet (security + backend-architecture + an 
 - **`pack chat` (#40)** — Claude Chat compile target: skill ZIPs (native + on-invoke bridges for instructions/rules/commands) + a `connectors.json` install recipe + `project-instructions.md` + a portability README.
 - **`import --from chatgpt-gpt` + OpenAPI→MCP transpiler (#41)** — the "move a ChatGPT GPT to Claude Chat" path; the transpiler (operationId→MCP tool, auth→secrets/scopes) is the reusable interop primitive across Codex/Apps SDK/Claude, since MCP is the shared spine. Honest about what can't cross (no GPT export API, GPT Store, Apps widgets, managed RAG).
 
-Tests: `pnpm verify` exit 0 — **786** total (460 core + 44 cli + 79 db + 50 connector + 153 registry), up from 645. Deferred deeper items remain tracked in their issues where applicable (live-DB smoke for the finalize transaction body + valid-signature crypto via `scripts/smoke-e2e.sh`).
+**Follow-up fixes** (landed after the initial cross-surface wave)
+
+- **Isolated-workspace build ordering (#53).** Workspace package builds failed in an isolated checkout because `tsc` ran before dependency packages were built; switched to TypeScript project references so `core → db → connector → cli → registry` build in dependency order.
+- **`parseClaudeMd` preamble capture (#57).** Content before the first `##` heading was dropped on import; it is now captured as a leading instruction atom (the same preamble fix the codex importer relies on), adding the missing core coverage.
+- **`admin-status` route test refactor (#58).** Extracted `applyStatusChange` from the admin status route handler so the status-transition logic is unit-testable independent of the HTTP layer; the route tests now drive the extracted function directly.
+
+Tests: `pnpm verify` exit 0 — **790** total (464 core + 50 cli + 79 db + 44 connector + 153 registry), up from 645. Deferred deeper items remain tracked in their issues where applicable (live-DB smoke for the finalize transaction body + valid-signature crypto via `scripts/smoke-e2e.sh`).
 
 ## 0.6.13-dev — 2026-06-15 (pre-public issue sweep: importer, adapters, registry routes)
 
