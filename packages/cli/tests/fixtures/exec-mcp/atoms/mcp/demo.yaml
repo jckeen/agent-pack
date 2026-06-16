@@ -1,0 +1,14 @@
+id: demo
+name: Demo MCP
+transport: stdio
+command: node
+args:
+  - server.js
+permissions:
+  - network.access
+  - external_api.access
+risk_level: high
+tools_exposed:
+  - demo.ping
+warnings:
+  - "Runs a long-lived server process on your next agent session."

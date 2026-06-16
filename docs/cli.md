@@ -139,7 +139,7 @@ Prints the imported atom count + per-type summary and any warnings, then suggest
 agentpack install <source> \
   --target <target> --profile <profile> \
   --project <dir> \
-  [--yes] [--dry-run] [--force] [--json] [--allow-critical] \
+  [--yes] [--dry-run] [--force] [--json] [--allow-critical] [--allow-exec] \
   [--fail-on-unsupported] \
   [--require-sig] [--expected-signer <san>] [--registry <url>]
 ```
@@ -152,7 +152,7 @@ agentpack install <source> \
 
 The CLI runs the same WAL-protected pipeline regardless of source: plan → backup → write begin entry → write project files → write manifest → write commit entry. Shared files **merge** instead of conflicting: an existing user `CLAUDE.md`/`AGENTS.md` gets the pack's marker block appended (other packs' blocks and user content are preserved), and `.claude/settings.json` / `.mcp.json` / `.cursor/mcp.json` are deep-merged (the pack's hook entries and MCP servers are added; user entries are untouched). See [`install.md`](./install.md) for the full merge semantics.
 
-Flags: `--yes` skips the interactive `[y/N]` prompt (required in non-TTY sessions — a missing `--yes` without a terminal exits 2 immediately instead of hanging); `--dry-run` previews without writing and exits 2 if conflicts exist; `--json` emits the plan/result as one JSON object (paths created/modified/unchanged, conflicts with reasons, merges, history entry id); `--force` allows overwriting genuinely conflicting files (after backup); `--allow-critical` is required to install a plan whose computed risk is `critical` — `--yes` alone never crosses that line; `--fail-on-unsupported` exits `2` instead of installing when any selected atom is dropped — whether because the target doesn't support it or because a security gate refused it (e.g. a shell-escape MCP command). By default such atoms are skipped, the install succeeds, and the dropped atoms are listed in the summary and in the `unsupportedAtoms` field of `--json`. With `--json`, an expected refusal (`critical_risk_refused`, `unsupported_atoms`) is emitted as a structured object on stdout rather than prose on stderr. `--require-sig` refuses to install unsigned packs (registry-resolved sources only — see exit code 5); `--expected-signer <san>` additionally pins the Sigstore identity (an untrusted signer exits 4), and `install.allowedSigners` / `install.requireIdentity` in `agentpack.policy.json` enforce the same pin org-wide; `--registry <url>` overrides the default registry endpoint (subject to `agentpack.policy.json` allowlist).
+Flags: `--yes` skips the interactive `[y/N]` prompt (required in non-TTY sessions — a missing `--yes` without a terminal exits 2 immediately instead of hanging); `--dry-run` previews without writing and exits 2 if conflicts exist; `--json` emits the plan/result as one JSON object (paths created/modified/unchanged, conflicts with reasons, merges, history entry id); `--force` allows overwriting genuinely conflicting files (after backup); `--allow-critical` is required to install a plan whose computed risk is `critical` — `--yes` alone never crosses that line; `--allow-exec` is required to install an **unverified** pack that ships executable atoms (`hook` / `mcp_server`, which run author-supplied code on your machine) — like `--allow-critical`, `--yes` alone never crosses it, and a pack whose signature is verified via `--require-sig` is exempt (provenance is established); `--fail-on-unsupported` exits `2` instead of installing when any selected atom is dropped — whether because the target doesn't support it or because a security gate refused it (e.g. a shell-escape MCP command). By default such atoms are skipped, the install succeeds, and the dropped atoms are listed in the summary and in the `unsupportedAtoms` field of `--json`. With `--json`, an expected refusal (`critical_risk_refused`, `exec_atoms_refused`, `unsupported_atoms`) is emitted as a structured object on stdout rather than prose on stderr. `--require-sig` refuses to install unsigned packs (registry-resolved sources only — see exit code 5); `--expected-signer <san>` additionally pins the Sigstore identity (an untrusted signer exits 4), and `install.allowedSigners` / `install.requireIdentity` in `agentpack.policy.json` enforce the same pin org-wide; `--registry <url>` overrides the default registry endpoint (subject to `agentpack.policy.json` allowlist).
 
 Installing the same pack for a **second target** into one project is refused (it would orphan the first target's files) — uninstall first or use separate project directories.
 
@@ -205,18 +205,18 @@ Empties the blob store.
 
 ## Exit codes
 
-| Code | Meaning                                                                                                                                  |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | success                                                                                                                                  |
-| `1`  | runtime error (validation failure, fs error, etc.)                                                                                       |
-| `2`  | bad invocation (unknown target/profile), drift (`verify`), dry-run conflicts, **or** `install --fail-on-unsupported` with a dropped atom |
-| `3`  | history-chain integrity failure (`verify --chain`)                                                                                       |
-| `4`  | signature invalid (`verify --sig`)                                                                                                       |
-| `5`  | unsigned pack rejected (`--require-sig`)                                                                                                 |
-| `6`  | policy violation (`agentpack.policy.json`) **or** critical-risk plan without `--allow-critical`                                          |
-| `7`  | integrity error (registry-declared sha256 mismatched fetched bytes)                                                                      |
-| `8`  | not found (registry returned 404, or a command run against an uninstalled pack — e.g. `verify`/`uninstall` with no install manifest)     |
-| `9`  | conflict (`uninstall` blocked by user edits; registry `version_exists` on publish)                                                       |
+| Code | Meaning                                                                                                                                                            |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0`  | success                                                                                                                                                            |
+| `1`  | runtime error (validation failure, fs error, etc.)                                                                                                                 |
+| `2`  | bad invocation (unknown target/profile), drift (`verify`), dry-run conflicts, **or** `install --fail-on-unsupported` with a dropped atom                           |
+| `3`  | history-chain integrity failure (`verify --chain`)                                                                                                                 |
+| `4`  | signature invalid (`verify --sig`)                                                                                                                                 |
+| `5`  | unsigned pack rejected (`--require-sig`)                                                                                                                           |
+| `6`  | policy violation (`agentpack.policy.json`), critical-risk plan without `--allow-critical`, **or** unverified plan shipping executable atoms without `--allow-exec` |
+| `7`  | integrity error (registry-declared sha256 mismatched fetched bytes)                                                                                                |
+| `8`  | not found (registry returned 404, or a command run against an uninstalled pack — e.g. `verify`/`uninstall` with no install manifest)                               |
+| `9`  | conflict (`uninstall` blocked by user edits; registry `version_exists` on publish)                                                                                 |
 
 These codes are honored even when a command throws past its own explicit `process.exit`: the CLI's top-level handler maps typed domain errors to their pinned code (`InstallManifestNotFoundError`/`VersionNotFoundError`/`BlobNotFoundError` → 8, `IntegrityError` → 7, `UninstallConflictError` → 9) rather than collapsing everything to 1.
 

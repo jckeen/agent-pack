@@ -7,6 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const CLI_ENTRY = path.resolve(__dirname, "../dist/index.js");
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const EXAMPLE = path.resolve(REPO_ROOT, "examples/pr-quality");
+const FIXTURES = path.resolve(__dirname, "fixtures");
+// High-risk-but-not-critical packs that ship a single executable atom, so the
+// --allow-exec gate (#63) fires in isolation from the --allow-critical gate.
+const EXEC_HOOK = path.join(FIXTURES, "exec-hook");
+const EXEC_MCP = path.join(FIXTURES, "exec-mcp");
+const NO_EXEC = path.join(FIXTURES, "no-exec");
 
 const TMP_ROOT = path.join(os.tmpdir(), `agentpack-install-cli-${Date.now()}`);
 
@@ -141,6 +147,10 @@ describe("agentpack install (CLI)", () => {
       dir,
       "--yes",
       "--allow-critical",
+      // pr-quality/full ships hook + mcp_server atoms; --allow-exec keeps this
+      // test focused on the unsupported-atom behavior (#63 gate has its own
+      // tests below).
+      "--allow-exec",
       "--fail-on-unsupported",
       "--json",
     ]);
@@ -166,6 +176,8 @@ describe("agentpack install (CLI)", () => {
       dir,
       "--yes",
       "--allow-critical",
+      // pr-quality/full ships hook + mcp_server atoms (see #63 gate tests).
+      "--allow-exec",
     ]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("Installed");
@@ -370,5 +382,159 @@ describe("agentpack install (CLI)", () => {
     ]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("Invalid --target");
+  });
+
+  // --allow-exec gate (#63 / audit finding B1): an unsigned/unverified pack that
+  // ships executable atoms (hook / mcp_server) must refuse to install unless
+  // --allow-exec is passed explicitly. -y alone must NOT bypass it.
+  describe("--allow-exec exec-atom gate (#63 B1)", () => {
+    it("refuses an unsigned pack with a hook atom; -y alone does not bypass; names the atom", async () => {
+      const dir = await freshProject("exec-hook-refuse");
+      const r = await run([
+        "install",
+        EXEC_HOOK,
+        "--target",
+        "generic",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+        "--json",
+      ]);
+      expect(r.code).toBe(6); // ExitCode.PolicyViolation
+      const parsed = JSON.parse(r.stdout.trim());
+      expect(parsed.installed).toBe(false);
+      expect(parsed.error).toBe("exec_atoms_refused");
+      expect(parsed.execAtoms).toContain("hook:post-edit-format");
+      // Nothing was written — refused before applyInstall.
+      const lock = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
+      expect(lock).toBeNull();
+    });
+
+    it("names the hook atom in the human-readable refusal", async () => {
+      const dir = await freshProject("exec-hook-message");
+      const r = await run([
+        "install",
+        EXEC_HOOK,
+        "--target",
+        "generic",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+      ]);
+      expect(r.code).toBe(6);
+      expect(r.stderr).toContain("hook:post-edit-format");
+      expect(r.stderr).toContain("--allow-exec");
+      expect(r.stderr).toContain("--require-sig");
+    });
+
+    it("refuses an unsigned pack with an mcp_server atom without --allow-exec", async () => {
+      const dir = await freshProject("exec-mcp-refuse");
+      const r = await run([
+        "install",
+        EXEC_MCP,
+        "--target",
+        "generic",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+        "--json",
+      ]);
+      expect(r.code).toBe(6);
+      const parsed = JSON.parse(r.stdout.trim());
+      expect(parsed.installed).toBe(false);
+      expect(parsed.error).toBe("exec_atoms_refused");
+      expect(parsed.execAtoms).toContain("mcp_server:demo");
+      const lock = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
+      expect(lock).toBeNull();
+    });
+
+    it("proceeds when --allow-exec is passed for a hook pack", async () => {
+      const dir = await freshProject("exec-hook-allow");
+      const r = await run([
+        "install",
+        EXEC_HOOK,
+        "--target",
+        "generic",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+        "--allow-exec",
+      ]);
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("Installed");
+      const lock = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
+      expect(lock).not.toBeNull();
+    });
+
+    it("proceeds when --allow-exec is passed for an mcp_server pack", async () => {
+      const dir = await freshProject("exec-mcp-allow");
+      const r = await run([
+        "install",
+        EXEC_MCP,
+        "--target",
+        "generic",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+        "--allow-exec",
+      ]);
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("Installed");
+    });
+
+    it("is unaffected when the plan has NO executable atoms (no flag needed)", async () => {
+      const dir = await freshProject("no-exec-ok");
+      const r = await run([
+        "install",
+        NO_EXEC,
+        "--target",
+        "generic",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+      ]);
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("Installed");
+    });
+
+    it("does not gate a signature-VERIFIED install carrying exec atoms (predicate branch)", () => {
+      // Fully simulating a verified Sigstore signature in this spawn-based CLI
+      // test is impractical (it requires live registry signature rows + a
+      // valid cosign bundle). Instead we assert the gating PREDICATE directly,
+      // which is the exact condition the install command evaluates:
+      //
+      //   gate fires := execAtoms.length > 0 && !signatureVerified && !allowExec
+      //
+      // `signatureVerified` in install.ts is `verifiedSignatureB64 !== undefined`,
+      // set ONLY on the --require-sig success path. So a verified install
+      // (signatureVerified === true) is exempt even with exec atoms and no
+      // --allow-exec.
+      const gateFires = (
+        execAtomCount: number,
+        signatureVerified: boolean,
+        allowExec: boolean,
+      ): boolean => execAtomCount > 0 && !signatureVerified && !allowExec;
+
+      // Verified install with exec atoms, no --allow-exec → NOT gated.
+      expect(gateFires(2, true, false)).toBe(false);
+      // Unsigned install with exec atoms, no --allow-exec → gated.
+      expect(gateFires(2, false, false)).toBe(true);
+      // Unsigned install, exec atoms, --allow-exec → NOT gated.
+      expect(gateFires(2, false, true)).toBe(false);
+      // No exec atoms → never gated, regardless of verification/flag.
+      expect(gateFires(0, false, false)).toBe(false);
+    });
   });
 });

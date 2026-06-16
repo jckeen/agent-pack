@@ -1,0 +1,73 @@
+agentpack: "1.0"
+
+metadata:
+  id: "agentpack.exec-mcp-fixture"
+  name: "Exec MCP Fixture"
+  slug: "exec-mcp-fixture"
+  description: "Test fixture: a pack whose only atom is an mcp_server (high risk, not critical) to isolate the --allow-exec gate."
+  version: "0.1.0"
+  license: "MIT"
+  publisher: "agentpack"
+  authors:
+    - name: "AgentPack"
+      email: "hello@agentpack.dev"
+  tags:
+    - test
+
+compatibility:
+  targets:
+    generic:
+      status: supported
+      notes: "Generates AGENTS.md and agentpack.json."
+
+permissions:
+  filesystem:
+    read:
+      - "."
+  network:
+    access: optional
+    domains:
+      - "api.example.com"
+  package_installation: false
+  model_provider_key_access: false
+
+security:
+  risk_level: high
+  risk_summary: "High because it ships an MCP server."
+  requires_review: true
+  signed: false
+
+profiles:
+  full:
+    description: "Includes the MCP server."
+    include:
+      - "*"
+
+atoms:
+  - id: "mcp_server:demo"
+    type: mcp_server
+    name: "Demo MCP"
+    description: "A no-secret demo MCP connector for testing the exec gate."
+    path: "atoms/mcp/demo.yaml"
+    risk_level: high
+    permissions:
+      - network.access
+      - external_api.access
+    transport: stdio
+    command: "node"
+    args:
+      - "server.js"
+
+exports:
+  default_profile: full
+  output_dir: "dist"
+  lockfile: "AGENTPACK.lock"
+
+adapters:
+  generic:
+    enabled: true
+    output:
+      instructions: "AGENTS.md"
+      skills: "skills"
+      manifest: "agentpack.json"
+      readme: "README-agent.md"

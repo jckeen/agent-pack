@@ -1,0 +1,13 @@
+id: post-edit-format
+name: Post Edit Format
+events:
+  generic:
+    - after_edit
+handler:
+  kind: shell
+  command: npm run format
+permissions:
+  - shell.execution
+risk_level: high
+warnings:
+  - "Runs a shell command after file edits. Review before enabling."

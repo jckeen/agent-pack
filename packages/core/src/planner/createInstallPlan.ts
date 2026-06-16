@@ -73,6 +73,7 @@ export async function createInstallPlan(
     target,
     profile,
     atoms: resolved.map((r) => r.atom.id),
+    atomTypes: resolved.map((r) => ({ id: r.atom.id, type: r.atom.type })),
     riskLevel: risk.level,
     permissions,
     warnings,

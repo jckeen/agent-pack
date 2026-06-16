@@ -8,18 +8,9 @@
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 
-export type TargetPlatform =
-  | "claude-code"
-  | "codex"
-  | "cursor"
-  | "chatgpt"
-  | "generic";
+export type TargetPlatform = "claude-code" | "codex" | "cursor" | "chatgpt" | "generic";
 
-export type CompatibilityStatus =
-  | "supported"
-  | "partial"
-  | "experimental"
-  | "unsupported";
+export type CompatibilityStatus = "supported" | "partial" | "experimental" | "unsupported";
 
 export type AtomType =
   | "instruction"
@@ -208,10 +199,7 @@ export interface RuleAtom extends AtomBase {
 
 export type Atom =
   | (AtomBase & {
-      type: Exclude<
-        AtomType,
-        "command" | "hook" | "mcp_server" | "skill" | "rule"
-      >;
+      type: Exclude<AtomType, "command" | "hook" | "mcp_server" | "skill" | "rule">;
     })
   | CommandAtom
   | HookAtom
@@ -331,6 +319,16 @@ export interface InstallPlan {
   target: TargetPlatform;
   profile: string;
   atoms: string[];
+  /**
+   * Resolved atoms with their declared `type`. Unlike `atoms` (ids only) and the
+   * lockfile's atom grouping (which collapses to a synthetic `*pack` entry when
+   * output files can't be mapped to atoms), this is the authoritative typed list
+   * of what the profile actually pulls in. Security gates that key off atom type
+   * — e.g. the executable-surface gate (hook / mcp_server) — MUST use this
+   * rather than parsing the `<type>:<slug>` id prefix, which an atom can set
+   * independently of its real `type`.
+   */
+  atomTypes: Array<{ id: string; type: AtomType }>;
   riskLevel: RiskLevel;
   permissions: PermissionSummary;
   warnings: string[];

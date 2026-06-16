@@ -27,8 +27,9 @@ A `/max` session: a parallel review fleet (security + backend-architecture + an 
 - **Isolated-workspace build ordering (#53).** Workspace package builds failed in an isolated checkout because `tsc` ran before dependency packages were built; switched to TypeScript project references so `core → db → connector → cli → registry` build in dependency order.
 - **`parseClaudeMd` preamble capture (#57).** Content before the first `##` heading was dropped on import; it is now captured as a leading instruction atom (the same preamble fix the codex importer relies on), adding the missing core coverage.
 - **`admin-status` route test refactor (#58).** Extracted `applyStatusChange` from the admin status route handler so the status-transition logic is unit-testable independent of the HTTP layer; the route tests now drive the extracted function directly.
+- **Executable-atom install gate (B1, #63).** Installing an _unverified_ pack that ships executable atoms (`hook` / `mcp_server`, which run author-supplied code on the user's machine) now refuses unless an explicit `--allow-exec` is passed — `--yes` alone never crosses it, mirroring `--allow-critical`. A signature-verified install (`--require-sig` success) is exempt; git sources, which can't be signature-verified yet, always fall under the gate. The gate keys off the resolved atoms' real `type` (a new authoritative `InstallPlan.atomTypes`), not the forgeable `<type>:<slug>` id prefix.
 
-Tests: `pnpm verify` exit 0 — **790** total (464 core + 50 cli + 79 db + 44 connector + 153 registry), up from 645. Deferred deeper items remain tracked in their issues where applicable (live-DB smoke for the finalize transaction body + valid-signature crypto via `scripts/smoke-e2e.sh`).
+Tests: `pnpm verify` exit 0 — **797** total (464 core + 57 cli + 79 db + 44 connector + 153 registry), up from 645. Deferred deeper items remain tracked in their issues where applicable (live-DB smoke for the finalize transaction body + valid-signature crypto via `scripts/smoke-e2e.sh`).
 
 ## 0.6.13-dev — 2026-06-15 (pre-public issue sweep: importer, adapters, registry routes)
 

@@ -1,0 +1,74 @@
+agentpack: "1.0"
+
+metadata:
+  id: "agentpack.exec-hook-fixture"
+  name: "Exec Hook Fixture"
+  slug: "exec-hook-fixture"
+  description: "Test fixture: a pack whose only atom is a shell hook (high risk, not critical) to isolate the --allow-exec gate."
+  version: "0.1.0"
+  license: "MIT"
+  publisher: "agentpack"
+  authors:
+    - name: "AgentPack"
+      email: "hello@agentpack.dev"
+  tags:
+    - test
+
+compatibility:
+  targets:
+    generic:
+      status: supported
+      notes: "Generates AGENTS.md and agentpack.json."
+
+permissions:
+  filesystem:
+    read:
+      - "."
+    write:
+      - "."
+  shell:
+    execution: optional
+    commands:
+      - "npm run format"
+  package_installation: false
+  model_provider_key_access: false
+
+security:
+  risk_level: high
+  risk_summary: "High because it ships a shell hook."
+  requires_review: true
+  signed: false
+
+profiles:
+  full:
+    description: "Includes the hook."
+    include:
+      - "*"
+
+atoms:
+  - id: "hook:post-edit-format"
+    type: hook
+    name: "Post Edit Format"
+    description: "Runs project formatter after agent file edits."
+    path: "atoms/hooks/post-edit-format.yaml"
+    risk_level: high
+    permissions:
+      - shell.execution
+    lifecycle:
+      events:
+        generic:
+          - after_edit
+
+exports:
+  default_profile: full
+  output_dir: "dist"
+  lockfile: "AGENTPACK.lock"
+
+adapters:
+  generic:
+    enabled: true
+    output:
+      instructions: "AGENTS.md"
+      skills: "skills"
+      manifest: "agentpack.json"
+      readme: "README-agent.md"
