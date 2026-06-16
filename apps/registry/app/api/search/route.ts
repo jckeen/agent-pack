@@ -6,6 +6,7 @@ import { clientKey, hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function GET(req: Request): Promise<Response> {
   // Unauthenticated FTS runs a ts_rank_cd scan per request — throttle per IP.
+  // Best-effort and per-instance on serverless (see lib/rate-limit.ts).
   const rl = hit(clientKey(req, "search"), 30, 60_000);
   if (!rl.allowed) return tooManyRequests(rl);
   const url = new URL(req.url);

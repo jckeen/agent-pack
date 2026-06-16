@@ -1,31 +1,74 @@
 /**
- * Minimal in-memory sliding-window rate limiter.
+ * Minimal fixed-window rate limiter with a pluggable backing store.
  *
- * The OSS registry defaults to a single instance, so an in-process limiter is
- * the right-sized default — it closes the worst abuse vectors (unauthenticated
- * FTS scans, device-code enumeration, publish-init R2-presign spam) without a
- * Redis dependency. For a horizontally-scaled deployment, swap `hit()` for a
- * Redis INCR + EXPIRE behind the same signature; nothing else changes.
+ * The default store is an in-process `Map` (`MemoryRateLimitStore`). That is the
+ * right-sized default for a single-instance OSS registry and adds no
+ * infrastructure dependency.
+ *
+ * IMPORTANT — production topology caveat: the in-memory store is PER-INSTANCE.
+ * On a horizontally-scaled serverless deployment (e.g. Vercel) each function
+ * instance keeps its own Map and instances scale out + reset on cold start, so
+ * the effective ceiling is `limit × instanceCount`, not `limit`. Treat the
+ * per-publisher/per-token DB-level guards as the real abuse control there. The
+ * production upgrade is a durable shared store (e.g. Vercel KV / Upstash Redis)
+ * implementing `RateLimitStore` below — `hit()` takes the store as a parameter
+ * so the adapter drops in with no call-site changes and no dependency added
+ * here. See issue #37.
  *
  * backend-architect HIGH #2: there was previously no rate limiting anywhere.
  */
 
-interface Window {
+export interface RateLimitWindow {
   count: number;
   resetAt: number;
 }
 
-const windows = new Map<string, Window>();
-let lastSweep = 0;
+/**
+ * Backing-store seam for the rate limiter. The default in-memory implementation
+ * is `MemoryRateLimitStore`; a durable adapter (KV/Redis) can implement this
+ * same interface to share state across instances. Methods are intentionally
+ * synchronous to match the current call sites — an async durable adapter would
+ * wrap these (the issue tracks the upgrade).
+ */
+export interface RateLimitStore {
+  get(key: string): RateLimitWindow | undefined;
+  set(key: string, window: RateLimitWindow): void;
+  delete(key: string): void;
+  clear(): void;
+}
 
-function sweep(now: number): void {
-  // Amortized cleanup so the Map can't grow unbounded under key churn.
-  if (now - lastSweep < 60_000) return;
-  lastSweep = now;
-  for (const [key, w] of windows) {
-    if (w.resetAt < now) windows.delete(key);
+/** Default per-instance store: a module-lifetime `Map` with amortized sweeping. */
+export class MemoryRateLimitStore implements RateLimitStore {
+  private readonly windows = new Map<string, RateLimitWindow>();
+  private lastSweep = 0;
+
+  get(key: string): RateLimitWindow | undefined {
+    return this.windows.get(key);
+  }
+
+  set(key: string, window: RateLimitWindow): void {
+    // Amortized cleanup so the Map can't grow unbounded under key churn.
+    if (window.resetAt - this.lastSweep >= 60_000) {
+      this.lastSweep = window.resetAt;
+      for (const [k, w] of this.windows) {
+        if (w.resetAt < window.resetAt) this.windows.delete(k);
+      }
+    }
+    this.windows.set(key, window);
+  }
+
+  delete(key: string): void {
+    this.windows.delete(key);
+  }
+
+  clear(): void {
+    this.windows.clear();
+    this.lastSweep = 0;
   }
 }
+
+/** The default store used by `hit()` when no store is injected. */
+const defaultStore = new MemoryRateLimitStore();
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -37,21 +80,23 @@ export interface RateLimitResult {
 /**
  * Record one hit against `key` and report whether it's within `limit` per
  * `windowMs`. Fixed-window (not strictly sliding) — adequate for abuse control
- * and cheap. `now` is injectable for tests.
+ * and cheap. `now` is injectable for tests; `store` defaults to the per-instance
+ * in-memory store but accepts any `RateLimitStore` (the durable-adapter seam).
  */
 export function hit(
   key: string,
   limit: number,
   windowMs: number,
   now: number = Date.now(),
+  store: RateLimitStore = defaultStore,
 ): RateLimitResult {
-  sweep(now);
-  const existing = windows.get(key);
+  const existing = store.get(key);
   if (!existing || existing.resetAt < now) {
-    windows.set(key, { count: 1, resetAt: now + windowMs });
+    store.set(key, { count: 1, resetAt: now + windowMs });
     return { allowed: true, retryAfter: 0, remaining: limit - 1 };
   }
   existing.count += 1;
+  store.set(key, existing);
   if (existing.count > limit) {
     return {
       allowed: false,
@@ -91,8 +136,7 @@ export function tooManyRequests(result: RateLimitResult): Response {
   );
 }
 
-/** Test-only: clear all windows. */
+/** Test-only: clear the default store's windows. */
 export function __resetRateLimit(): void {
-  windows.clear();
-  lastSweep = 0;
+  defaultStore.clear();
 }

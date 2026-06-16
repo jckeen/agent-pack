@@ -1,6 +1,6 @@
 # AgentPack Registry (Phase 3)
 
-> **Heads up — you might not need this.** AgentPack's default distribution mechanism is **git**: `agentpack install github:owner/repo@ref` works without any hosted registry. The registry exists as an *optional* convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the enterprise self-host path (Phase 6 — 🔒 gated). For everyday OSS publishing, see [the git-source guide](./git-source.md) — that's the leaner path.
+> **Heads up — you might not need this.** AgentPack's default distribution mechanism is **git**: `agentpack install github:owner/repo@ref` works without any hosted registry. The registry exists as an _optional_ convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the enterprise self-host path (Phase 6 — 🔒 gated). For everyday OSS publishing, see [the git-source guide](./git-source.md) — that's the leaner path.
 >
 > Read on if you specifically want a hosted catalog, signed-by-default-served-by-the-host UX, or are evaluating the enterprise unlock.
 
@@ -58,21 +58,21 @@ emitted into `packages/db/migrations/`.
 
 Key tables (see `Plans/PROTOCOL.md` § 4 for the full column list):
 
-| Table | Purpose |
-|---|---|
-| `users` | NextAuth-managed; one row per GitHub identity |
-| `publishers` | A namespace for packs (`agentpack`, `stripe`, an org slug) |
-| `publisher_members` | Many-to-many users↔publishers with `owner|maintainer` role |
-| `packs` | One per `<publisher>/<pack>` slug; has `latest_version_id` pointer + `search` tsvector |
-| `pack_versions` | Immutable. `status` is mutable (`published|deprecated|yanked|quarantined|blocked`) |
-| `atoms` | Per-version atom registry (id, type, risk_level, metadata) |
-| `pack_files` | Per-version blob registry (`path`, `sha256`, `bytes`, `r2_key`) |
-| `compatibilities` | Per-version × target platform compatibility status |
-| `api_tokens` | CLI tokens — `sha256(token)` stored, never the token itself |
-| `publishes` | Two-phase publish state — pending/aborted/completed |
-| `reviews` | Schema-only in v0.3; POST returns 501 |
-| `audit_events` | Phase 6-reserved hash-chained log |
-| `accounts`, `sessions`, `verification_tokens` | Managed by `@auth/drizzle-adapter` |
+| Table                                         | Purpose                                                                                |
+| --------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------- | ------ | ----------- | --------- |
+| `users`                                       | NextAuth-managed; one row per GitHub identity                                          |
+| `publishers`                                  | A namespace for packs (`agentpack`, `stripe`, an org slug)                             |
+| `publisher_members`                           | Many-to-many users↔publishers with `owner                                             | maintainer` role |
+| `packs`                                       | One per `<publisher>/<pack>` slug; has `latest_version_id` pointer + `search` tsvector |
+| `pack_versions`                               | Immutable. `status` is mutable (`published                                             | deprecated       | yanked | quarantined | blocked`) |
+| `atoms`                                       | Per-version atom registry (id, type, risk_level, metadata)                             |
+| `pack_files`                                  | Per-version blob registry (`path`, `sha256`, `bytes`, `r2_key`)                        |
+| `compatibilities`                             | Per-version × target platform compatibility status                                     |
+| `api_tokens`                                  | CLI tokens — `sha256(token)` stored, never the token itself                            |
+| `publishes`                                   | Two-phase publish state — pending/aborted/completed                                    |
+| `reviews`                                     | Schema-only in v0.3; POST returns 501                                                  |
+| `audit_events`                                | Phase 6-reserved hash-chained log                                                      |
+| `accounts`, `sessions`, `verification_tokens` | Managed by `@auth/drizzle-adapter`                                                     |
 
 The `packs.search` column is a Postgres `tsvector` generated from
 `(name, description, tags)` with weights A/B/C. A GIN index named
@@ -102,11 +102,11 @@ one always-warm branch pinned to prod.
 NextAuth v5 (`next-auth@5.0.0-beta.31`) is the App-Router-native option, used
 with the Drizzle adapter (`@auth/drizzle-adapter@1.11.2`).
 
-| Flow | Surface |
-|---|---|
-| GitHub OAuth sign-in (web) | `/api/auth/signin` (NextAuth) |
-| CLI device-code login | `/api/cli/auth/init` → user signs in on web → `/api/cli/auth/approve` → `/api/cli/auth/poll` |
-| Bearer-token auth (CLI publish, install of private packs) | `Authorization: Bearer agp_live_...` against `/api/publish/...`, `/api/me`, etc. |
+| Flow                                                      | Surface                                                                                      |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| GitHub OAuth sign-in (web)                                | `/api/auth/signin` (NextAuth)                                                                |
+| CLI device-code login                                     | `/api/cli/auth/init` → user signs in on web → `/api/cli/auth/approve` → `/api/cli/auth/poll` |
+| Bearer-token auth (CLI publish, install of private packs) | `Authorization: Bearer agp_live_...` against `/api/publish/...`, `/api/me`, etc.             |
 
 ### Token format
 
@@ -122,6 +122,34 @@ agp_live_<32-hex-chars>
 - `revoked_at` is the soft-delete signal. Verification returns null when set.
 
 CLI display **always** masks: `agp_live_xxxx…<last-4>`. Never log the full token outside the one-time creation response.
+
+### Verification cache & revocation
+
+`verifyBearer` keeps a short (45 s) in-memory cache of verified tokens per
+serverless instance to avoid a DB round-trip on every authenticated request.
+Implications for revocation:
+
+- **Read paths** (`/api/me`, install) accept the cache, so a revoked token may
+  stay valid for up to ~45 s on a warm instance — a documented trade-off.
+- **Mutating paths** (`/api/publish/init`, `/api/publish/.../finalize`) call
+  `verifyBearer(req, { skipCache: true })`, which bypasses the positive cache
+  and re-verifies against the DB, so revocation is **immediate** there.
+- `DELETE /api/tokens/[id]` additionally evicts the token from the local cache
+  so it can't be reused from that warm instance.
+- Negative caching (unknown/invalid tokens) is always honoured, so bad-token
+  probing can't hammer the DB regardless of path.
+
+### Rate limiting
+
+Abuse-control throttles (`lib/rate-limit.ts`) use an in-process fixed-window
+limiter (`MemoryRateLimitStore`) by default — no infrastructure dependency. On a
+horizontally-scaled serverless deployment this store is **per-instance**: the
+effective ceiling is `limit × instanceCount`, so treat the per-publisher /
+per-token DB-level guards as the real abuse control. The production upgrade is a
+durable shared store (e.g. Vercel KV / Upstash Redis) implementing the
+`RateLimitStore` interface; `hit()` accepts the store as a parameter so an
+adapter drops in with no call-site changes. Tracked in issue #37 (no KV
+dependency is provisioned here).
 
 ---
 
@@ -162,16 +190,16 @@ same version returns 409 always (immutable versions).
 
 ## Read API
 
-| Route | Method | Returns |
-|---|---|---|
-| `/api/packs` | GET | `{ packs: RegistryPack[], total }` — paged, tag/risk filters |
-| `/api/packs/:publisher/:pack` | GET | `RegistryPack` with versions list |
-| `/api/packs/:publisher/:pack/versions/:version` | GET | `RegistryVersion` with files[] |
-| `/api/packs/:publisher/:pack/versions/:version/manifest.yaml` | GET | raw manifest bytes from R2 |
-| `/api/packs/:publisher/:pack/versions/:version/atoms/:atomId/:path` | GET | raw atom-file bytes from R2 |
-| `/api/search?q=...` | GET | `{ results: RegistrySearchResult[] }` — Postgres FTS |
-| `/api/packs/:publisher/:pack/reviews` | GET | seed reviews; POST → 501 |
-| `/api/me` | GET (bearer) | `{ id, username, publisherSlugs }` |
+| Route                                                               | Method       | Returns                                                      |
+| ------------------------------------------------------------------- | ------------ | ------------------------------------------------------------ |
+| `/api/packs`                                                        | GET          | `{ packs: RegistryPack[], total }` — paged, tag/risk filters |
+| `/api/packs/:publisher/:pack`                                       | GET          | `RegistryPack` with versions list                            |
+| `/api/packs/:publisher/:pack/versions/:version`                     | GET          | `RegistryVersion` with files[]                               |
+| `/api/packs/:publisher/:pack/versions/:version/manifest.yaml`       | GET          | raw manifest bytes from R2                                   |
+| `/api/packs/:publisher/:pack/versions/:version/atoms/:atomId/:path` | GET          | raw atom-file bytes from R2                                  |
+| `/api/search?q=...`                                                 | GET          | `{ results: RegistrySearchResult[] }` — Postgres FTS         |
+| `/api/packs/:publisher/:pack/reviews`                               | GET          | seed reviews; POST → 501                                     |
+| `/api/me`                                                           | GET (bearer) | `{ id, username, publisherSlugs }`                           |
 
 The byte-streaming routes (manifest, atom-file) set
 `Cache-Control: public, max-age=31536000, immutable` — versions are immutable

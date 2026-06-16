@@ -121,6 +121,43 @@ export function __resetBearerCacheForTests(): void {
 }
 
 /**
+ * Proactively evict a token from this instance's positive cache.
+ *
+ * Called when a token is revoked (DELETE /api/tokens/[id]) so it can't keep
+ * being accepted from this warm instance for the rest of the TTL window. Other
+ * instances still observe the revocation on their next cache miss, or
+ * immediately on mutating paths via `verifyBearer(req, { skipCache: true })`.
+ *
+ * Best-effort and local: takes the raw token, hashes it, and removes the entry.
+ * A no-op if the token was never cached (or is empty).
+ */
+export function evictBearerToken(rawToken: string): void {
+  if (!rawToken) return;
+  _bearerCache.delete(hashToken(rawToken));
+}
+
+/**
+ * Evict by token sha256 directly — for callers (e.g. the revoke route) that
+ * hold the stored hash but never the raw token. Same best-effort, local
+ * semantics as {@link evictBearerToken}.
+ */
+export function evictBearerTokenBySha(sha256: string): void {
+  if (!sha256) return;
+  _bearerCache.delete(sha256);
+}
+
+/** Options for {@link verifyBearer}. */
+export interface VerifyBearerOptions {
+  /**
+   * Bypass the positive cache READ and always re-verify against the DB, so a
+   * revoked token is rejected immediately rather than after the TTL. Negative
+   * caching is preserved (repeated bad-token probes still don't hit the DB).
+   * Use on mutating-scope paths (publish init/finalize, token revoke).
+   */
+  skipCache?: boolean;
+}
+
+/**
  * Resolve a Bearer-token-bearing request to a verified token, or null.
  *
  * Returns null on:
@@ -134,15 +171,20 @@ export function __resetBearerCacheForTests(): void {
  * publisher membership set so scope-expansion checks (`publish:packs@<pub>`)
  * can be enforced cleanly downstream.
  *
- * **Staleness window**: results are cached in memory for up to
+ * **Staleness window**: by default, results are cached in memory for up to
  * VERIFY_BEARER_TTL_MS (45 s) per serverless instance. A token revoked in the
  * DB may remain accepted for up to that window on warm instances. This is an
- * explicit, documented trade-off — revocation is not instantaneous. For
- * security-sensitive workflows (e.g. emergency key rotation) operators should
- * redeploy to flush all instances, which takes effect within the deployment
- * propagation window (~30 s on Vercel).
+ * explicit, documented trade-off for read paths — revocation is not
+ * instantaneous there. Mutating-scope paths (publish init/finalize, token
+ * revoke) MUST pass `{ skipCache: true }` so revocation is observed
+ * immediately; revoke routes also call {@link evictBearerToken} to drop the
+ * entry from the local cache. For emergency key rotation across all instances,
+ * operators can additionally redeploy to flush every cache.
  */
-export async function verifyBearer(req: Request): Promise<VerifiedToken | null> {
+export async function verifyBearer(
+  req: Request,
+  opts: VerifyBearerOptions = {},
+): Promise<VerifiedToken | null> {
   const header = req.headers.get("authorization") ?? req.headers.get("Authorization");
   if (!header) return null;
   if (!header.startsWith("Bearer ")) return null;
@@ -151,11 +193,13 @@ export async function verifyBearer(req: Request): Promise<VerifiedToken | null> 
 
   const sha = hashToken(raw);
 
-  // Cache hit: return the stored principal (may be null for invalid tokens)
-  // without touching the DB.
+  // Positive-cache READ. Skipped on mutating paths so a revoked token is
+  // rejected immediately. Negative caching is honoured even when skipCache is
+  // set, so repeated bad-token probes can't hammer the DB regardless of path.
   const cached = _bearerCache.get(sha);
   if (cached && Date.now() < cached.expiresAt) {
-    return cached.principal;
+    if (cached.principal === null) return null;
+    if (!opts.skipCache) return cached.principal;
   }
 
   const db = getDb();
