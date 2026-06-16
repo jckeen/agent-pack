@@ -104,7 +104,9 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
       });
       result.recovered.push(committed);
     } else if (planned.length > 0) {
-      // Roll back: delete staged files we recognize, append recovery entry.
+      // Roll back: delete staged files, restore overwritten user files, append
+      // a recovery entry whose result reflects whether the rollback was safe.
+      const createdSet = new Set(begin.createdPaths ?? []);
       for (const pf of planned) {
         let abs: string;
         try {
@@ -114,16 +116,34 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
           // Path was malformed or escaped projectRoot — refuse to act.
           continue;
         }
+        // Never follow a symlink at the destination — operate only on a real
+        // file AgentPack itself wrote.
+        let stat;
+        try {
+          stat = await fs.lstat(abs);
+        } catch {
+          continue; // Not present; nothing to do.
+        }
+        if (stat.isSymbolicLink()) continue;
+        if (createdSet.has(pf.path)) {
+          // A path AgentPack CREATED fresh: it did not pre-exist, so deleting
+          // it can never destroy a user's file. Unlink unconditionally — a
+          // partially-written create has a non-matching hash and the legacy
+          // hash-match rule would otherwise strand it on disk (Finding 1).
+          await fs.unlink(abs).catch(() => {});
+          continue;
+        }
+        // Legacy path (begin entry has no createdPaths, or path not listed):
+        // only delete when the hash matches what we planned to write, never a
+        // user's pre-existing file.
         try {
           const raw = await fs.readFile(abs, "utf8");
           const sha = sha256Hex(normalizeForHash(raw));
-          // Only delete files whose hash matches what we planned to write —
-          // never delete a user's pre-existing file.
           if (sha === pf.sha256) {
             await fs.unlink(abs).catch(() => {});
           }
         } catch {
-          // File not present; nothing to do.
+          // Unreadable — leave it alone.
         }
       }
       // Restore any backed-up user files this install attempt overwrote.
@@ -132,10 +152,40 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
       // the backup root IS its original project-relative path. Restore only
       // into destinations the unlink pass above left empty — never clobber a
       // file the user has since recreated.
+      let restored = new Set<string>();
       if (begin.backupDir) {
-        await restoreBackups(ws, begin.backupDir).catch(() => {
-          // Best-effort: a malformed backupDir must not block the sweep.
+        restored = await restoreBackups(ws, begin.backupDir).catch(() => {
+          // A malformed backupDir must not crash the sweep; treat as "nothing
+          // restored" and let the required-backup check below decide safety.
+          return new Set<string>();
         });
+      }
+      // Data-loss guard (Finding 2): every required backup — a pre-existing
+      // user file this install overwrote — must be back on disk. A required
+      // path is satisfied if it was restored, OR no backup file exists for it
+      // (the "modify demoted to create at apply-time" case: nothing was
+      // overwritten, so there is nothing to lose). If a backup file IS present
+      // but was not restored, the user's original is gone: fail loud rather
+      // than record success.
+      const unrestored = await unrestoredRequiredBackups(ws, begin, restored);
+      if (unrestored.length > 0) {
+        // Record the failure for audit, then leave the begin entry dangling so
+        // a later sweep (after the operator fixes the backup dir) can retry.
+        await recordHistory(ws, {
+          id: newHistoryId(),
+          action: "install_rollback_recovery",
+          timestamp: new Date().toISOString(),
+          packId: begin.packId,
+          packVersion: begin.packVersion,
+          target: begin.target,
+          profile: begin.profile,
+          actor: { type: "cli", id: "recovery" },
+          result: "failed",
+          error: `Could not restore overwritten user file(s): ${unrestored.join(", ")}`,
+          recoveredBegin: begin.id,
+        }).catch(() => {});
+        result.unresolved.push(begin);
+        continue;
       }
       const rolled = await recordHistory(ws, {
         id: newHistoryId(),
@@ -166,7 +216,11 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
  * files first, and anything else at the destination is user content we must
  * not overwrite.
  */
-async function restoreBackups(ws: AgentpackPaths, backupDirRel: string): Promise<void> {
+async function restoreBackups(
+  ws: AgentpackPaths,
+  backupDirRel: string,
+): Promise<Set<string>> {
+  const restored = new Set<string>();
   const backupRoot = fromRelative(ws.projectRoot, backupDirRel);
   await realpathContained(ws.projectRoot, backupRoot);
   // The recorded dir must live under .agentpack/backups/ specifically — a
@@ -175,7 +229,7 @@ async function restoreBackups(ws: AgentpackPaths, backupDirRel: string): Promise
   // (codex re-review P2).
   const relToBackups = path.relative(ws.backupsDir, backupRoot);
   if (relToBackups.startsWith("..") || path.isAbsolute(relToBackups)) {
-    return;
+    return restored;
   }
   async function walk(dir: string, rel: string): Promise<void> {
     let entries;
@@ -198,6 +252,7 @@ async function restoreBackups(ws: AgentpackPaths, backupDirRel: string): Promise
           await fs.mkdir(path.dirname(dest), { recursive: true });
           // `wx`: restore only if the destination is missing.
           await fs.writeFile(dest, content, { encoding: "utf8", flag: "wx" });
+          restored.add(nextRel);
         } catch {
           // Destination exists or unreadable backup — skip.
         }
@@ -205,6 +260,85 @@ async function restoreBackups(ws: AgentpackPaths, backupDirRel: string): Promise
     }
   }
   await walk(backupRoot, "");
+  return restored;
+}
+
+/**
+ * Determine which of the begin entry's required backups (pre-existing user
+ * files this install overwrote) are NOT safely back on disk after the restore
+ * pass. A required path is data-loss ONLY if a backup file for it exists yet
+ * the destination is now empty — meaning the user's original was overwritten
+ * and could not be put back. It is safe when:
+ *   - it was just restored, OR
+ *   - the destination holds content (the user recreated it, or restore left
+ *     existing content in place), OR
+ *   - no backup file exists for it (the "modify demoted to create" case at
+ *     apply-time: nothing was overwritten, so nothing is lost).
+ *
+ * Backward compatible: a begin entry without `requiredBackups` returns no
+ * unrestored paths (legacy behavior — best-effort restore, no fail-loud).
+ */
+async function unrestoredRequiredBackups(
+  ws: AgentpackPaths,
+  begin: HistoryEntryV1,
+  restored: Set<string>,
+): Promise<string[]> {
+  const required = begin.requiredBackups ?? [];
+  if (required.length === 0) return [];
+  const backupRoot = begin.backupDir
+    ? fromRelative(ws.projectRoot, begin.backupDir)
+    : undefined;
+  // Whether the recorded backup root is itself present. If it is missing or
+  // unreadable we cannot tell a "demoted create (no backup written)" apart
+  // from "backup existed but was destroyed" by probing individual files — so
+  // any required path whose dest is now empty must be treated as lost.
+  let backupRootPresent = false;
+  if (backupRoot !== undefined) {
+    try {
+      const st = await fs.stat(backupRoot);
+      backupRootPresent = st.isDirectory();
+    } catch {
+      backupRootPresent = false;
+    }
+  }
+  const unrestored: string[] = [];
+  for (const rel of required) {
+    if (restored.has(rel)) continue;
+    let dest: string;
+    try {
+      dest = fromRelative(ws.projectRoot, rel);
+      await realpathContained(ws.projectRoot, dest);
+    } catch {
+      // Path malformed/escaping — we never touched it, so nothing was lost.
+      continue;
+    }
+    // Destination holds content (user-recreated or left in place) → safe.
+    try {
+      await fs.stat(dest);
+      continue;
+    } catch {
+      // Destination missing — check whether a backup ever existed for it.
+    }
+    if (backupRoot === undefined || !backupRootPresent) {
+      // The backup root is gone (or was never recorded) and the dest is empty:
+      // an overwritten user file is unrecoverable. Fail loud.
+      unrestored.push(rel);
+      continue;
+    }
+    const backupFile = path.join(backupRoot, ...rel.split("/"));
+    try {
+      const st = await fs.lstat(backupFile);
+      if (st.isFile()) {
+        // A backup existed but the dest is empty — the original is lost.
+        unrestored.push(rel);
+      }
+      // Symlink/dir at the backup path: not a real backup; treat as no loss.
+    } catch {
+      // Backup root present but no backup file for this path → nothing was
+      // overwritten (modify demoted to create at apply-time). Safe.
+    }
+  }
+  return unrestored;
 }
 
 function findDanglingBegins(entries: readonly HistoryEntryV1[]): HistoryEntryV1[] {
