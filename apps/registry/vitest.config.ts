@@ -19,10 +19,16 @@ export default defineConfig({
       // locked without being brittle. Raise as more routes get covered; the
       // live-DB internals (publish/finalize tx body, manifest.yaml/atoms file
       // serving) are exercised by scripts/smoke-e2e.sh, not vitest.
+      //
+      // NOTE: functions and branches were recalibrated for vitest 4 (was 72/75).
+      // vitest 4's AST-aware remapping counts arrow functions, method shorthand,
+      // and optional-chain branches more precisely than v2's v8-to-istanbul
+      // approach, inflating the denominator (57/93 funcs, 219/424 branches).
+      // Floors are 5pp below v4 actuals; raise once more routes are tested.
       thresholds: {
         lines: 50,
-        functions: 72,
-        branches: 75,
+        functions: 56,
+        branches: 46,
         statements: 50,
       },
     },
