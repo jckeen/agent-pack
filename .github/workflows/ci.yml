@@ -21,7 +21,7 @@ jobs:
       - name: Doc truth (.doc-contract)
         run: ./scripts/check-doc-truth.sh
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.15.4
 
