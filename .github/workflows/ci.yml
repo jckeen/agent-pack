@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Doc truth (.doc-contract)
         run: ./scripts/check-doc-truth.sh
