@@ -23,11 +23,11 @@ A "trusted signature" means **all four** of these check out:
 
 The CLI distinguishes three failure modes (advisor-recommended; conflating these is the #1 UX bug in signing rollouts):
 
-| State | What happened | Exit code |
-|-------|---------------|-----------|
-| `unsigned` | The lockfile (or registry) has no signature for this version | 5 |
-| `signature invalid` | A signature exists but verification failed (bad sig, bad cert, bad Rekor proof) | 4 |
-| `identity_mismatch` | Signature is cryptographically valid but the SAN/issuer doesn't match an expected identity | 4 |
+| State               | What happened                                                                              | Exit code |
+| ------------------- | ------------------------------------------------------------------------------------------ | --------- |
+| `unsigned`          | The lockfile (or registry) has no signature for this version                               | 5         |
+| `signature invalid` | A signature exists but verification failed (bad sig, bad cert, bad Rekor proof)            | 4         |
+| `identity_mismatch` | Signature is cryptographically valid but the SAN/issuer doesn't match an expected identity | 4         |
 
 Plus the Phase 2 baseline: `0` clean, `2` drift, `3` history chain broken.
 
@@ -58,7 +58,7 @@ GitHub Actions provides ambient OIDC tokens for free. Replace the `gh auth token
 
 ```yaml
 permissions:
-  id-token: write   # required for OIDC
+  id-token: write # required for OIDC
   contents: read
 jobs:
   publish:
@@ -97,7 +97,7 @@ The CLI's `--require-sig` flag is the enforcement primitive — without it, sign
 
 Once a pack is installed with a valid signature, `agentpack verify --sig` is **mostly offline**: it decodes the lockfile-embedded bundle, checks the cert chain against Sigstore's bundled trusted root (no network), checks the signature math (no network), and — by default — also reaches out to Rekor to confirm the inclusion proof.
 
-Pass `--offline` to `signing.verifyManifestSignature` (programmatic) to skip the Rekor check entirely. This is appropriate when the lockfile is being verified in an air-gapped environment that has already seen the Rekor proof bundled in. CLI flag exposure for `--offline` is coming in v0.4.1.
+Pass `--offline` to `signing.verifyManifestSignature` (programmatic) to skip the Rekor check entirely. This is appropriate when the lockfile is being verified in an air-gapped environment that has already seen the Rekor proof bundled in. CLI flag exposure for `--offline` is planned (not yet shipped).
 
 ## Signature format stability
 
@@ -136,7 +136,7 @@ Compromise runbook (v0.4.0):
 - Re-sign clean versions from a fresh OIDC session.
 - Publish a new minor with a documented incident note.
 
-A formal incident-response playbook is on the roadmap for v0.4.x.
+A formal incident-response playbook is planned (not yet written).
 
 ## Why keyless and not publisher-managed keys?
 

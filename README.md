@@ -307,6 +307,8 @@ Full details: [`docs/security.md`](./docs/security.md) and [`docs/signatures.md`
 | 6     | v0.6.0          | 🔒 **gated** — see [`Plans/PHASE-6-GATE.md`](./Plans/PHASE-6-GATE.md)                                                           |
 | 7     | v0.7.0 → v1.0.0 | 📋 planned — AgentPack integration, trust graph, Agent Commons bridge                                                           |
 
+> The current dev line is **`0.7.0-dev`**, which carries the cross-surface build-out (`pack mcpb`, `pack chat`, `import --from codex|chatgpt-gpt`) on top of Phases 1–5. The Phase 7 _roadmap_ items above (AgentPack integration, trust graph, Agent Commons bridge) remain planned.
+
 Decisions, rationale, and revisit triggers are pinned in [`Plans/ROADMAP.md`](./Plans/ROADMAP.md). The wire contract that Phase 3+ honors is pinned in [`Plans/PROTOCOL.md`](./Plans/PROTOCOL.md).
 
 ---

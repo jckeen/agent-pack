@@ -7,4 +7,4 @@
 // (b) the stamp must be deterministic across invocations of the same install,
 //     and (a) plus a runtime read can subtly differ.
 
-export const CLI_VERSION = "0.2.0";
+export const CLI_VERSION = "0.7.0-dev";

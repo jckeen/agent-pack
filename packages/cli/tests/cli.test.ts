@@ -51,10 +51,15 @@ afterAll(async () => {
 });
 
 describe("agentpack CLI — invocation", () => {
-  it("--version returns 0.2.0 and exits 0", async () => {
+  it("--version matches package.json and exits 0", async () => {
+    // Guard against version drift: the hardcoded CLI_VERSION (stamped into
+    // lockfiles) must stay in lockstep with the package manifest.
+    const pkg = JSON.parse(
+      await fs.readFile(path.resolve(__dirname, "../package.json"), "utf8"),
+    ) as { version: string };
     const r = await run(["--version"]);
     expect(r.code).toBe(0);
-    expect(r.stdout.trim()).toBe("0.2.0");
+    expect(r.stdout.trim()).toBe(pkg.version);
   });
 
   it("--help lists every command", async () => {

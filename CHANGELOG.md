@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0-dev — 2026-06-16 (pre-public verification pass: version-drift fix + doc-truth reconciliation)
+
+An independent verification sweep ahead of the public visibility flip (issue #63), re-checking every "done" claim against the code and a live build rather than trusting the checklist. `pnpm verify` exit 0 — **797** tests, green after the vitest 2→4 and Sigstore 5.0 dependency bumps. The B1 executable-atom gate was re-confirmed by code review, its 7 tests, and a live E2E run (an unsigned hook pack is refused with `-y`, demands `--allow-exec`, and `--allow-exec` is independent of `--allow-critical`). Secret + brand scrubs came back clean (`.vercel/` untracked; emitters ship placeholder names only).
+
+- **CLI version drift fixed.** `agentpack --version` reported a hardcoded `0.2.0` (stamped into generated lockfiles) while every `package.json` was already `0.7.0-dev`. Bumped `CLI_VERSION` to `0.7.0-dev` and rewrote the `--version` test to assert it equals `packages/cli/package.json`'s version, so the constant can no longer silently drift from the manifest.
+- **CHANGELOG no longer claims a flip that never happened.** The `0.4.0-dev` entry asserted "AgentPack went public today / Repo flipped to PUBLIC"; the repo is still private pending the operator's one-way flip. Reworded to OSS-readiness prep with a pointer to STATUS.md.
+- **ISA front-matter unfrozen.** Header was stuck at Iteration-5 / 2026-05-19 while the body runs through Iteration-10 (ISC-335); updated to match.
+- **Doc version-coherence polish.** README roadmap table footnoted to explain the `0.7.0-dev` line vs the Phase 7 roadmap items; `Plans/ROADMAP.md` header notes Phases 1–5 are shipped (STATUS.md is the source of truth); `docs/signatures.md` stale "coming in v0.4.1 / v0.4.x" version pegs reworded to "planned"; `bug_report.yml` surface dropdown `workgraph` → `agentpack`.
+
 ## 0.7.0-dev — 2026-06-16 (iteration-10: review/QA sweep, hardening backlog, cross-surface build-out)
 
 A `/max` session: a parallel review fleet (security + backend-architecture + an independent Codex second-opinion + end-to-end QA), the full pre-public hardening backlog it surfaced, and four new cross-surface compile/import targets — every change landed via its own PR with required CI gating the merge. The security review and Codex independently cleared the load-bearing invariants (Sigstore SAN-binding; install-recovery happy path); E2E QA drove every CLI atom against real packs with no functional bugs.
@@ -349,9 +358,9 @@ AgentPack's primary install path is now **git**. `agentpack install github:owner
 
 ---
 
-## 0.4.0-dev — 2026-05-19 (OSS launch — admin quarantine UI + community files + repo public)
+## 0.4.0-dev — 2026-05-19 (OSS-readiness prep — admin quarantine UI + community files)
 
-**AgentPack went public today.** Repo flipped to PUBLIC at github.com/jckeen/agent-pack. Standard, registry, CLI, and adapters are all MIT-licensed; the hosted registry (when it lands at a stable URL) is a convenience, not a requirement.
+**AgentPack reached open-source readiness today.** Standard, registry, CLI, and adapters are all MIT-licensed; the hosted registry (when it lands at a stable URL) is a convenience, not a requirement. (The public repo flip is a separate one-way operator action and is still pending as of the current release — see STATUS.md.)
 
 **Phase 4 final UI surface — admin quarantine**
 

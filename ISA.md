@@ -1,13 +1,13 @@
 ---
 project: agent-pack
-task: Iteration-5 launch-readiness verification — live install probe, dep CVE patch, doc rewrite, security tighten
+task: Iteration-10 cross-surface build-out — .mcpb / codex import / pack chat / chatgpt-gpt import + pre-public hardening backlog
 effort: E5
 phase: execute
-progress: 267/267
+progress: 349/349
 mode: ALGORITHM
 started: 2026-05-18T15:17:00-04:00
-updated: 2026-05-19T14:05:00-04:00
-iteration: 5
+updated: 2026-06-16T00:00:00-04:00
+iteration: 10
 ---
 
 ## Problem
@@ -514,7 +514,6 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
   14. `HistoryEntryV1.actor: {type: "cli"|"ci"|"agent", id?}` added.
   15. `HistoryEntryV1.result: "success"|"partial"|"failed"` + `error?` for failed-install audit.
   16. `HistoryEntryV1.previousEntryId` + `entryChecksum` form a hash chain (tamper detection, Phase 3-ready, costs ~30 LOC).
-
   - Phase-2 surface absorbs every change without growing the ISC count (refining shapes, not behaviors).
 
 - **2026-05-18 (PLAN iteration-3) — Advisor findings adopted (commitment boundary, Rule 2):**
