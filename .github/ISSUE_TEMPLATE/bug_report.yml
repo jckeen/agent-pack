@@ -33,7 +33,7 @@ body:
       label: Surface
       description: Which part of AgentPack is affected?
       options:
-        - CLI (`workgraph`)
+        - CLI (`agentpack`)
         - Registry web app (`apps/registry`)
         - Standard / manifest schema
         - Adapter (claude-code / codex / cursor / chatgpt / generic)

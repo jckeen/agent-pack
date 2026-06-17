@@ -1,6 +1,6 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-16 (iteration-10 complete — review/QA sweep, full hardening backlog #34–#38/#50 merged, four cross-surface targets #38–#41 shipped, Issue #25 closed. Run `pnpm test` for the current count. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`. Prior: pre-public issue sweep, CHANGELOG 0.6.13)
+Last updated: 2026-06-16 (pre-public verification pass for issue #63 — re-verified B1 exec-atom gate (code + tests + live E2E), secret/brand scrubs clean, `pnpm verify` exit 0 / 797 tests after the vitest 2→4 + Sigstore 5.0 bumps; fixed CLI `--version` drift (0.2.0 → 0.7.0-dev, now guarded against package.json) and reconciled doc-truth drift. Prior: iteration-10 complete — review/QA sweep, hardening backlog #34–#38/#50, four cross-surface targets #38–#41, Issue #25 closed. Run `pnpm test` for the current count. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`)
 
 ## Where we are
 

@@ -1,6 +1,6 @@
 # AgentPack Roadmap — Phases 3-7
 
-**Status:** Phase 1 (v0.1.x) and Phase 2 (v0.2.0) shipped. This document covers what to build, in what order, and which decisions are already pinned, for Phases 3-7 — the path to a full hosted-registry + signed + remote-installable + enterprise-ready + Workgraph-integrated AgentPack ecosystem.
+**Status:** As of `0.7.0-dev`, Phases 1–5 are shipped in code (see [`STATUS.md`](../STATUS.md) for the authoritative shipped state); Phase 6 is 🔒 gated and Phase 7 is planned. This document is the original phase-by-phase plan and decision log for Phases 3–7 — the path to a full hosted-registry + signed + remote-installable + enterprise-ready AgentPack ecosystem. Some Phase 3–5 sections below describe work that has since landed; treat STATUS.md as the source of truth for what is actually shipped.
 
 This is an opinionated roadmap. Every open question gets a concrete answer with rationale and an explicit "revisit if X" trigger. Where it says **Decision:**, that is the pinned choice; argue with it now, not during Phase 5 implementation.
 
