@@ -1,0 +1,53 @@
+agentpack: "1.0"
+
+metadata:
+  id: "agentpack.safe-command-fixture"
+  name: "Safe Command Fixture"
+  slug: "safe-command-fixture"
+  description: "Test fixture: a command atom with a benign prompt body (no executable directive) — the command-surface exec gate must NOT fire (#78)."
+  version: "0.1.0"
+  license: "MIT"
+  publisher: "agentpack"
+  authors:
+    - name: "AgentPack"
+      email: "hello@agentpack.dev"
+  tags:
+    - test
+
+compatibility:
+  targets:
+    claude-code:
+      status: supported
+      notes: "Generates .claude/commands/<slug>.md."
+
+permissions:
+  filesystem:
+    read:
+      - "."
+    write:
+      - "."
+  package_installation: false
+  model_provider_key_access: false
+
+security:
+  risk_level: low
+  risk_summary: "Low — a plain prompt command with no executable surface."
+  requires_review: false
+  signed: false
+
+profiles:
+  full:
+    description: "Includes the command."
+    include:
+      - "*"
+
+atoms:
+  - id: "command:summary"
+    type: command
+    name: "Summary"
+    description: "A plain prompt command — generates a summary, no shell."
+    path: "atoms/commands/summary.yaml"
+    risk_level: low
+    invocation:
+      slash: "/summary"
+      cli: "summary"

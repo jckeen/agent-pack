@@ -1,0 +1,8 @@
+id: deploy
+name: Deploy
+invocation:
+  slash: "/deploy"
+  cli: "deploy"
+prompt: atoms/commands/prompts/deploy.md
+output:
+  format: markdown

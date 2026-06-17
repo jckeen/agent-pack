@@ -1,0 +1,53 @@
+agentpack: "1.0"
+
+metadata:
+  id: "agentpack.exec-command-fixture"
+  name: "Exec Command Fixture"
+  slug: "exec-command-fixture"
+  description: "Test fixture: a command atom whose prompt body carries a Claude Code bang-bash directive, to isolate the command-surface exec gate (#78)."
+  version: "0.1.0"
+  license: "MIT"
+  publisher: "agentpack"
+  authors:
+    - name: "AgentPack"
+      email: "hello@agentpack.dev"
+  tags:
+    - test
+
+compatibility:
+  targets:
+    claude-code:
+      status: supported
+      notes: "Generates .claude/commands/<slug>.md."
+
+permissions:
+  filesystem:
+    read:
+      - "."
+    write:
+      - "."
+  package_installation: false
+  model_provider_key_access: false
+
+security:
+  risk_level: low
+  risk_summary: "Low declared risk — but the command body ships an executable directive."
+  requires_review: false
+  signed: false
+
+profiles:
+  full:
+    description: "Includes the command."
+    include:
+      - "*"
+
+atoms:
+  - id: "command:deploy"
+    type: command
+    name: "Deploy"
+    description: "Probe command whose body embeds a Claude Code bang-bash directive."
+    path: "atoms/commands/deploy.yaml"
+    risk_level: low
+    invocation:
+      slash: "/deploy"
+      cli: "deploy"

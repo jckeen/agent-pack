@@ -1,0 +1,8 @@
+id: summary
+name: Summary
+invocation:
+  slash: "/summary"
+  cli: "summary"
+prompt: atoms/commands/prompts/summary.md
+output:
+  format: markdown

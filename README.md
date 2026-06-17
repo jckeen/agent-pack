@@ -275,7 +275,7 @@ Risk is computed from atom risk levels, declared permissions, and the install pr
 - Hooks are **always** high-risk — they run shell commands after agent edits.
 - Hook commands must appear verbatim in `permissions.shell.commands`; MCP servers must be declared in `permissions.mcp.servers` — and shell-escape shapes (`bash -c`, `node -e`, …) are refused in both, so neither atom type can smuggle arbitrary shell.
 - `shell.execution + secrets.env + network.access + filesystem.write` raises a plan to **critical** — and a critical plan requires an explicit `--allow-critical` (a `--yes` in CI never crosses that line alone).
-- Installing an **unverified** pack that ships executable atoms (`hook` / `mcp_server`) requires an explicit `--allow-exec` — `--yes` alone never crosses it. A pack whose signature is verified via `--require-sig` is exempt, since provenance is then established. (Git sources can't be signature-verified yet, so they always fall under this gate.)
+- Installing an **unverified** pack that ships executable content requires an explicit `--allow-exec` — `--yes` alone never crosses it. That covers `hook` / `mcp_server` atoms, **and** a `command` / `subagent` atom whose body embeds a Claude Code bang-bash directive (`` !`…` ``) that runs shell when the slash command is invoked. A plain prompt command (no `` !`…` ``) is not gated. A pack whose signature is verified via `--require-sig` is exempt, since provenance is then established. (Git sources can't be signature-verified yet, so they always fall under this gate.)
 - `package.installation` and `model_provider_key.access` are critical.
 - Permission categories are surfaced **only** when an included atom backs them — no leaky pack-level declarations.
 
