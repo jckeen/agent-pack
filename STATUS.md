@@ -1,6 +1,6 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-16 (pre-public verification pass for issue #63 — re-verified B1 exec-atom gate (code + tests + live E2E), secret/brand scrubs clean, `pnpm verify` exit 0 / 797 tests after the vitest 2→4 + Sigstore 5.0 bumps; fixed CLI `--version` drift (0.2.0 → 0.7.0-dev, now guarded against package.json) and reconciled doc-truth drift. Prior: iteration-10 complete — review/QA sweep, hardening backlog #34–#38/#50, four cross-surface targets #38–#41, Issue #25 closed. Run `pnpm test` for the current count. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`)
+Last updated: 2026-06-17 (repo flipped **PUBLIC** — anonymous git-source quickstart verified end-to-end; exec-gate scope #78 + clean-build trap #80 fixed and merged. Prior: pre-public verification pass for issue #63 — re-verified B1 exec-atom gate (code + tests + live E2E), secret/brand scrubs clean, `pnpm verify` exit 0 / 797 tests after the vitest 2→4 + Sigstore 5.0 bumps; fixed CLI `--version` drift (0.2.0 → 0.7.0-dev, now guarded against package.json) and reconciled doc-truth drift. Prior: iteration-10 complete — review/QA sweep, hardening backlog #34–#38/#50, four cross-surface targets #38–#41, Issue #25 closed. Run `pnpm test` for the current count. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`)
 
 ## Where we are
 
@@ -101,7 +101,7 @@ see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
 - `.github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml` — structured forms.
 - `.github/PULL_REQUEST_TEMPLATE.md` — checklist with `pnpm verify` gate.
 - README badge row: MIT · Node ≥22 · pnpm 9.15 · CI status.
-- Repo visibility: ⚠️ **still PRIVATE as of 2026-05-19 14:00 ET.** Earlier doc copy assumed the flip had landed; it has not. The visibility change is a one-way action — flip via `gh repo edit jckeen/agent-pack --visibility public` (operator-only) when ready to announce. Until then, the `agentpack install github:jckeen/agent-pack@…` quickstart will 404 against `raw.githubusercontent.com` for anonymous fetches.
+- Repo visibility: ✅ **PUBLIC as of 2026-06-17.** The one-way flip landed (`gh repo edit jckeen/agent-pack --visibility public`). The anonymous git-source quickstart was verified end-to-end with no GitHub token in the environment — `agentpack install github:jckeen/agent-pack@master#examples/pr-quality` resolved `master` to a pinned SHA, fetched the subpath, and installed 5 files (exit 0).
 
 ## Test status
 
@@ -129,7 +129,7 @@ For DB-backed mode (browseable AT a public URL with real publish/install round-t
 ## What's next
 
 - **v0.3.0 promotion** — held until live smoke (`scripts/smoke-e2e.sh`) round-trips publish→install against the hosted registry. Blocked on operator-provided DATABASE_URL + R2 credentials + GitHub OAuth app + DNS.
-- **Repo visibility flip** — operator one-time action; see "Open-source readiness" above.
+- ~~**Repo visibility flip**~~ — ✅ done 2026-06-17; repo is public, anonymous quickstart verified (see "Open-source readiness" above).
 - **Vercel preview deploy** — Vercel project linked; `rootDirectory` must be set to `apps/registry` in the project's Settings page in the Vercel dashboard before `vercel --prod=false` from the repo root will succeed (the CLI does not expose this setting). One-click fix; documented for the operator.
 - **Phase 4 final touches** — client-side signer-identity enforcement shipped in Iteration-9 (`--expected-signer` ∪ policy `install.allowedSigners` / `requireIdentity`); admin CSRF/Origin check confirmed + tested (#16). Remaining and **gated on the live registry**: a live Sigstore round-trip from CI, and the registry serving a bound per-publisher SAN so installs auto-pin without a local allowlist.
 - **Phase 6** (enterprise) — 🔒 **Gated.** Triggers on first paying-customer conversation about enterprise self-host. Schema slots preserved (`org_id` nullable, `audit_events` table exists, audit hash-chain writer landed). See `Plans/PHASE-6-GATE.md`.
