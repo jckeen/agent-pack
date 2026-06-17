@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0-dev — 2026-06-17 (pre-public hardening: exec-gate scope + clean-build fix)
+
+Two findings from the final pre-public verification sweep (issues #78, #80), fixed before the visibility flip. `pnpm verify` exit 0 — **800** tests.
+
+- **Exec-atom gate widened to a second exec surface (#78).** The B1 `--allow-exec` gate previously covered only `hook` / `mcp_server` atoms. A `command` or `subagent` atom compiles to `.claude/commands|agents/<slug>.md` with the author's prompt body written **verbatim** — so a Claude Code bang-bash directive (`` !`…` ``) in that body runs shell the moment the slash command / subagent is invoked, which the gate didn't cover. The gate now also refuses an unsigned, unverified install whose planned `.claude/commands|agents/*.md` output contains a bang-bash directive (surfaced as `execFiles` in `--json`); `--allow-exec` (independent of `--allow-critical`, never crossed by `--yes` alone) is required, and a `--require-sig`-verified install is exempt. A plain prompt command (no `` !`…` ``) is **not** gated, so the common case stays frictionless. Three new CLI tests cover refuse / `--allow-exec` proceeds / benign-command-not-gated.
+- **Clean-build trap fixed (#80).** `composite: true` placed each package's `*.tsbuildinfo` at the package root, so wiping `dist/` alone left a stale incremental cache and `tsc` silently no-op'd the emit — surfacing later as a confusing `Cannot find module '@agentpack/core'` typecheck failure. Relocated `tsBuildInfoFile` into `dist/` for core/db/cli/connector so a `dist/` wipe also clears the cache, and added a `pnpm clean` script that removes every `dist/` + `*.tsbuildinfo` + `.next`.
+
 ## 0.7.0-dev — 2026-06-16 (pre-public verification pass: version-drift fix + doc-truth reconciliation)
 
 An independent verification sweep ahead of the public visibility flip (issue #63), re-checking every "done" claim against the code and a live build rather than trusting the checklist. `pnpm verify` exit 0 — **797** tests, green after the vitest 2→4 and Sigstore 5.0 dependency bumps. The B1 executable-atom gate was re-confirmed by code review, its 7 tests, and a live E2E run (an unsigned hook pack is refused with `-y`, demands `--allow-exec`, and `--allow-exec` is independent of `--allow-critical`). Secret + brand scrubs came back clean (`.vercel/` untracked; emitters ship placeholder names only).

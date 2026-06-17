@@ -447,7 +447,31 @@ export function registerInstall(program: Command): void {
           const execAtoms = plan.atomTypes.filter(
             (a) => a.type === "hook" || a.type === "mcp_server",
           );
-          if (execAtoms.length > 0 && !signatureVerified && !options.allowExec) {
+          // Second exec surface (#78): `command` and `subagent` atoms don't fire
+          // on lifecycle events like hooks, but they compile to
+          // `.claude/commands|agents/<slug>.md` with the author's prompt body
+          // written VERBATIM. A Claude Code bang-bash directive (`!`…`) in that
+          // body runs shell the moment the user invokes the slash command /
+          // subagent — author-controlled code reaching an exec surface, so it
+          // crosses the same consent gate. Detect by scanning the exact bytes
+          // the plan will write (immune to atom→file mapping drift); only the
+          // claude-code adapter emits these paths, so this is target-precise. A
+          // benign prompt command (no `!`…`) is NOT gated, so the common case
+          // (e.g. the README quickstart's /pr-summary) stays frictionless.
+          const BANG_BASH = /!`/;
+          const plannedOutputs = [...plan.created, ...plan.modified, ...plan.unchanged];
+          const execFiles = plannedOutputs
+            .filter(
+              (f) =>
+                /(^|\/)\.claude\/(commands|agents)\/[^/]+\.md$/.test(f.path) &&
+                BANG_BASH.test(f.content),
+            )
+            .map((f) => f.path);
+          if (
+            (execAtoms.length > 0 || execFiles.length > 0) &&
+            !signatureVerified &&
+            !options.allowExec
+          ) {
             // Atom ids are already `<type>:<slug>` (schema-enforced), so the id
             // alone is the canonical label naming both the atom and its type.
             const labels = execAtoms.map((a) => a.id);
@@ -457,14 +481,15 @@ export function registerInstall(program: Command): void {
                   ...planJson(),
                   installed: false,
                   error: "exec_atoms_refused",
-                  execAtoms: labels,
+                  ...(labels.length ? { execAtoms: labels } : {}),
+                  ...(execFiles.length ? { execFiles } : {}),
                   hint: "re-run with --allow-exec (intentionally separate from --yes), or install a signed pack with --require-sig",
                 }),
               );
             } else {
               console.error(
                 pc.red(
-                  `\n✗ This pack ships executable atom(s) and the install is NOT signature-verified:`,
+                  `\n✗ This pack ships executable content and the install is NOT signature-verified:`,
                 ),
               );
               for (const a of execAtoms) {
@@ -473,6 +498,13 @@ export function registerInstall(program: Command): void {
                     ? "shell command run on agent lifecycle events"
                     : "launch config run on your next agent session";
                 console.error(pc.red(`  • ${a.id} (${a.type}) — ${what}`));
+              }
+              for (const f of execFiles) {
+                console.error(
+                  pc.red(
+                    `  • ${f} — slash-command/agent body runs shell on invocation (\`!\`…\`\`)`,
+                  ),
+                );
               }
               console.error(
                 pc.red(

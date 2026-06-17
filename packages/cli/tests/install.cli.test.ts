@@ -13,6 +13,12 @@ const FIXTURES = path.resolve(__dirname, "fixtures");
 const EXEC_HOOK = path.join(FIXTURES, "exec-hook");
 const EXEC_MCP = path.join(FIXTURES, "exec-mcp");
 const NO_EXEC = path.join(FIXTURES, "no-exec");
+// command atoms compile to .claude/commands/<slug>.md with the author body
+// written verbatim; a Claude Code bang-bash directive (`!`…`) in that body
+// auto-runs on /invocation, so it crosses the same exec gate (#78). The safe
+// variant has a plain prompt body and must NOT be gated.
+const EXEC_COMMAND = path.join(FIXTURES, "exec-command");
+const SAFE_COMMAND = path.join(FIXTURES, "safe-command");
 
 const TMP_ROOT = path.join(os.tmpdir(), `agentpack-install-cli-${Date.now()}`);
 
@@ -499,6 +505,71 @@ describe("agentpack install (CLI)", () => {
         NO_EXEC,
         "--target",
         "generic",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+      ]);
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("Installed");
+    });
+
+    it("refuses an unsigned command atom whose body carries a bang-bash directive; -y alone does not bypass (#78)", async () => {
+      const dir = await freshProject("exec-command-refuse");
+      const r = await run([
+        "install",
+        EXEC_COMMAND,
+        "--target",
+        "claude-code",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+        "--json",
+      ]);
+      expect(r.code).toBe(6); // ExitCode.PolicyViolation
+      const parsed = JSON.parse(r.stdout.trim());
+      expect(parsed.installed).toBe(false);
+      expect(parsed.error).toBe("exec_atoms_refused");
+      expect(parsed.execFiles).toEqual(
+        expect.arrayContaining([".claude/commands/deploy.md"]),
+      );
+      // Nothing written — refused before applyInstall.
+      const lock = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
+      expect(lock).toBeNull();
+    });
+
+    it("proceeds when --allow-exec is passed for a bang-bash command pack (#78)", async () => {
+      const dir = await freshProject("exec-command-allow");
+      const r = await run([
+        "install",
+        EXEC_COMMAND,
+        "--target",
+        "claude-code",
+        "--profile",
+        "full",
+        "--project",
+        dir,
+        "--yes",
+        "--allow-exec",
+      ]);
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("Installed");
+      const cmd = await fs
+        .stat(path.join(dir, ".claude/commands/deploy.md"))
+        .catch(() => null);
+      expect(cmd).not.toBeNull();
+    });
+
+    it("does NOT gate a plain prompt command with no executable directive (#78 precision)", async () => {
+      const dir = await freshProject("safe-command-ok");
+      const r = await run([
+        "install",
+        SAFE_COMMAND,
+        "--target",
+        "claude-code",
         "--profile",
         "full",
         "--project",

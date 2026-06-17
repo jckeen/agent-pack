@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "pnpm --filter @agentpack/core build && pnpm --filter @agentpack/db build && pnpm --filter @agentpack/connector build && pnpm --filter @agentpack/cli build && pnpm --filter @agentpack/registry build",
+    "clean": "find . \\( -name dist -type d -o -name '*.tsbuildinfo' \\) -not -path '*/node_modules/*' -prune -exec rm -rf {} + && rm -rf apps/registry/.next",
     "dev": "pnpm --filter @agentpack/registry dev",
     "test": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" test",
     "test:coverage": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" test:coverage",
