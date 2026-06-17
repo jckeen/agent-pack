@@ -85,7 +85,7 @@ Tests: `pnpm verify` exit 0 — **488** total (322 core + 40 cli + 19 db + 35 co
 
 Docs/CI-only. Every tracked markdown surface is now declared in a root `.doc-contract` (LIVING / SOURCE / HISTORICAL) and asserted in CI by a vendored `scripts/check-doc-truth.sh` (ADR 0005 in dotfiles), running as the first CI step.
 
-- **HISTORICAL**: `spec/*.md` (the original build packet — ISA.md is the canonical spec) and `Plans/algorithm-v6.4.0-changes.md` got point-in-time banners.
+- **HISTORICAL**: `spec/*.md` (the original build packet — ISA.md is the canonical spec) got point-in-time banners.
 - **Shadow tracker migrated**: the 8 open `[DEFERRED-VERIFY]` checkboxes in ISA.md (ISC-289..296) became GitHub issues [#14](https://github.com/jckeen/agent-pack/issues/14)–[#21](https://github.com/jckeen/agent-pack/issues/21); ISA lines now link them. A `BANNED` guard keeps open checkboxes out of living docs.
 - **Old-name drift fixed**: `Plans/ROADMAP.md` still used the pre-v0.5.1 CLI name in its Phase-6 `audit` examples; a `BANNED` regex on old-name CLI invocations prevents recurrence ("Workgraph" the separate product remains legal).
 - **Checker improved** (DOC_TRUTH_VERSION=2, synced to the canonical dotfiles copy): the dead-link rule now strips fenced code blocks and inline code spans first — slug regexes like `[a-z0-9](?:…)` no longer parse as markdown links.
@@ -389,7 +389,7 @@ AgentPack's primary install path is now **git**. `agentpack install github:owner
 
 **Vercel project setup (partial)**
 
-- `agent-pack-registry` project created under `keen-media` team, linked at repo root. `.vercel/` gitignored.
+- `agent-pack-registry` project created under the operator's Vercel team, linked at repo root. `.vercel/` gitignored.
 - Initial deploy fails because Vercel's `rootDirectory` setting needs to be `apps/registry` (CLI doesn't expose that field). Documented in STATUS.md; one-click dashboard fix unblocks future `vercel --prod=false` runs.
 
 **Test status**
@@ -427,7 +427,7 @@ Medium-severity items (in-memory device-code store, low userCode entropy, CSRF o
 
 - `apps/registry/vercel.json` — framework + region (`iad1`) + monorepo-aware install + build commands + security headers.
 - `apps/registry/.env.example` — comprehensive template for `DATABASE_URL`, `AUTH_SECRET`, `AUTH_GITHUB_ID/SECRET`, `R2_*`, `NEXT_PUBLIC_REGISTRY_URL`, optional `SIGSTORE_ID_TOKEN`.
-- `scripts/bring-up-prod.sh` — guided runbook: create Vercel project under the `keen-media` team, create Neon project + DB, create Cloudflare R2 bucket + token, register a GitHub OAuth app, set every secret in Vercel, run `db:push` against live Neon, seed publishers, deploy.
+- `scripts/bring-up-prod.sh` — guided runbook: create Vercel project under the operator's Vercel team, create Neon project + DB, create Cloudflare R2 bucket + token, register a GitHub OAuth app, set every secret in Vercel, run `db:push` against live Neon, seed publishers, deploy.
 - `scripts/smoke-e2e.sh` — end-to-end publish → install → verify smoke. Exercises live `/api/v1/health`, publishes a smoke version, installs into a tempdir, asserts lockfile manifestChecksum matches the registry, runs `agentpack verify` on the install. Records results to `smoke-results.json` with exit-code taxonomy (0 green, 2 registry down, 3 publish failed, 4 install failed, 5 checksum mismatch, 6 drift).
 - `apps/registry/app/api/v1/health/route.ts` — probes Postgres + R2 reachability, returns `{ status, db, r2, version, duration_ms, timestamp }`; 200 ok / 503 degraded.
 
@@ -436,12 +436,6 @@ Medium-severity items (in-memory device-code store, low userCode entropy, CSRF o
 - `Plans/PHASE-6-GATE.md` — pins the trigger condition ("first paying-customer conversation about enterprise self-host"), names the 4 concrete qualifiers, lists the 8 design decisions to revisit when triggered, confirms schema slots already reserved (`org_id` nullable, `audit_events` table) stay valid through Phase 4 so the unlock is a migration not a re-architecture. Includes the gate-flip procedure for when the trigger fires.
 - ROADMAP § Phase 6 prefixed with 🔒 GATED marker pointing to the gate doc.
 - STATUS.md updated to reflect open-source positioning + Phase 6 gated state.
-
-**Agent-stall investigation (PAI-internal, no AgentPack code impact)**
-
-- Root cause identified: codex CLI's auto-prepend of `AGENTS.md`/`AGENTS.local.md` (~30 KB / ~8K tokens) accumulates across tool-call rounds, crossing the 1M-token context window on medium-sized codebases and triggering silent termination of GPT-5.4 reasoning=high.
-- Investigation memo + feedback memory + doctrine-change proposal landed in `Plans/algorithm-v6.4.0-changes.md`.
-- Net effect for AgentPack: every Phase 4 file in this release was written inline by the primary rather than delegated to Forge, per the new canary mandate.
 
 **Test status**
 

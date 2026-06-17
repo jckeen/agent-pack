@@ -19,4 +19,4 @@ The open-source positioning is load-bearing: the entire architecture (self-host 
 ### Release / deploy notes
 
 - v0.3.0 registry promotion is held until `scripts/smoke-e2e.sh` round-trips publish→install against live infra (needs `DATABASE_URL` + R2 + GitHub OAuth).
-- Vercel: project `agent-pack-registry` is linked under the `keen-media` team. First deploy needs `rootDirectory = apps/registry` set in the dashboard, then `vercel --prod=false` from repo root.
+- Vercel: project `agent-pack-registry` is linked under the operator's Vercel team. First deploy needs `rootDirectory = apps/registry` set in the dashboard, then `vercel --prod=false` from repo root.

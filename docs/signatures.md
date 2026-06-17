@@ -10,7 +10,7 @@ The signed payload is the **lowercase hex SHA-256 of the raw `AGENTPACK.yaml` by
 
 ## Trust roots
 
-By default AgentPack trusts the **public Sigstore production trusted root** (Fulcio CA + Rekor log) maintained by the OpenSSF Sigstore project. This is the same trust root npm, PyPI, and Homebrew use for keyless attestations. No custom CA. No PAI-managed key material.
+By default AgentPack trusts the **public Sigstore production trusted root** (Fulcio CA + Rekor log) maintained by the OpenSSF Sigstore project. This is the same trust root npm, PyPI, and Homebrew use for keyless attestations. No custom CA. No custom key material.
 
 A "trusted signature" means **all four** of these check out:
 

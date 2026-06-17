@@ -10,12 +10,12 @@ AgentPack is open source. Its **registry**, **CLI**, **standard**, and **adapter
 
 Concretely, any one of these qualifies:
 
-| Qualifier | What it is | Why it counts |
-|-----------|------------|---------------|
-| A signed Letter of Intent or PO from an org wanting hosted enterprise | Real money committed | Highest-grade signal |
-| A scheduled procurement call with a Fortune 1000 security/platform team | They're already past "is this a thing?" | They're going to ask the 8 questions below; we'd better have answers |
-| Three or more inbound inquiries within 14 days asking explicitly about SSO, audit log export, or org-scoped publishing | Demand has crossed the noise floor | We're past the curiosity bar |
-| One platform team commits to a paid pilot via DM/email with an internal champion identified | Champion + budget = the real unlock | More predictive than a fortune-of-leads pipeline |
+| Qualifier                                                                                                              | What it is                              | Why it counts                                                        |
+| ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------- |
+| A signed Letter of Intent or PO from an org wanting hosted enterprise                                                  | Real money committed                    | Highest-grade signal                                                 |
+| A scheduled procurement call with a Fortune 1000 security/platform team                                                | They're already past "is this a thing?" | They're going to ask the 8 questions below; we'd better have answers |
+| Three or more inbound inquiries within 14 days asking explicitly about SSO, audit log export, or org-scoped publishing | Demand has crossed the noise floor      | We're past the curiosity bar                                         |
+| One platform team commits to a paid pilot via DM/email with an internal champion identified                            | Champion + budget = the real unlock     | More predictive than a fortune-of-leads pipeline                     |
 
 Curiosity-grade pings ("does it have SSO?" with no follow-up) do **not** trigger. Real demand has shape: a person, a timeline, a budget, a concrete usage story.
 
@@ -32,27 +32,27 @@ Curiosity-grade pings ("does it have SSO?" with no follow-up) do **not** trigger
 
 The Phase 3+5 scaffold quietly preserved Phase 6's schema shape so that flipping the gate is **a migration, not a re-architecture**:
 
-| Phase 6 surface | What's already in place | What's still owed at gate-flip |
-|-----------------|-------------------------|-------------------------------|
-| Org-scoped publishers | `publishers.org_id` is nullable, no FK enforced yet | Add FK constraint + backfill personal publishers to org_id null permanently |
-| Audit events | `audit_events` table exists, hash-chain primitive (`previous_entry_id`, `entry_checksum`) borrows Phase 2's `history.jsonl` shape | Wire writes from every state-mutating route; expose `GET /api/orgs/<slug>/audit?since=…` |
-| User identity | NextAuth v5 with GitHub OAuth | Add WorkOS provider alongside GitHub; org binding via Directory Sync claim |
-| Policy fetch | CLI already reads `agentpack.policy.json` locally (Phase 5) | Add `GET /api/orgs/<slug>/policy` server route + CLI fallback chain |
+| Phase 6 surface       | What's already in place                                                                                                           | What's still owed at gate-flip                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Org-scoped publishers | `publishers.org_id` is nullable, no FK enforced yet                                                                               | Add FK constraint + backfill personal publishers to org_id null permanently              |
+| Audit events          | `audit_events` table exists, hash-chain primitive (`previous_entry_id`, `entry_checksum`) borrows Phase 2's `history.jsonl` shape | Wire writes from every state-mutating route; expose `GET /api/orgs/<slug>/audit?since=…` |
+| User identity         | NextAuth v5 with GitHub OAuth                                                                                                     | Add WorkOS provider alongside GitHub; org binding via Directory Sync claim               |
+| Policy fetch          | CLI already reads `agentpack.policy.json` locally (Phase 5)                                                                       | Add `GET /api/orgs/<slug>/policy` server route + CLI fallback chain                      |
 
 ## The 8 decisions to revisit when triggered
 
 Each is roadmapped in `Plans/ROADMAP.md` § Phase 6. The gate revisits them — does not re-pin them — because the trigger event will provide concrete constraints (customer's IdP, customer's compliance regime, customer's seat shape) that current speculation cannot.
 
-| # | Decision | Currently pinned to | Likely revision when triggered |
-|---|----------|--------------------|--------------------------------|
-| 1 | Org/workspace model | Single-tenant SaaS first; OSS self-host as Phase 6.5 | Customer may demand self-host on day one — pull Phase 6.5 forward |
-| 2 | SSO provider | WorkOS | Confirm customer's IdP works (Okta/Azure AD/Google Workspace all WorkOS-supported); pin pricing tier |
-| 3 | Audit-event chain | Per-org hash chain reusing Phase 2 primitive | Confirm export format (JSON Lines stream? S3 dump?) and retention (90 days? indefinite?) |
-| 4 | Policy-as-code DSL | Declarative JSON (extends `agentpack.policy.json` v1) | If customer's policy needs > declarative, accelerate OPA/Rego (Phase 6.5+) |
-| 5 | Billing model | Defer — open source has no billing surface today | Decide seat-based vs usage-based vs flat-tier on the call |
-| 6 | Tenant isolation | Logical only (org_id column) in Phase 6; Phase 6.5 adds dedicated-DB option | Compliance regime (FedRAMP, SOC2, HIPAA) may force dedicated infra |
-| 7 | PII handling | Minimum — name + email + org membership only | Customer may demand GDPR/CCPA workflows (delete-user endpoint, data export) |
-| 8 | RBAC matrix | `owner / admin / member` per org | May need finer roles (publisher, reviewer, billing-admin); reuse via custom `permissions JSONB` on `org_members` |
+| #   | Decision            | Currently pinned to                                                         | Likely revision when triggered                                                                                   |
+| --- | ------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1   | Org/workspace model | Single-tenant SaaS first; OSS self-host as Phase 6.5                        | Customer may demand self-host on day one — pull Phase 6.5 forward                                                |
+| 2   | SSO provider        | WorkOS                                                                      | Confirm customer's IdP works (Okta/Azure AD/Google Workspace all WorkOS-supported); pin pricing tier             |
+| 3   | Audit-event chain   | Per-org hash chain reusing Phase 2 primitive                                | Confirm export format (JSON Lines stream? S3 dump?) and retention (90 days? indefinite?)                         |
+| 4   | Policy-as-code DSL  | Declarative JSON (extends `agentpack.policy.json` v1)                       | If customer's policy needs > declarative, accelerate OPA/Rego (Phase 6.5+)                                       |
+| 5   | Billing model       | Defer — open source has no billing surface today                            | Decide seat-based vs usage-based vs flat-tier on the call                                                        |
+| 6   | Tenant isolation    | Logical only (org_id column) in Phase 6; Phase 6.5 adds dedicated-DB option | Compliance regime (FedRAMP, SOC2, HIPAA) may force dedicated infra                                               |
+| 7   | PII handling        | Minimum — name + email + org membership only                                | Customer may demand GDPR/CCPA workflows (delete-user endpoint, data export)                                      |
+| 8   | RBAC matrix         | `owner / admin / member` per org                                            | May need finer roles (publisher, reviewer, billing-admin); reuse via custom `permissions JSONB` on `org_members` |
 
 ## Why "first paying-customer conversation" is the right gate
 
@@ -63,8 +63,8 @@ Each is roadmapped in `Plans/ROADMAP.md` § Phase 6. The gate revisits them — 
 
 ## Gate-flip procedure (when triggered)
 
-1. Spawn a new ALGORITHM run at E5 with this gate doc + Roadmap § Phase 6 as OBSERVE input.
-2. Run an Interview workflow (`Skill("ISA", "interview")`) against the customer's actual requirements — fill in the 8 decisions above with their concrete constraints.
+1. Open a focused planning pass with this gate doc + Roadmap § Phase 6 as the starting input.
+2. Interview the customer's actual requirements — fill in the 8 decisions above with their concrete constraints.
 3. Scaffold a project ISA for Phase 6: add ~80-120 ISCs across orgs + WorkOS + audit + policy + UI surfaces.
 4. Implement in a single sprint with hard gate criteria from `spec/06` (per the existing Roadmap Phase 6 gate).
 5. v0.6.0 ships against that one customer's needs first; subsequent customer requests refine.
@@ -88,4 +88,4 @@ Phase 6 is **convenience + assurance** for teams who choose to pay for it. The s
 
 ---
 
-*Last updated: 2026-05-19. Next review: when trigger fires, OR every 90 days as a sanity check on whether the trigger should be adjusted.*
+_Last updated: 2026-05-19. Next review: when trigger fires, OR every 90 days as a sanity check on whether the trigger should be adjusted._
