@@ -15,7 +15,7 @@ the same pattern holds: the install model is **ungoverned, one-at-a-time, and
 non-ambient.** The compile layer is platform-absorbable; the durable value — the
 moat — is the **bundle + policy + version/governance layer** over those models
 (signed manifest, version pinning, per-atom portability/risk report, org
-distribution). See [[agentpack-positioning-governance-is-the-moat]].
+distribution).
 
 Two load-bearing facts:
 

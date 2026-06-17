@@ -199,7 +199,7 @@ agent-pack/
 ├── seed/seed-packs.json
 ├── templates/                # starter manifest, CLAUDE.md, AGENTS.md, rule templates
 ├── docs/                     # standard, security, adapters, CLI, registry, publish, install, policy, remote-install
-├── Plans/                    # ROADMAP, PROTOCOL, PHASE-6-GATE, algorithm-v6.4.0 changes
+├── Plans/                    # ROADMAP, PROTOCOL, PHASE-6-GATE
 ├── scripts/                  # bring-up-prod.sh, smoke-e2e.sh, seed-import.ts
 ├── ISA.md                    # Project Ideal State Articulation — ISCs (test harness + done condition)
 ├── STATUS.md                 # Current shipped state

@@ -7,8 +7,6 @@
 
 # Original build packet — frozen 2026-05-18; ISA.md is the canonical spec.
 HISTORICAL spec/*.md
-# Dated scratchpad from the 2026-05-19 agent-stall investigation.
-HISTORICAL Plans/algorithm-v6.4.0-changes.md
 
 LIVING README.md
 LIVING CHANGELOG.md

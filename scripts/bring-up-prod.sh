@@ -56,7 +56,7 @@ require_cmd curl
 # -----------------------------------------------------------------------------
 color "=== Step 1: Vercel project ==="
 # -----------------------------------------------------------------------------
-echo "Linking this repo to a Vercel project under the 'keen-media' team."
+echo "Linking this repo to a Vercel project under your Vercel team (set VERCEL_TEAM)."
 echo "If the project doesn't exist, Vercel CLI will offer to create it."
 echo "Project name suggestion: 'agentpack'"
 echo
@@ -64,7 +64,7 @@ echo "Root directory: apps/registry"
 echo "Build & install commands are read from apps/registry/vercel.json — do NOT"
 echo "let the CLI override them with auto-detected values."
 echo
-pause_with_prompt "Run: cd apps/registry && vercel link --scope keen-media"
+pause_with_prompt "Run: cd apps/registry && vercel link --scope \"${VERCEL_TEAM:-<your-vercel-team>}\""
 
 # -----------------------------------------------------------------------------
 color "=== Step 2: Neon project ==="
