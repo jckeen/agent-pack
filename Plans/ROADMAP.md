@@ -77,7 +77,7 @@ The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase
 
 **Intent.** Make every published AgentPack referenceable by a stable identity (`publisher/pack@version`) that resolves to bytes anyone can fetch. Phase 2 ships the install machinery; Phase 3 ships the publish machinery and the catalog backing it.
 
-**Effort tier estimate:** E5 (multi-week solo). Infrastructure + auth + publish flow + search + registry API + the existing web app extended. The largest phase in the roadmap.
+**Effort tier estimate:** E5 — the largest surface area in the roadmap (infrastructure + auth + publish flow + search + registry API + the existing web app extended). Tier is complexity, not calendar time; the ship gate is standing up live infra, not coding effort (see the effort table).
 
 ### Decisions
 
@@ -536,6 +536,8 @@ CLI logic: org-policy applied **on top of** user-local policy; the stricter rule
 
 ## Phase 7 — AgentPack integration (v0.7.0 → v1.0.0)
 
+> **Version-label note:** the `v0.7.0` here is the _planned release tag_ for this phase. It is **not** the current in-repo dev version, which is already `0.7.0-dev` while the project sits at Phase-5-shipped (the dev line ran ahead of the phase→version mapping during the off-roadmap iteration work; see `STATUS.md`). Don't read `0.7.0-dev` as "Phase 7."
+
 **Intent.** Make the registry a destination for workflows produced elsewhere — specifically Workgraph (the workflow/context-graph product). A user finishes a workflow in Workgraph, hits "export to AgentPack," and the resulting pack is published to the registry. The network effect: pack catalogue grows from non-hand-authored sources.
 
 **Effort tier estimate:** E5 (the bridge requires deep integration into both products + the trust-graph data model). Probably the v1.0.0 cutover release.
@@ -635,15 +637,17 @@ Composite score is computed nightly, cached on `packs.trust_score`. Algorithm: l
 
 ## Effort tier per phase
 
-| Phase   | Tier | Wall-time estimate (solo, focused)                 | Why this tier                                                                                                               |
-| ------- | ---- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Phase 3 | E5   | 3-5 weeks                                          | Largest surface area — DB + auth + publish + storage + search + registry API + web UI extensions. Plus the migration story. |
-| Phase 4 | E4   | 1-2 weeks                                          | Focused on one domain (signatures) but spans CLI + lockfile + registry. The cosign integration is the variable cost.        |
-| Phase 5 | E3   | 1 week                                             | Mostly plumbing existing Phase 2 primitives against Phase 3 endpoints. Smallest phase.                                      |
-| Phase 6 | E5   | 4-6 weeks                                          | Multi-tenant orgs + SSO + audit + policy. Enterprise-procurement risk multiplies the effort.                                |
-| Phase 7 | E5   | 3-5 weeks (depends on Workgraph product readiness) | Requires alignment with a separate product (Workgraph) — wall time is dominated by integration coordination, not code.      |
+The tier (E3–E5) measures **relative complexity and surface area**, not calendar time. This roadmap was originally estimated in solo human-developer weeks; in practice the code is written agentically, so coding effort collapses to a small number of focused agent sessions — the Phase 3 + Phase 5 backend (DB, auth, tokens, publish/read API, seed import, remote-install resolver, cache, policy) was scaffolded in a single `/max` session (see ISA iteration-4). What gates each phase's _ship date_ is its external binding constraint, not the typing.
 
-**Cumulative:** ~12-19 focused weeks solo for the full Phase 3-7 arc.
+| Phase   | Tier | Coding effort (agentic)      | Binding constraint on ship date                                                                         |
+| ------- | ---- | ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Phase 3 | E5   | done (iteration-4)           | Live infra round-trip: provision Neon + R2 + GitHub-OAuth once, then `scripts/smoke-e2e.sh` passes.     |
+| Phase 4 | E4   | done (iteration-9, ISC-318+) | Live Sigstore keyless round-trip from CI + registry-served per-publisher bound-SAN.                     |
+| Phase 5 | E3   | shipped (git-source live)    | Registry-served path waits on the Phase 3 infra above; the git-source path already ships.               |
+| Phase 6 | E5   | ~1–2 sessions (not started)  | Demand signal — first paying-customer self-host conversation (`Plans/PHASE-6-GATE.md`) + WorkOS wiring. |
+| Phase 7 | E5   | est. ~1–2 sessions           | Workgraph product readiness + integration coordination with a separate product.                         |
+
+**The constraint was never the code.** For Phases 3–5 the engineering is written and unit-tested; shipping is gated on standing up live infra once, not on developer-weeks. For Phases 6–7 the gate is a business/partner signal, not coding capacity. The original "~12–19 focused weeks solo" estimate described a human-authored build — it no longer reflects how this project is built or what holds it back.
 
 ---
 
