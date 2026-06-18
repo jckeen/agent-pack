@@ -19,6 +19,10 @@ const NO_EXEC = path.join(FIXTURES, "no-exec");
 // variant has a plain prompt body and must NOT be gated.
 const EXEC_COMMAND = path.join(FIXTURES, "exec-command");
 const SAFE_COMMAND = path.join(FIXTURES, "safe-command");
+// Imported-style pack: declares only an `all` profile + exports.default_profile: all.
+// `install` must honor the declared default instead of hardcoding the undeclared
+// `safe` profile (#86 — every imported pack failed `install` out of the box).
+const DEFAULT_PROFILE_ALL = path.join(FIXTURES, "default-profile-all");
 
 const TMP_ROOT = path.join(os.tmpdir(), `agentpack-install-cli-${Date.now()}`);
 
@@ -87,6 +91,24 @@ describe("agentpack install (CLI)", () => {
     expect(r.stdout).toContain("Read files in the project");
     const lockExists = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
     expect(lockExists).toBeNull();
+  });
+
+  it("honors exports.default_profile when --profile is omitted (#86)", async () => {
+    const dir = await freshProject("default-profile-all");
+    const r = await run([
+      "install",
+      DEFAULT_PROFILE_ALL,
+      "--target",
+      "claude-code",
+      "--project",
+      dir,
+      "-y",
+    ]);
+    expect(r.code).toBe(0);
+    // Resolved to the pack's declared default (`all`), not the undeclared `safe`.
+    expect(r.stdout).toContain("(claude-code, all)");
+    const lockExists = await fs.stat(path.join(dir, "AGENTPACK.lock")).catch(() => null);
+    expect(lockExists).not.toBeNull();
   });
 
   it("plan summary shows the full permission surface before consent", async () => {
