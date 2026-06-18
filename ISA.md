@@ -12,12 +12,14 @@ A developer drops a single `AGENTPACK.yaml` into a repo and runs `agentpack pack
 
 ## Out of Scope
 
+This section tracks what is _not yet implemented in code_. As phases land, items move to in-scope (struck through) and the per-iteration sections below carry the evidence. `STATUS.md` is the source of truth for what is shipped vs. gated; an item being in-scope here means the code exists, not that a release has been cut.
+
 - ~~Phase-2 install/uninstall~~ **NOW IN SCOPE (iteration-3)** — local install/uninstall, diff, backups, rollback, lockfile, history, verify, atom checksums all added.
-- Phase-3 registry backend (database, publishing, search API) — seed data only; requires hosted infra not in this session
-- Phase-4 cryptographic signatures (Sigstore/cosign) — schema fields present, runtime verification deferred to dedicated session. **Atom checksums (SHA-256 content addressing) IS now in scope** as the unlocking primitive.
-- Phase-5 remote CLI installs (`agentpack install publisher/pack` over network) — requires hosted registry
-- Phase-6 enterprise registries, SSO, audit logs — out
-- Phase-7 Workgraph context-graph integration — out
+- ~~Phase-3 registry backend~~ **NOW IN SCOPE (iteration-4)** — DB schema, two-phase publish/read API, auth + tokens, search, seed import all implemented (ISC-151–267). Still out: the `v0.3.0` _release promotion_, held until `scripts/smoke-e2e.sh` round-trips publish→install against live Neon/R2/GitHub-OAuth infra.
+- ~~Phase-4 cryptographic signatures (Sigstore/cosign)~~ **NOW IN SCOPE (iteration-9)** — keyless signing + client-side signer-identity gate implemented (ISC-318+); atom + per-file SHA-256 checksums are the unlocking primitive. Still out: the live Sigstore round-trip from CI and registry-served per-publisher bound-SAN, gated on the live registry.
+- ~~Phase-5 remote CLI installs~~ **NOW IN SCOPE (iteration-4+)** — git-source remote install (`agentpack install github:owner/repo@ref`) shipped and live-verified; the registry-served path (`agentpack install publisher/pack@version`) is code-complete but gated on the Phase-3 live infra above.
+- Phase-6 enterprise registries, SSO, audit logs — out (🔒 gated per `Plans/PHASE-6-GATE.md`; the trigger is the first paying-customer self-host conversation, not a coding decision)
+- Phase-7 Workgraph context-graph integration — out (future; gated on Workgraph product readiness, not on coding effort)
 - shadcn/ui dependency — use local Tailwind components
 - AI social network features — explicitly separate product
 
