@@ -41,6 +41,21 @@ export {
   type CodexWarning,
 } from "./importCodex.js";
 export {
+  importClaudeCodeDir,
+  parseClaudeCode,
+  buildClaudeCodeManifest,
+  type ImportClaudeCodeOptions,
+  type BuildClaudeCodeManifestOptions,
+  type BuildClaudeCodeManifestResult,
+  type ParsedClaudeCode,
+  type ClaudeCodeSkill,
+  type ClaudeCodeMcpServer,
+  type ClaudeCodeHook,
+  type ClaudeCodeSubagent,
+  type ClaudeCodeCommand,
+  type ClaudeCodeWarning,
+} from "./importClaudeCode.js";
+export {
   importChatgptGptDir,
   parseChatgptGpt,
   buildChatgptManifest,

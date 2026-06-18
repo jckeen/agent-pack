@@ -120,12 +120,13 @@ Compiles a pack into **claude.ai (Claude Chat)** install artifacts written to `-
 
 ```
 agentpack import <path> --id <publisher.slug> \
-  [--from claude|codex|chatgpt-gpt] [--out <dir>] [--name <name>]
+  [--from claude|claude-code|codex|chatgpt-gpt] [--out <dir>] [--name <name>]
 ```
 
 Compiles an existing setup into an AgentPack written to `--out` (default `agentpack-imported`). `--id <publisher.slug>` is **required** (e.g. `acme.team-defaults`). Sources via `--from`:
 
-- **`claude`** (default) — reads a `CLAUDE.md` / `AGENTS.md` file. Pass `-` as `<path>` to read from stdin.
+- **`claude`** (default) — reads a single `CLAUDE.md` / `AGENTS.md` file. Pass `-` as `<path>` to read from stdin.
+- **`claude-code`** — reads a whole Claude Code config **directory** (`~/.claude`, or a project's `.claude/` + root `CLAUDE.md`): `CLAUDE.md` → instruction/rule atoms, `skills/` → skill atoms, `agents/` → subagent atoms, `commands/` → command atoms, and `settings.json` `hooks` / `mcpServers` → hook / mcp_server atoms. Reads **only** those surfaces by name — the credential store (`.credentials.json`) and runtime caches (`plugins/`, `projects/`, etc.) are never opened, and MCP `env` surfaces secret **key names** only (never values).
 - **`codex`** — reads a Codex setup directory (shared `SKILL.md` / MCP / hooks / subagents / `AGENTS.md`); near-lossless and round-trips back through the `codex` adapter.
 - **`chatgpt-gpt`** — reads a human-assembled ChatGPT-GPT bundle directory (`gpt.json` + optional `openapi.yaml` + `knowledge/`). The OpenAPI→MCP transpiler scaffolds tools (operationId→tool, auth→secrets/scopes); the emitted MCP servers are **scaffolding**, not runnable handlers, and the command prints the human-judgment steps required before the pack is usable.
 

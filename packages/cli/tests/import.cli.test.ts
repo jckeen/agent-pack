@@ -168,6 +168,36 @@ describe("agentpack import", () => {
     expect(validate.stdout).toContain("✓ Manifest is valid.");
   });
 
+  it("imports a Claude Code config directory with --from claude-code and validates", async () => {
+    const ccFixture = path.resolve(__dirname, "../../core/tests/fixtures/claude-code");
+    const outDir = path.join(TMP_ROOT, "out-claude-code");
+    const imp = await run([
+      "import",
+      ccFixture,
+      "--from",
+      "claude-code",
+      "--out",
+      outDir,
+      "--id",
+      "keen.workstation",
+      "--name",
+      "Keen Workstation",
+    ]);
+    expect(imp.code).toBe(0);
+
+    // Manifest + native atom files across multiple atom types exist.
+    await fs.access(path.join(outDir, "AGENTPACK.yaml"));
+    await fs.access(path.join(outDir, "atoms/skills/code-review/SKILL.md"));
+    await fs.access(path.join(outDir, "atoms/subagents/security-reviewer.yaml"));
+
+    const validate = await run(["validate", outDir]);
+    expect(validate.code).toBe(0);
+    expect(validate.stdout).toContain("✓ Manifest is valid.");
+
+    // The credential store is never packaged.
+    await expect(fs.access(path.join(outDir, ".credentials.json"))).rejects.toThrow();
+  });
+
   it("imports a ChatGPT-GPT bundle with --from chatgpt-gpt and validates", async () => {
     const bundle = path.resolve(__dirname, "../../core/tests/fixtures/chatgpt");
     const outDir = path.join(TMP_ROOT, "out-chatgpt");
