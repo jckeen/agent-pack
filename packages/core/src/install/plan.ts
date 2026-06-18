@@ -23,7 +23,12 @@ export interface PlanInstallOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
   source: string;
   target: TargetPlatform;
-  profile: ProfileName;
+  /**
+   * Profile to install. When omitted, `exportPack` resolves the pack's declared
+   * `exports.default_profile` (then a `safe` profile, else refuses) — the CLI
+   * must NOT pre-fill "safe", or imported packs that declare only `all` break (#86).
+   */
+  profile?: ProfileName;
   /** User's project root — where the install will land. */
   projectRoot: string;
   /** Generator versions stamped into the lockfile. */
@@ -149,7 +154,7 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       packId: result.plan.packId,
       packVersion: result.plan.packVersion,
       target: opts.target,
-      profile: opts.profile,
+      profile: result.plan.profile,
       generator: opts.generator,
       manifestRawBytes: loaded.rawYaml,
       atomOutputs: [
@@ -177,7 +182,7 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       packId: result.plan.packId,
       packVersion: result.plan.packVersion,
       target: opts.target,
-      profile: opts.profile,
+      profile: result.plan.profile,
       atoms: result.plan.atoms,
       atomTypes: result.plan.atomTypes,
       riskLevel: result.plan.riskLevel,

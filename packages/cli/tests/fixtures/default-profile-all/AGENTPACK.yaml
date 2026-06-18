@@ -1,0 +1,42 @@
+agentpack: "1.0"
+
+metadata:
+  id: "agentpack.default-profile-all-fixture"
+  name: "Default Profile All Fixture"
+  slug: "default-profile-all-fixture"
+  description: "Test fixture: an imported-style pack that declares only an `all` profile plus exports.default_profile: all. `install` with no --profile must honor the declared default instead of falling back to the undeclared `safe` profile (#86)."
+  version: "0.1.0"
+  license: "MIT"
+  publisher: "agentpack"
+  tags:
+    - test
+
+compatibility:
+  targets:
+    claude-code:
+      status: supported
+    generic:
+      status: supported
+
+permissions: {}
+
+security:
+  risk_level: low
+
+profiles:
+  all:
+    description: "All atoms."
+    include:
+      - "*"
+
+atoms:
+  - id: "instruction:context"
+    type: instruction
+    name: "Context"
+    description: "An imported instruction atom."
+    path: "atoms/instructions/context.md"
+    risk_level: low
+    permissions: []
+
+exports:
+  default_profile: all

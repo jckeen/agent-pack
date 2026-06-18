@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.7.0-dev — 2026-06-18 (post-public doc-truth reconciliation: planning docs + agentic-pace estimates)
+## 0.7.0-dev — 2026-06-18 (fix: install honors exports.default_profile — #86)
+
+- **`install` no longer hardcodes the `safe` profile (#86).** `agentpack install` defaulted the profile to the literal `"safe"`, but every pack produced by `agentpack import` declares only an `all` profile (with `exports.default_profile: all`) — so the entire import→install round-trip failed out of the box with `✗ Unknown profile \`safe\``. Found by dogfooding the documented "import your context, install it fresh" flow. The CLI now passes the profile through unset and lets `exportPack`'s existing resolver pick `exports.default_profile`→ a`safe`profile → else refuse (the same resolution`plan`/`inspect`already used, which is why only`install`was affected).`planInstall`'s `profile`is now optional and the lockfile/plan record the *resolved* profile. New CLI test + fixture`default-profile-all`; 525 core+cli tests green. The remote-registry path keeps the `"safe"` prefill pending live-infra verification (signature-observed file fetch must stay consistent with the planner).
 
 A status/versioning audit pass on the planning docs (three parallel read-only agents: versioning, plans/status, git/issue state). **Versioning came back clean** — all packages `0.7.0-dev`, CLI `--version` test-guarded against the manifest, no drift; the "v0.3.0" language is the next release _tag_ for the gated hosted registry, not the in-repo line. Two doc-truth fixes landed (PR #84):
 

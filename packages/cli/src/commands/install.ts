@@ -204,6 +204,11 @@ export function registerInstall(program: Command): void {
                 requestedVersion,
                 registry: options.registry,
                 target: options.target,
+                // Remote path still pre-fills "safe" for the signature-observed
+                // file fetch; honoring exports.default_profile here too requires
+                // resolving against the registry-served manifest and must be
+                // verified against live infra (gated). The local path below
+                // (planInstall) already resolves the declared default (#86).
                 profile: options.profile ?? "safe",
                 projectRoot: options.project,
               });
@@ -334,7 +339,10 @@ export function registerInstall(program: Command): void {
           const plan = await planInstall({
             source,
             target: options.target,
-            profile: options.profile ?? "safe",
+            // Don't pre-fill "safe": let exportPack resolve the pack's declared
+            // exports.default_profile first, so imported packs (which declare
+            // only `all`) install without an explicit --profile (#86).
+            profile: options.profile,
             projectRoot: options.project,
             generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
           });
