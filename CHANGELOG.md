@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0-dev — 2026-06-18 (post-public doc-truth reconciliation: planning docs + agentic-pace estimates)
+
+A status/versioning audit pass on the planning docs (three parallel read-only agents: versioning, plans/status, git/issue state). **Versioning came back clean** — all packages `0.7.0-dev`, CLI `--version` test-guarded against the manifest, no drift; the "v0.3.0" language is the next release _tag_ for the gated hosted registry, not the in-repo line. Two doc-truth fixes landed (PR #84):
+
+- **ISA `Out of Scope` reconciled to present reality.** The section still listed Phases 3–7 as out-of-scope ("requires hosted infra not in this session") while the body records Phases 3–5 as code-complete through iteration-10 — a contradiction in the canonical spec. Each line now uses the existing strikethrough convention: Phase 3 (iter-4, ISC-151–267), Phase 4 (iter-9, ISC-318+), Phase 5 (git-source live) marked in-scope with their live-infra / release-promotion gates stated; Phases 6–7 remain out with gate reasons. Defers to `STATUS.md` for shipped-vs-gated state.
+- **ROADMAP estimates reframed for agentic pace.** The effort table assumed solo human-developer weeks (3–5 wk/phase, ~12–19 cumulative). The tier (E3–E5) is now framed as relative complexity, not calendar time; agentic coding collapses to a few focused sessions (Phase 3+5 backend was one `/max` session), and each phase's ship date is gated by an external binding constraint (live infra, partner product, demand signal), not developer-weeks. Added a Phase-7 version-label note so `0.7.0-dev` isn't misread as "Phase 7."
+
+Issue #63 (go-public tracker) reconciled by comment: Phases 0–2 (hardening, B1 gate, the public flip + verified anonymous quickstart) are done; Phases 3 (npm publish) and 4 (registry promotion, gated on operator infra) remain open. Docs only; `scripts/check-doc-truth.sh` OK (52 files conform).
+
 ## 0.7.0-dev — 2026-06-17 (pre-public hardening: exec-gate scope + clean-build fix)
 
 Two findings from the final pre-public verification sweep (issues #78, #80), fixed before the visibility flip. `pnpm verify` exit 0 — **800** tests.
