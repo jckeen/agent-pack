@@ -217,7 +217,8 @@ agent-pack/
 ```bash
 agentpack init                              # scaffold a starter AGENTPACK.yaml
 agentpack import [path] --id pub.slug \
-  --from claude|codex|chatgpt-gpt           # compile an existing setup into a pack
+  --from claude|claude-code|codex|chatgpt-gpt  # compile an existing setup into a pack
+                                            # (claude-code ingests a whole ~/.claude dir)
 agentpack validate [path]                   # validate manifest
 agentpack inspect [path]                    # metadata + atoms + profiles + risk
 agentpack plan [path] \

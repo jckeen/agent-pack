@@ -4,6 +4,7 @@ import ora from "ora";
 import pc from "picocolors";
 import {
   importChatgptGptDir,
+  importClaudeCodeDir,
   importClaudeMd,
   importCodexDir,
   writeImport,
@@ -15,7 +16,7 @@ import { failCleanly } from "../lib/error.js";
 // `publisher.slug`, exactly one publisher segment + one slug segment.
 const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]*\.[a-z0-9][a-z0-9._-]*$/i;
 
-const SOURCES = ["claude", "codex", "chatgpt-gpt"] as const;
+const SOURCES = ["claude", "claude-code", "codex", "chatgpt-gpt"] as const;
 type Source = (typeof SOURCES)[number];
 
 async function readSource(p: string): Promise<string> {
@@ -33,11 +34,11 @@ export function registerImport(program: Command): void {
   program
     .command("import <path>")
     .description(
-      "Compile an existing setup into an AgentPack. `--from claude` (default) reads a CLAUDE.md / AGENTS.md file (use `-` for stdin); `--from codex` reads a Codex setup directory; `--from chatgpt-gpt` reads a human-assembled ChatGPT-GPT bundle directory (gpt.json + optional openapi.yaml + knowledge/).",
+      "Compile an existing setup into an AgentPack. `--from claude` (default) reads a single CLAUDE.md / AGENTS.md file (use `-` for stdin); `--from claude-code` reads a whole Claude Code config directory (~/.claude or a project's .claude/ + CLAUDE.md): skills, agents, commands, hooks, and MCP servers; `--from codex` reads a Codex setup directory; `--from chatgpt-gpt` reads a human-assembled ChatGPT-GPT bundle directory (gpt.json + optional openapi.yaml + knowledge/).",
     )
     .option(
       "--from <source>",
-      "source format: `claude` (default), `codex`, or `chatgpt-gpt`",
+      "source format: `claude` (default), `claude-code`, `codex`, or `chatgpt-gpt`",
       "claude",
     )
     .option("--out <dir>", "output directory for the imported pack", "agentpack-imported")
@@ -81,7 +82,9 @@ export function registerImport(program: Command): void {
         }).start();
         try {
           let result: ImportResult;
-          if (from === "codex") {
+          if (from === "claude-code") {
+            result = await importClaudeCodeDir(srcPath, { id, name: options.name });
+          } else if (from === "codex") {
             result = await importCodexDir(srcPath, { id, name: options.name });
           } else if (from === "chatgpt-gpt") {
             result = await importChatgptGptDir(srcPath, { id, name: options.name });
