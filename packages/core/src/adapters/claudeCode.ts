@@ -242,8 +242,14 @@ export const claudeCodeAdapter = defineAdapter({
             "claude-code"
           ] ?? ["PostToolUse"]) as string[];
         const handler =
-          (parsed?.["handler"] as { command?: string; matcher?: string } | undefined) ??
-          (atom as { handler?: { command?: string; matcher?: string } }).handler;
+          (parsed?.["handler"] as
+            | { command?: string; matcher?: string; script_path?: string }
+            | undefined) ??
+          (
+            atom as {
+              handler?: { command?: string; matcher?: string; script_path?: string };
+            }
+          ).handler;
         const command = handler?.command ?? "";
         if (!isHookCommandAllowed(command, allowedShellCommands)) {
           warnings.push(
@@ -251,6 +257,25 @@ export const claudeCodeAdapter = defineAdapter({
           );
           unsupported.push(atom.id);
           continue;
+        }
+        // Bundled hook script (#90): write it to `.claude/hooks/<name>` so the
+        // rewritten `$CLAUDE_PROJECT_DIR/.claude/hooks/<name>` command resolves.
+        // The emitted file is path-contained + lockfile-hashed like any output.
+        if (handler?.script_path) {
+          const scriptBody = await readPackRelativeFile(packRoot, handler.script_path);
+          if (scriptBody == null) {
+            warnings.push(
+              `Hook \`${atom.id}\` references bundled script \`${handler.script_path}\`, which is missing or escapes the pack. Refusing to emit it.`,
+            );
+            unsupported.push(atom.id);
+            continue;
+          }
+          const scriptName = handler.script_path.split("/").pop()!;
+          files.push({
+            path: `.claude/hooks/${scriptName}`,
+            content: scriptBody,
+            action: "create",
+          });
         }
         for (const evt of events) {
           const list = hooks[evt] ?? [];
