@@ -50,6 +50,7 @@ const MD_AGENT = `---
 name: md-agent
 description: Description from the agent frontmatter.
 tools: Read, Grep
+model: sonnet
 ---
 
 UNIQUE_MD_BODY_MARKER — you are a specialist. Follow these multi-line
@@ -85,6 +86,9 @@ describe("subagent atom body resolution", () => {
     expect(emitted).toContain("UNIQUE_MD_BODY_MARKER");
     // Frontmatter `description` is preferred over the terse atom description.
     expect(emitted).toContain("Description from the agent frontmatter.");
+    // `tools` and `model` frontmatter survive into the emitted agent (#91 follow-up).
+    expect(emitted).toMatch(/^tools:\s*Read, Grep\s*$/m);
+    expect(emitted).toMatch(/^model:\s*sonnet\s*$/m);
   });
 
   it("still resolves a YAML-descriptor body via the `instructions` field (back-compat)", async () => {

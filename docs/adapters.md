@@ -18,16 +18,16 @@ Every adapter MUST:
 
 **Target:** `claude-code`
 
-| Atom          | Output                                                                                            |
-| ------------- | ------------------------------------------------------------------------------------------------- |
-| `instruction` | `CLAUDE.md` section                                                                               |
-| `rule`        | `CLAUDE.md` rules section (full body: severity, globs, must/must-not)                             |
-| `skill`       | `.claude/skills/<slug>/` (file copy of the atom dir; SKILL.md conformed to the Agent Skills spec) |
-| `command`     | `.claude/commands/<slug>.md` (real slash command — `/<slug>` works)                               |
-| `subagent`    | `.claude/agents/<slug>.md` (frontmatter: name + description only)                                 |
-| `hook`        | `.claude/settings.json#hooks` block                                                               |
-| `mcp_server`  | `.mcp.json` at project root                                                                       |
-| `workflow`    | `CLAUDE.md` workflow section                                                                      |
+| Atom          | Output                                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------- |
+| `instruction` | `CLAUDE.md` section                                                                                           |
+| `rule`        | `CLAUDE.md` rules section (full body: severity, globs, must/must-not)                                         |
+| `skill`       | `.claude/skills/<slug>/` (file copy of the atom dir; SKILL.md conformed to the Agent Skills spec)             |
+| `command`     | `.claude/commands/<slug>.md` (real slash command — `/<slug>` works)                                           |
+| `subagent`    | `.claude/agents/<slug>.md` (frontmatter: name, description, and `tools`/`model` when the source carries them) |
+| `hook`        | `.claude/settings.json#hooks` block                                                                           |
+| `mcp_server`  | `.mcp.json` at project root                                                                                   |
+| `workflow`    | `CLAUDE.md` workflow section                                                                                  |
 
 `CLAUDE.md` always wraps content in the AgentPack BEGIN/END markers.
 

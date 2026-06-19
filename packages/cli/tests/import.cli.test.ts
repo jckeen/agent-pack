@@ -185,10 +185,11 @@ describe("agentpack import", () => {
     ]);
     expect(imp.code).toBe(0);
 
-    // Manifest + native atom files across multiple atom types exist.
+    // Manifest + native atom files across multiple atom types exist. Subagents
+    // are carried as verbatim `.md` (frontmatter + prompt), not YAML descriptors.
     await fs.access(path.join(outDir, "AGENTPACK.yaml"));
     await fs.access(path.join(outDir, "atoms/skills/code-review/SKILL.md"));
-    await fs.access(path.join(outDir, "atoms/subagents/security-reviewer.yaml"));
+    await fs.access(path.join(outDir, "atoms/subagents/security-reviewer.md"));
 
     const validate = await run(["validate", outDir]);
     expect(validate.code).toBe(0);
