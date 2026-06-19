@@ -1,7 +1,15 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseClaudeCode, importClaudeCodeDir, validateManifest } from "../src/index.js";
+import {
+  parseClaudeCode,
+  importClaudeCodeDir,
+  validateManifest,
+  writeImport,
+  exportPack,
+} from "../src/index.js";
 import { parse as parseYaml } from "yaml";
 
 const FIXTURE_DIR = path.resolve(
@@ -111,5 +119,35 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     const parsed = parseYaml(cmdDescriptor!.content) as { prompt?: string };
     expect(parsed.prompt).toMatch(/atoms\/commands\/prompts\//);
     expect(result.files.some((f) => f.relativePath === parsed.prompt)).toBe(true);
+  });
+
+  it("preserves agent tools/model frontmatter through import → export (#91 follow-up)", async () => {
+    const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
+    // The subagent now references a verbatim `.md`, not a YAML descriptor.
+    const subAtom = result.manifest.atoms.find(
+      (a) => a.id === "subagent:security-reviewer",
+    );
+    expect(subAtom?.path).toMatch(/atoms\/subagents\/.*\.md$/);
+
+    // Write the imported pack to disk, compile it to claude-code, and confirm
+    // tools/model + the real prompt body all round-trip into the emitted agent.
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-cc-roundtrip-"));
+    try {
+      await writeImport(result, path.join(tmp, "pack"));
+      await exportPack({
+        source: path.join(tmp, "pack"),
+        target: "claude-code",
+        outDir: path.join(tmp, "out"),
+      });
+      const emitted = await fs.readFile(
+        path.join(tmp, "out/.claude/agents/security-reviewer.md"),
+        "utf8",
+      );
+      expect(emitted).toMatch(/^tools:\s*Read, Grep, Glob, Bash\s*$/m);
+      expect(emitted).toMatch(/^model:\s*sonnet\s*$/m);
+      expect(emitted).toContain("You are a security reviewer.");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
   });
 });

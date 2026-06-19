@@ -41,6 +41,8 @@ export interface ClaudeCodeSubagent {
   name: string;
   description?: string;
   instructions?: string;
+  /** Verbatim source `.md` (frontmatter + body) so import preserves tools/model. */
+  rawContent?: string;
 }
 
 export interface ClaudeCodeCommand {
@@ -257,6 +259,7 @@ export function parseClaudeCode(files: Map<string, string>): ParsedClaudeCode {
       name,
       description: fmString(frontmatter, "description"),
       instructions: body.trim() || undefined,
+      rawContent: content,
     });
   }
   subagents.sort((a, b) => a.name.localeCompare(b.name));

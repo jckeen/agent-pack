@@ -309,6 +309,10 @@ export interface ResolvedSubagent {
   instructions: string;
   /** A `description` lifted from a markdown agent's frontmatter, if present. */
   description?: string;
+  /** `tools` from a markdown agent's frontmatter (Claude Code agent loader key). */
+  tools?: string;
+  /** `model` from a markdown agent's frontmatter (Claude Code agent loader key). */
+  model?: string;
 }
 
 /**
@@ -336,6 +340,8 @@ export async function resolveSubagentBody(
   if (/\.(md|markdown)$/i.test(atom.path)) {
     let body = raw;
     let description: string | undefined;
+    let tools: string | undefined;
+    let model: string | undefined;
     if (raw.startsWith("---")) {
       const end = raw.indexOf("\n---", 3);
       if (end !== -1) {
@@ -343,15 +349,19 @@ export async function resolveSubagentBody(
         body = raw.slice(end + 4).replace(/^\r?\n/, "");
         try {
           const fm = parseYaml(fmText) as Record<string, unknown> | null;
-          if (fm && typeof fm["description"] === "string") {
-            description = (fm["description"] as string).trim() || undefined;
-          }
+          const fmStr = (k: string): string | undefined =>
+            fm && typeof fm[k] === "string"
+              ? (fm[k] as string).trim() || undefined
+              : undefined;
+          description = fmStr("description");
+          tools = fmStr("tools");
+          model = fmStr("model");
         } catch {
           /* malformed frontmatter — fall through with the raw body */
         }
       }
     }
-    return { instructions: body.trim() || atom.description, description };
+    return { instructions: body.trim() || atom.description, description, tools, model };
   }
 
   // YAML-descriptor form: a mapping with an `instructions` string.

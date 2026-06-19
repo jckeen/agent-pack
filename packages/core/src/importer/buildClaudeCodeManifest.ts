@@ -156,10 +156,20 @@ export function buildClaudeCodeManifest(
   // ---------- subagents ----------
   for (const sub of parsed.subagents) {
     const subSlug = allocSlug(slugify(sub.name));
-    const atomObj: Record<string, unknown> = { id: subSlug, name: sub.name };
-    if (sub.instructions !== undefined) atomObj["instructions"] = sub.instructions;
-    const relativePath = `atoms/subagents/${subSlug}.yaml`;
-    files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
+    let relativePath: string;
+    if (sub.rawContent !== undefined) {
+      // Carry the source agent verbatim (frontmatter + prompt) so `tools` /
+      // `model` and any other Claude Code agent keys survive — the markdown
+      // body is read back by the adapter's resolveSubagentBody.
+      relativePath = `atoms/subagents/${subSlug}.md`;
+      files.push({ relativePath, content: sub.rawContent });
+    } else {
+      // Fallback: a YAML descriptor with the system prompt under `instructions`.
+      relativePath = `atoms/subagents/${subSlug}.yaml`;
+      const atomObj: Record<string, unknown> = { id: subSlug, name: sub.name };
+      if (sub.instructions !== undefined) atomObj["instructions"] = sub.instructions;
+      files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
+    }
     atoms.push({
       id: `subagent:${subSlug}`,
       type: "subagent",
