@@ -184,21 +184,42 @@ export function buildClaudeCodeManifest(
   // ---------- hooks ----------
   const shellCommands = new Set<string>();
   for (const hook of parsed.hooks) {
-    const hookSlug = allocSlug(slugify(`${hook.event}-${hook.command}`));
+    // A bundled hook gets a readable slug from the script basename; an
+    // unbundled one (bare binary) keeps the command-derived slug.
+    const slugBase =
+      hook.scriptContent !== undefined && hook.scriptBaseName
+        ? `${hook.event}-${hook.scriptBaseName}`
+        : `${hook.event}-${hook.command}`;
+    const hookSlug = allocSlug(slugify(slugBase));
+    const handler: Record<string, unknown> = { kind: "shell" };
+    let command = hook.command;
+    if (hook.scriptContent !== undefined) {
+      // Bundle the script body into the pack and rewrite the command to invoke
+      // the installed copy at `.claude/hooks/<slug><ext>` via `$CLAUDE_PROJECT_DIR`
+      // (the portable form Claude Code expands). The adapter reads `script_path`
+      // and emits the file on install (#90). Trailing args are preserved.
+      const scriptName = `${hookSlug}${hook.scriptExt ?? ".sh"}`;
+      const scriptPath = `atoms/hooks/scripts/${scriptName}`;
+      files.push({ relativePath: scriptPath, content: hook.scriptContent });
+      const trailing = hook.trailingArgs?.length ? ` ${hook.trailingArgs.join(" ")}` : "";
+      command = `${hook.interpreter ?? "bash"} \${CLAUDE_PROJECT_DIR}/.claude/hooks/${scriptName}${trailing}`;
+      handler["script_path"] = scriptPath;
+    }
+    handler["command"] = command;
     const atomObj = {
       id: hookSlug,
       name: `${hook.event} hook`,
       events: { "claude-code": [hook.event], codex: [hook.event], generic: [hook.event] },
-      handler: { kind: "shell", command: hook.command },
+      handler,
     };
     const relativePath = `atoms/hooks/${hookSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
-    shellCommands.add(hook.command);
+    shellCommands.add(command);
     atoms.push({
       id: `hook:${hookSlug}`,
       type: "hook",
       name: `${hook.event} hook`,
-      description: `Runs \`${hook.command}\` on Claude Code \`${hook.event}\`.`,
+      description: `Runs \`${command}\` on Claude Code \`${hook.event}\`.`,
       path: relativePath,
       risk_level: "high",
       permissions: ["shell.execution"],

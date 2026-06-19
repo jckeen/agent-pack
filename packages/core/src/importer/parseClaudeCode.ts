@@ -35,6 +35,21 @@ export interface ClaudeCodeHook {
   /** Claude Code event name (PreToolUse, PostToolUse, SessionStart, …). */
   event: string;
   command: string;
+  /**
+   * Bundled script body, set by the I/O layer (`importClaudeCodeDir`) when the
+   * command resolves to a readable text script. When present, the build bundles
+   * the script into the pack and rewrites the command to invoke the installed
+   * copy. Left unset for bare PATH binaries / unresolvable commands.
+   */
+  scriptContent?: string;
+  /** File extension of the bundled script (e.g. `.sh`, `.ts`). */
+  scriptExt?: string;
+  /** Interpreter used to invoke the bundled script (e.g. `bash`, `node`). */
+  interpreter?: string;
+  /** Args that followed the script path in the original command (preserved). */
+  trailingArgs?: string[];
+  /** Source script basename without extension (used for a readable slug). */
+  scriptBaseName?: string;
 }
 
 export interface ClaudeCodeSubagent {
