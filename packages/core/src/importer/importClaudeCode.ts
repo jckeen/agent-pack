@@ -193,24 +193,39 @@ async function resolveHookScript(
   const abs = expandHome(ref.rawPath);
   if (!path.isAbsolute(abs)) return null; // relative to an unknown base — skip
   if (!HOOK_SCRIPT_EXT_RE.test(abs)) return null; // only bundle things that look like scripts
-  // Confine reads to the imported config tree or ~/.claude — never bundle an
-  // arbitrary file elsewhere on disk (exfiltration guard for untrusted configs).
-  const allowedRoots = [path.resolve(rootDir), path.join(os.homedir(), ".claude")];
-  if (!isInsideAny(abs, allowedRoots)) {
+  // Lexical guard: the declared command path must point inside the imported
+  // tree or ~/.claude (blocks a `command: /etc/shadow.sh` outright).
+  const lexicalRoots = [path.resolve(rootDir), path.join(os.homedir(), ".claude")];
+  if (!isInsideAny(abs, lexicalRoots)) {
     warn(
       `Hook command \`${command}\` references \`${ref.rawPath}\`, outside the imported config tree and ~/.claude — not bundled (kept as a reference).`,
     );
     return null;
   }
-  const stat = await fs.stat(abs).catch(() => null); // follows symlinks (dotfiles setups)
-  if (!stat?.isFile()) {
+  // Resolve symlinks and re-check the REAL target: hook files are commonly
+  // symlinked to a dotfiles repo (which lands under $HOME), so we must follow
+  // them — but the resolved target must still stay inside the tree / ~/.claude /
+  // $HOME AND remain a script file, so a symlink inside the tree can't redirect
+  // the read to a system file or a non-script secret (e.g. /etc/shadow,
+  // ~/.ssh/id_rsa). realpath ENOENT ⇒ the file doesn't exist.
+  const real = await fs.realpath(abs).catch(() => null);
+  if (real == null) {
     warn(
       `Hook command \`${command}\` references \`${ref.rawPath}\`, not found on this machine — keeping the command reference (the hook may not run elsewhere).`,
     );
     return null;
   }
+  const realRoots = [...lexicalRoots, os.homedir()];
+  if (!isInsideAny(real, realRoots) || !HOOK_SCRIPT_EXT_RE.test(real)) {
+    warn(
+      `Hook command \`${command}\` resolves to \`${real}\` (via symlink), outside your home tree or not a script — not bundled.`,
+    );
+    return null;
+  }
+  const stat = await fs.lstat(real); // `real` is fully resolved — no symlink left to follow
+  if (!stat.isFile()) return null;
   if (stat.size > MAX_BYTES) return null;
-  const buf = await fs.readFile(abs);
+  const buf = await fs.readFile(real);
   if (buf.includes(0)) {
     warn(`Hook script \`${ref.rawPath}\` is not text — not bundled.`);
     return null;
