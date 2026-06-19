@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { stringify as stringifyYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
   AdapterExportOptions,
   AdapterOutputFile,
@@ -302,6 +302,69 @@ export async function readAtomFile(packRoot: string, atom: Atom): Promise<string
     if (e.code === "ENOENT") return null;
     throw new AtomReadError(atom.id, atom.path, e);
   }
+}
+
+export interface ResolvedSubagent {
+  /** The subagent's system-prompt instructions. */
+  instructions: string;
+  /** A `description` lifted from a markdown agent's frontmatter, if present. */
+  description?: string;
+}
+
+/**
+ * Resolve a subagent atom's body into its system-prompt instructions, handling
+ * both storage forms:
+ *
+ *  - **Markdown** (`*.md`) — Claude Code's native agent format: optional `---`
+ *    frontmatter (name/description/tools) followed by the prompt body. The body
+ *    becomes the instructions; a frontmatter `description` is surfaced too. This
+ *    is what lets a manifest reference an existing `.claude/agents/*.md` IN PLACE
+ *    without a descriptor wrapper.
+ *  - **YAML descriptor** (anything else, e.g. importer-emitted `*.yaml`) — a
+ *    mapping with an `instructions` string. Back-compatible with existing packs.
+ *
+ * Falls back to `atom.description` when the body is missing/empty or a descriptor
+ * carries no `instructions` — never silently emits a half-empty agent.
+ */
+export async function resolveSubagentBody(
+  packRoot: string,
+  atom: Atom,
+): Promise<ResolvedSubagent> {
+  const raw = await readAtomFile(packRoot, atom);
+  if (raw == null || raw.trim() === "") return { instructions: atom.description };
+
+  if (/\.(md|markdown)$/i.test(atom.path)) {
+    let body = raw;
+    let description: string | undefined;
+    if (raw.startsWith("---")) {
+      const end = raw.indexOf("\n---", 3);
+      if (end !== -1) {
+        const fmText = raw.slice(3, end).replace(/^\r?\n/, "");
+        body = raw.slice(end + 4).replace(/^\r?\n/, "");
+        try {
+          const fm = parseYaml(fmText) as Record<string, unknown> | null;
+          if (fm && typeof fm["description"] === "string") {
+            description = (fm["description"] as string).trim() || undefined;
+          }
+        } catch {
+          /* malformed frontmatter — fall through with the raw body */
+        }
+      }
+    }
+    return { instructions: body.trim() || atom.description, description };
+  }
+
+  // YAML-descriptor form: a mapping with an `instructions` string.
+  try {
+    const parsed = parseYaml(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const ins = (parsed as Record<string, unknown>)["instructions"];
+      if (typeof ins === "string" && ins.trim()) return { instructions: ins.trim() };
+    }
+  } catch {
+    /* not a YAML descriptor */
+  }
+  return { instructions: atom.description };
 }
 
 /**

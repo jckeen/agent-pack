@@ -7,6 +7,7 @@ import {
   readAtomDirectory,
   readAtomFile,
   readPackRelativeFile,
+  resolveSubagentBody,
   stableJsonStringify,
   wrapInstructionBlock,
   yamlFrontmatter,
@@ -207,16 +208,16 @@ export const claudeCodeAdapter = defineAdapter({
     const subagentAtoms = byType.get("subagent") ?? [];
     for (const atom of subagentAtoms) {
       const slug = slugFor(atom);
-      const parsed = await parseAtomYaml(packRoot, atom);
-      const instructions =
-        typeof parsed?.["instructions"] === "string"
-          ? (parsed["instructions"] as string).trim()
-          : atom.description;
+      // Resolve the body from either a markdown agent (frontmatter + prompt) or
+      // a YAML descriptor — so a manifest can reference an existing
+      // `.claude/agents/*.md` in place without losing the system prompt.
+      const { instructions, description } = await resolveSubagentBody(packRoot, atom);
       // Frontmatter carries only keys Claude Code's agent loader understands
-      // (name, description) — provenance and risk live in the lockfile.
+      // (name, description) — provenance and risk live in the lockfile. Prefer a
+      // description lifted from the source agent's frontmatter when present.
       files.push({
         path: `.claude/agents/${slug}.md`,
-        content: `${yamlFrontmatter({ name: slug, description: atom.description })}\n# ${atom.name}\n\n${instructions}\n`,
+        content: `${yamlFrontmatter({ name: slug, description: description ?? atom.description })}\n# ${atom.name}\n\n${instructions}\n`,
         action: "create",
       });
     }
