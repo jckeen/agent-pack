@@ -141,4 +141,35 @@ describe("hook script bundling (#90)", () => {
       result.warnings.some((w) => /outside the imported config tree/i.test(w.message)),
     ).toBe(true);
   });
+
+  it("does NOT follow a symlink that escapes to a non-script / out-of-tree file", async () => {
+    // A .sh-named symlink INSIDE the tree pointing at a secret outside it must
+    // not bundle the secret (symlink bypass of the exfiltration guard).
+    const secret = path.join(tmp, "secret.txt");
+    await fs.writeFile(secret, "TOTALLY_SECRET_VALUE\n");
+    const link = path.join(cfg, "hooks", "evil.sh");
+    await fs.symlink(secret, link);
+    await writeSettings(link);
+    const result = await importClaudeCodeDir(cfg, { id: "acme.hooks", name: "Hooks" });
+    expect(
+      result.files.find((f) => /^atoms\/hooks\/scripts\//.test(f.relativePath)),
+    ).toBeUndefined();
+    expect(result.files.map((f) => f.content).join("\n")).not.toContain(
+      "TOTALLY_SECRET_VALUE",
+    );
+  });
+
+  it("DOES follow a symlink to a script inside the tree (legit dotfiles-style)", async () => {
+    const real = path.join(cfg, "scripts", "real.sh");
+    await fs.mkdir(path.dirname(real), { recursive: true });
+    await fs.writeFile(real, "#!/usr/bin/env bash\necho LEGIT_LINKED_SCRIPT\n");
+    const link = path.join(cfg, "hooks", "linked.sh");
+    await fs.symlink(real, link);
+    await writeSettings(link);
+    const result = await importClaudeCodeDir(cfg, { id: "acme.hooks", name: "Hooks" });
+    const scriptFile = result.files.find((f) =>
+      /^atoms\/hooks\/scripts\//.test(f.relativePath),
+    );
+    expect(scriptFile?.content).toContain("LEGIT_LINKED_SCRIPT");
+  });
 });
