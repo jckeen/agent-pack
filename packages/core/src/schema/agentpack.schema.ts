@@ -25,8 +25,8 @@ const atomTypeSchema = z.enum(ATOM_TYPES as unknown as [string, ...string[]]);
 
 const authorSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email().optional(),
-  url: z.string().url().optional(),
+  email: z.email().optional(),
+  url: z.url().optional(),
 });
 
 const metadataSchema = z.object({
@@ -47,7 +47,7 @@ const metadataSchema = z.object({
   publisher: z.string().min(1),
   authors: z.array(authorSchema).optional(),
   tags: z.array(z.string()).optional(),
-  homepage: z.string().url().optional(),
+  homepage: z.url().optional(),
   repository: z.string().optional(),
 });
 
@@ -58,7 +58,7 @@ const compatibilityTargetSchema = z.object({
 });
 
 const compatibilitySchema = z.object({
-  targets: z.record(targetPlatformSchema, compatibilityTargetSchema),
+  targets: z.partialRecord(targetPlatformSchema, compatibilityTargetSchema),
 });
 
 const permissionsSchema = z
@@ -140,7 +140,7 @@ const profileSchema = z
     description: z.string().optional(),
     include: z.array(z.string()).optional(),
     exclude: z.array(z.string()).optional(),
-    policy: z.record(z.unknown()).optional(),
+    policy: z.record(z.string(), z.unknown()).optional(),
   })
   .partial();
 
@@ -277,11 +277,11 @@ const adapterEntrySchema = z
   .object({
     enabled: z.boolean().optional(),
     experimental: z.boolean().optional(),
-    output: z.record(z.string()).optional(),
+    output: z.record(z.string(), z.string()).optional(),
   })
   .partial();
 
-const adaptersSchema = z.record(adapterEntrySchema).optional();
+const adaptersSchema = z.record(z.string(), adapterEntrySchema).optional();
 
 export const agentPackManifestSchema = z
   .object({
@@ -292,7 +292,7 @@ export const agentPackManifestSchema = z
     compatibility: compatibilitySchema,
     permissions: permissionsSchema,
     security: securitySchema,
-    profiles: z.record(profileSchema),
+    profiles: z.record(z.string(), profileSchema),
     dependencies: dependenciesSchema,
     atoms: z.array(atomSchema).min(1).max(10_000),
     exports: exportsSchema,
