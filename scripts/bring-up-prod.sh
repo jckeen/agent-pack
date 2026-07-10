@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# bring-up-prod.sh — wire the Workgraph Registry against live infrastructure.
+# bring-up-prod.sh — wire the AgentPack Registry against live infrastructure.
 # =============================================================================
 #
 # This script is a guided runbook. It DOES NOT run unattended — every step

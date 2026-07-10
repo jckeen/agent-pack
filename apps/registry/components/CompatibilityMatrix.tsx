@@ -57,21 +57,25 @@ export function CompatibilityMatrix({
                 </td>
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
-                    <span
-                      className={`h-2.5 w-2.5 rounded-full ${style.dot}`}
-                      aria-hidden
-                    />
+                    <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} aria-hidden />
                     <span className="text-ink-600">{style.label}</span>
                   </span>
                 </td>
-                <td className="px-4 py-2 text-ink-400">
-                  {notes?.[target] ?? ""}
-                </td>
+                <td className="px-4 py-2 text-ink-400">{notes?.[target] ?? ""}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      <p className="border-t border-ink-100 bg-ink-50 px-4 py-2 text-xs text-ink-400">
+        Supported = the adapter emits complete output for that target; how the platform
+        consumes it varies (e.g. Codex reads repo-root AGENTS.md, not project{" "}
+        <code className="font-mono">.codex/</code> files) — see{" "}
+        <a href="/docs#adapters" className="underline hover:text-ink-600">
+          adapter docs
+        </a>
+        .
+      </p>
     </div>
   );
 }

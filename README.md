@@ -339,4 +339,4 @@ The project's living ideal-state articulation lives at [`ISA.md`](./ISA.md) — 
 
 ## License
 
-[MIT](./LICENSE) © 2026 AgentPack contributors. AgentPack is **open source forever** — the standard, the CLI, the adapters, and the optional hosted registry are all MIT-licensed and free. Self-host is a first-class deployment shape. The aim is interoperability: write an agent skill once and have Claude Code, Codex, Cursor, ChatGPT Apps, and any MCP-compatible host see it as native.
+[MIT](./LICENSE) © 2026 AgentPack contributors. AgentPack is **open source forever** — the standard, the CLI, the adapters, and the optional hosted registry are all MIT-licensed and free. Self-host is a first-class deployment shape. The aim is interoperability: write an agent skill once and compile conservative, reviewable output for Claude Code, Codex, Cursor, ChatGPT Apps, and a generic AGENTS.md target — how natively each platform consumes it varies (see [`docs/adapters.md`](./docs/adapters.md)).
