@@ -159,21 +159,21 @@ documented.
    gated, diffed, backed-up update. Local drift is caught by `verify`; a deliberate
    local improvement gets edited back into the pack repo and pushed.
 
-**Gap 1 — user scope.** The claude-code adapter emits project layout (`CLAUDE.md`,
-`.claude/…`). User-level config lives at `~/.claude/CLAUDE.md`, `~/.claude/settings.json`,
-`~/.claude/skills/…`. Today `--project ~` would write `~/CLAUDE.md` — wrong. Add
-`--scope user` to install/update: a path-mapping layer in the claude-code adapter
-(project paths → `~/.claude/*` equivalents), with `.agentpack/` state at
-`~/.claude/.agentpack/`. Everything else (lockfile, verify, backups, uninstall, update)
-works unchanged because it's all projectRoot-relative.
+**Gap 1 — user scope (closed in S3, #112).** The claude-code adapter emits project
+layout (`CLAUDE.md`, `.claude/…`). User-level config lives at `~/.claude/CLAUDE.md`,
+`~/.claude/settings.json`, `~/.claude/skills/…` — a bare `--project ~` would write
+`~/CLAUDE.md`, wrong. `--scope user` on install/update applies a path-mapping layer fed
+by the claude-code adapter (project paths → `~/.claude/*` equivalents), with
+`.agentpack/` state at `~/.claude/.agentpack/`. Everything else (lockfile, verify,
+backups, uninstall, update) works unchanged because it's all projectRoot-relative.
 
-**Gap 2 — closing the loop from the live side.** When you _did_ edit the live config
-directly: add `agentpack import --into <existing-pack-dir> --diff` — re-runs the
-claude-code importer against the live directory, shows what changed relative to the
-pack's current atoms, updates atom bodies in place rather than scaffolding a new pack.
-The user reviews and commits — git remains the sync channel; AgentPack is the
-differ/compiler on both ends. Deliberately not automatic: a human commit is the consent
-point for content that propagates to every machine.
+**Gap 2 — closing the loop from the live side (closed in S3, #112).** When you _did_
+edit the live config directly: `agentpack import --into <existing-pack-dir> --diff`
+re-runs the claude-code importer against the live directory, shows what changed relative
+to the pack's current atoms, and (without `--diff`) updates atom bodies in place rather
+than scaffolding a new pack. The user reviews and commits — git remains the sync
+channel; AgentPack is the differ/compiler on both ends. Deliberately not automatic: a
+human commit is the consent point for content that propagates to every machine.
 
 **Not needed:** any AgentPack-owned transport, state server, or conflict CRDT. Git
 already does distributed sync with history; AgentPack's job is compiling in both
@@ -258,7 +258,7 @@ exists for. Rules:
 | Trigger                   | Verdict                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Manual `agentpack update` | **Always the primitive.** Everything else is a notifier.                                                                                                                                                                                                                                                                                                          |
-| SessionStart hook         | **Recommended notifier.** Ship a first-party `agentpack.sync-check` pack with one SessionStart hook: `agentpack update --check --quiet \|\| echo "AgentPack updates available — run: agentpack update"`. Read-only, fast on the cached-SHA path, degrades silently offline, never applies anything. Bonus: the sync feature ships _as a pack_.              |
+| SessionStart hook         | **Recommended notifier.** Ship a first-party `agentpack.sync-check` pack with one SessionStart hook: `agentpack update --check --quiet \|\| echo "AgentPack updates available — run: agentpack update"`. Read-only, fast on the cached-SHA path, degrades silently offline, never applies anything. Bonus: the sync feature ships _as a pack_.                    |
 | CI in the pack repo       | **Recommended for the push direction, phase S4.** GitHub Action on push/tag: validate, re-emit the plugin (`pack plugin`), optionally open dependabot-style PRs against registered consumer repos running `agentpack update` — lockfile + compiled output as the diff, PR review as the consent gate. The only sanctioned "auto" path, because a human merges it. |
 | git post-merge hook       | Not default — per-repo installed hook (chicken-and-egg with governance) duplicating SessionStart. Document as an option; build nothing.                                                                                                                                                                                                                           |
 | Daemon / file-watcher     | **Not building.** Violates no-daemon, adds a resident attack surface to a supply-chain-sensitive tool, and saves nothing: config changes matter at session start, not mid-session.                                                                                                                                                                                |
@@ -316,9 +316,20 @@ backup; (c) atom deleted upstream → its files removed, user files untouched; (
 upstream adds a hook → unsigned update refuses without `--allow-exec` even with `--yes`.
 Crash-recovery: kill between begin and commit, recovery sweep restores.
 
-**Phase S3 — User scope + the personal-config loop** (1 session)
+**Phase S3 — User scope + the personal-config loop** (1 session) — **SHIPPED 2026-07-10 (#112)**
 `--scope user` path mapping for claude-code; `import --into <pack> --diff`;
 `docs/sync.md` documenting the machine-to-machine loop and web lanes/ceilings.
+Gate met by the S3 suites in `packages/cli/tests/update.cli.test.ts` (two-throwaway-HOME
+round trip on the mock-GitHub harness; HOME tree-diff across `--dry-run` asserted empty
+for both install and update) and `packages/cli/tests/import.cli.test.ts` (`--into --diff`
+zero-write preview, metadata preservation, stale-atom removal). Notes vs. the plan: the
+path mapping is a remap layer in `planInstall` fed by the claude-code adapter
+(`mapClaudeCodeOutputToUserScope`), applied before the pristine snapshot so lockfile,
+merge fragments, verify, uninstall, and update all agree; hook commands are rewritten
+`$CLAUDE_PROJECT_DIR/.claude/…` → `$HOME/.claude/…` at user scope; `.mcp.json` is an
+honest ceiling (Claude Code reads user-scope MCP from `~/.claude.json`, which AgentPack
+never edits — surfaced as an install warning); the install manifest records
+`scope: "user"` and `update` re-plans with it.
 _Gate:_ round-trip on throwaway `HOME`s: import fixture `~/.claude` → pack → `install
 --scope user` onto a second `HOME` → `verify` clean; edit pack, `update`; hook-script
 change refused without `--allow-exec`. Diff the `HOME` before/after `--dry-run` — zero

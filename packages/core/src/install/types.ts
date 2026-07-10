@@ -189,6 +189,12 @@ export interface InstallManifestV1 {
    * policy `update.maxRiskEscalation` gate compares a new version against.
    */
   riskLevel?: RiskLevel;
+  /**
+   * Install scope (sync S3). `"user"` = installed into `~/.claude` with the
+   * user-layout path mapping; `agentpack update` re-plans with the same
+   * mapping. Absent = project scope.
+   */
+  scope?: "user";
 }
 
 export type HistoryAction =
@@ -322,6 +328,8 @@ export interface InstallPlanV2 {
   }>;
   /** The lockfile that would be produced. */
   lockfile: LockfileV1;
+  /** Install scope (sync S3). `"user"` = ~/.claude layout. Absent = project. */
+  scope?: "user";
 }
 
 /**

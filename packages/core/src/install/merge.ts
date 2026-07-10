@@ -314,6 +314,10 @@ function isObj(v: unknown): v is Json {
 /** Paths the planner treats as JSON-mergeable configs. */
 export const JSON_MERGE_PATHS = new Set([
   ".claude/settings.json",
+  // User-scope mapped form of `.claude/settings.json` (sync S3): a `--scope
+  // user` install roots at ~/.claude, where the file is plain `settings.json`
+  // and almost always already holds user config — it MUST deep-merge.
+  "settings.json",
   ".mcp.json",
   ".cursor/mcp.json",
   ".codex/hooks.json",

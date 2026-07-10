@@ -79,6 +79,34 @@ function isHookCommandAllowed(command: string, allowed: string[]): boolean {
   return allowed.includes(command);
 }
 
+/**
+ * Sync S3 (#112): user-scope path mapping. The adapter emits the PROJECT
+ * layout (`CLAUDE.md`, `.claude/…`, `.mcp.json`); a `--scope user` install
+ * roots at `~/.claude`, whose layout drops the `.claude/` prefix
+ * (`~/.claude/CLAUDE.md`, `~/.claude/skills/…`, `~/.claude/settings.json`).
+ * `.mcp.json` keeps its name under `~/.claude` — Claude Code reads user-scope
+ * MCP servers from `~/.claude.json`, which lives OUTSIDE the install root and
+ * is never touched; the caller surfaces that ceiling as a warning.
+ *
+ * Content mapping: hook commands are emitted as
+ * `$CLAUDE_PROJECT_DIR/.claude/hooks/<script>`, which at user scope would
+ * resolve into whatever project the agent happens to be in — rewrite them to
+ * `$HOME/.claude/hooks/<script>` (hooks run through a shell, so `$HOME`
+ * expands).
+ */
+export function mapClaudeCodeOutputToUserScope(file: { path: string; content: string }): {
+  path: string;
+  content: string;
+} {
+  let p = file.path;
+  if (p.startsWith(".claude/")) p = p.slice(".claude/".length);
+  let content = file.content;
+  if (p === "settings.json") {
+    content = content.replace(/\$\{?CLAUDE_PROJECT_DIR\}?\/\.claude\//g, "$HOME/.claude/");
+  }
+  return { path: p, content };
+}
+
 export const claudeCodeAdapter = defineAdapter({
   target: "claude-code",
   async build(options: AdapterExportOptions) {
@@ -191,8 +219,7 @@ export const claudeCodeAdapter = defineAdapter({
         body = await readPromptFile(packRoot, promptPath);
       }
       const args = parsed?.["arguments"] as
-        | Array<{ name?: string; default?: unknown }>
-        | undefined;
+        Array<{ name?: string; default?: unknown }> | undefined;
       const argHint =
         args && args.length > 0
           ? args.map((a) => `[${a.name ?? "arg"}]`).join(" ")
@@ -244,8 +271,7 @@ export const claudeCodeAdapter = defineAdapter({
           ] ?? ["PostToolUse"]) as string[];
         const handler =
           (parsed?.["handler"] as
-            | { command?: string; matcher?: string; script_path?: string }
-            | undefined) ??
+            { command?: string; matcher?: string; script_path?: string } | undefined) ??
           (
             atom as {
               handler?: { command?: string; matcher?: string; script_path?: string };

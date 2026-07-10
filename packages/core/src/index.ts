@@ -130,6 +130,8 @@ export {
 export {
   importClaudeMd,
   writeImport,
+  foldImportInto,
+  type FoldChange,
   parseClaudeMd,
   buildManifest,
   slugify,

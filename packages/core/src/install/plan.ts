@@ -17,6 +17,7 @@ import {
   type MergeRecord,
 } from "./merge.js";
 import { readInstallManifest, InstallManifestNotFoundError } from "./manifest.js";
+import { mapClaudeCodeOutputToUserScope } from "../adapters/claudeCode.js";
 
 const BEGIN_MARKER = /<!--\s*BEGIN AGENTPACK:\s*([\w.\-/]+)\s*-->/;
 
@@ -32,6 +33,13 @@ export interface PlanInstallOptions {
   profile?: ProfileName;
   /** User's project root — where the install will land. */
   projectRoot: string;
+  /**
+   * Install scope (sync S3, #112). `"user"` roots the install at `~/.claude`
+   * (the caller passes that as `projectRoot`) and remaps the claude-code
+   * adapter's project-layout paths to their user-layout equivalents
+   * (`.claude/X` → `X`). Only `claude-code` supports it.
+   */
+  scope?: "project" | "user";
   /** Generator versions stamped into the lockfile. */
   generator: { cli: string; adapter: string };
   /** Allow file body to be missing — defaults to false. */
@@ -74,6 +82,27 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       allowMissingBodies: opts.allowMissingBodies,
     });
     const planFiles = result.plan.files;
+    // User scope (sync S3): remap adapter output to the ~/.claude layout
+    // BEFORE the pristine snapshot, so the lockfile, merge fragments, and
+    // classification all agree on the mapped paths/content. verify, uninstall,
+    // and update then work unchanged — everything stays projectRoot-relative.
+    if (opts.scope === "user") {
+      if (opts.target !== "claude-code") {
+        throw new Error(
+          `--scope user is only supported for the claude-code target (got \`${opts.target}\`).`,
+        );
+      }
+      for (const f of planFiles) {
+        const mapped = mapClaudeCodeOutputToUserScope(f);
+        if (mapped.path === ".mcp.json") {
+          result.plan.warnings.push(
+            "User scope: `.mcp.json` is written under ~/.claude for reference, but Claude Code reads USER-scope MCP servers from ~/.claude.json — register them there yourself (AgentPack never edits ~/.claude.json).",
+          );
+        }
+        f.path = mapped.path;
+        f.content = mapped.content;
+      }
+    }
     // Snapshot the pack's pristine contribution per path BEFORE any merge
     // rewrites staged content. The lockfile must hash the pack's output (so
     // it stays deterministic and reproducible across projects), and merge
@@ -200,6 +229,7 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       conflicts,
       merges,
       lockfile: lock,
+      ...(opts.scope === "user" ? { scope: "user" as const } : {}),
     };
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });

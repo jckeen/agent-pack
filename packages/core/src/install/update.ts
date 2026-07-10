@@ -438,8 +438,23 @@ export function computeExecDelta(input: {
 
   const shipsHooks = execAtoms.some((a) => a.type === "hook");
   const BANG_BASH = /!`/;
+  // User-scope installs (sync S3) drop the `.claude/` prefix: hooks live at
+  // `hooks/`, settings at `settings.json`, commands/agents at the root. Keyed
+  // off the manifest's recorded scope so project-scope packs emitting a
+  // top-level `hooks/` dir for some other target don't false-positive.
+  const userScope = input.priorManifest.scope === "user";
   const isExecSurface = (p: string, content?: string): boolean => {
     if (/(^|\/)\.claude\/hooks\//.test(p)) return true;
+    if (userScope && /^hooks\//.test(p)) return true;
+    if (userScope && p === "settings.json" && shipsHooks) return true;
+    if (
+      userScope &&
+      /^(commands|agents)\/[^/]+\.md$/.test(p) &&
+      content !== undefined &&
+      BANG_BASH.test(content)
+    ) {
+      return true;
+    }
     // Config surfaces carrying launch/command lines: MCP server configs and
     // the codex config.toml where the codex adapter writes MCP command lines
     // (security review, sync S2 — a changed codex MCP command must re-consent).

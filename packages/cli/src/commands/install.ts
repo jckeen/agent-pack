@@ -49,6 +49,11 @@ export function registerInstall(program: Command): void {
     .option("--target <target>", "platform target", "claude-code")
     .option("--profile <profile>", "install profile (e.g. safe, standard, full)")
     .option("--project <dir>", "target project directory", process.cwd())
+    .option(
+      "--scope <scope>",
+      "install scope: `project` (default) or `user` — user scope installs into ~/.claude with user-layout paths (claude-code target only; state at ~/.claude/.agentpack/)",
+      "project",
+    )
     .option("-y, --yes", "skip confirmation prompt", false)
     .option("--dry-run", "print diff and exit without writing", false)
     .option("--force", "overwrite existing files without an AgentPack marker", false)
@@ -85,6 +90,7 @@ export function registerInstall(program: Command): void {
           target: TargetPlatform;
           profile?: string;
           project: string;
+          scope: string;
           yes: boolean;
           dryRun: boolean;
           force: boolean;
@@ -96,6 +102,7 @@ export function registerInstall(program: Command): void {
           allowExec: boolean;
           failOnUnsupported: boolean;
         },
+        command: Command,
       ) => {
         try {
           if (!VALID_TARGETS.includes(options.target)) {
@@ -105,6 +112,52 @@ export function registerInstall(program: Command): void {
               ),
             );
             process.exit(2);
+          }
+          if (options.scope !== "project" && options.scope !== "user") {
+            console.error(
+              pc.red(`Invalid --scope \`${options.scope}\`. Choose: project, user`),
+            );
+            process.exit(2);
+          }
+          const scope = options.scope as "project" | "user";
+          // Sync S3 (#112): `--scope user` roots the install at ~/.claude and
+          // remaps adapter output to the user layout. State (.agentpack/)
+          // lands at ~/.claude/.agentpack/ — never inside any project.
+          if (scope === "user") {
+            if (options.target !== "claude-code") {
+              console.error(
+                pc.red(
+                  `✗ --scope user is only supported with --target claude-code (got \`${options.target}\`).`,
+                ),
+              );
+              process.exit(2);
+            }
+            if (command.getOptionValueSource("project") === "cli") {
+              console.error(
+                pc.red(
+                  "✗ --project and --scope user are mutually exclusive — user scope always installs into ~/.claude.",
+                ),
+              );
+              process.exit(2);
+            }
+            const userRoot = path.join(os.homedir(), ".claude");
+            const exists = await fs
+              .stat(userRoot)
+              .then((s) => s.isDirectory())
+              .catch(() => false);
+            if (!exists) {
+              if (options.dryRun) {
+                // A dry-run must never mutate ~ — including creating ~/.claude.
+                console.error(
+                  pc.red(
+                    `✗ ${userRoot} does not exist. --dry-run never creates it; run without --dry-run to install (which will create it).`,
+                  ),
+                );
+                process.exit(2);
+              }
+              await fs.mkdir(userRoot, { recursive: true });
+            }
+            options.project = userRoot;
           }
           let source = pack ?? process.cwd();
           // #35 fix 3: when --require-sig verifies a signature, carry the
@@ -372,6 +425,7 @@ export function registerInstall(program: Command): void {
             profile: options.profile,
             projectRoot: options.project,
             generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
+            ...(scope === "user" ? { scope: "user" as const } : {}),
           });
 
           // #35 fix 3: persist the verified signature envelope into the lockfile
@@ -501,12 +555,14 @@ export function registerInstall(program: Command): void {
           // (e.g. the README quickstart's /pr-summary) stays frictionless.
           const BANG_BASH = /!`/;
           const plannedOutputs = [...plan.created, ...plan.modified, ...plan.unchanged];
+          // User scope drops the `.claude/` prefix (sync S3): commands/agents
+          // land at the ~/.claude root, so match the scope's actual layout.
+          const execPathRe =
+            scope === "user"
+              ? /^(commands|agents)\/[^/]+\.md$/
+              : /(^|\/)\.claude\/(commands|agents)\/[^/]+\.md$/;
           const execFiles = plannedOutputs
-            .filter(
-              (f) =>
-                /(^|\/)\.claude\/(commands|agents)\/[^/]+\.md$/.test(f.path) &&
-                BANG_BASH.test(f.content),
-            )
+            .filter((f) => execPathRe.test(f.path) && BANG_BASH.test(f.content))
             .map((f) => f.path);
           if (
             (execAtoms.length > 0 || execFiles.length > 0) &&
@@ -625,11 +681,19 @@ export function registerInstall(program: Command): void {
             pc.dim(`  • Manifest: ${result.manifestPath.replace(plan.projectRoot, ".")}`),
           );
           console.log(pc.dim(`  • History entry: ${result.commitEntry.id}`));
-          console.log(
-            pc.dim(
-              `\nConsider adding to .gitignore:\n  .agentpack/installed/\n  .agentpack/backups/\n  .agentpack/history.jsonl\n  .agentpack/.lock\nKeep \`AGENTPACK.lock\` committed for reproducibility.`,
-            ),
-          );
+          if (scope === "user") {
+            console.log(
+              pc.dim(
+                `\nUser-scope install: files live under ~/.claude, state under ~/.claude/.agentpack/.\nKeep the pack repo as the source of truth; run \`agentpack update --scope user\` to pull its changes.`,
+              ),
+            );
+          } else {
+            console.log(
+              pc.dim(
+                `\nConsider adding to .gitignore:\n  .agentpack/installed/\n  .agentpack/backups/\n  .agentpack/history.jsonl\n  .agentpack/.lock\nKeep \`AGENTPACK.lock\` committed for reproducibility.`,
+              ),
+            );
+          }
         } catch (err) {
           failCleanly(err);
         }

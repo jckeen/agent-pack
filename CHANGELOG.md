@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0-dev — 2026-07-10 (sync S3: user scope + the personal-config loop — #112)
+
+Phase S3 of the continuous-sync design — one person's `~/.claude` on every machine, gated like any install (TDD throughout):
+
+- **`install --scope user` / `update --scope user`.** Roots the install at `~/.claude` (claude-code target only; mutually exclusive with `--project`), remapping the adapter's project layout to the user layout: `CLAUDE.md` → `~/.claude/CLAUDE.md`, `.claude/skills|agents|commands|hooks/…` → `~/.claude/…`, `.claude/settings.json` → `~/.claude/settings.json` **deep-merged** with existing user settings (user keys survive), hook commands rewritten `$CLAUDE_PROJECT_DIR/.claude/hooks/…` → `$HOME/.claude/hooks/…`. Install state lands at `~/.claude/.agentpack/` — no project is touched. The manifest records `scope: "user"` and `update` re-plans with it; verify/uninstall/rollback work unchanged against `--project ~/.claude`. Honest ceiling: `.mcp.json` under `~/.claude` is reference output — Claude Code reads user-scope MCP servers from `~/.claude.json`, which AgentPack never edits (warned at install).
+- **Exec gates hold at user scope.** `computeExecDelta` recognizes the user-layout exec surfaces (`hooks/…`, root `settings.json` when the pack ships hooks, bang-bash `commands|agents/*.md`), keyed off the recorded scope; an updated hook script refuses without `--allow-exec` even with `--yes` (exit 6).
+- **`import --into <pack-dir> [--diff]`** — fold live-config edits back into an existing pack: atoms/permissions/security regenerated from the live config; `metadata`/`profiles`/`exports`/`adapters`/`compatibility` preserved verbatim; stale `atoms/` files removed. `--diff` is a zero-write preview (exit 0 in sync / 2 out of sync). Deliberately not automatic — the git commit is the consent point.
+- **Gate (CI-runnable, no network, throwaway `HOME`s).** Two-HOME round trip: import a live `~/.claude` (skill + hook with bundled script) → install `--scope user` on a second HOME → `verify --all` clean → instruction edit updates under `--yes` → hook-script edit refused without `--allow-exec`, applies with it. HOME tree diff across `install --dry-run` AND `update --dry-run` asserted **empty**; a missing `~/.claude` under `--dry-run` errors without being created.
+- New `docs/sync.md` (the personal-config loop, project/CI lane, web lanes + ceilings, no-daemon triggers); `docs/cli.md` flag docs; `docs/sync-design.md` S3 marked shipped; ISA ISC-349..353.
+
 ## 0.7.0-dev — 2026-07-10 (sync S2: the `agentpack update` apply path — #111)
 
 Phase S2 of the continuous-sync design — updates now apply, with install-grade discipline (TDD throughout):
