@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type { HistoryEntryV1 } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
 import { resolveAgentpackPaths, fromRelative, realpathContained } from "./paths.js";
-import { readHistory, recordHistory, newHistoryId } from "./history.js";
+import { readHistory, recordHistory, newHistoryId, verifyChain } from "./history.js";
 import { readInstallManifest } from "./manifest.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 
@@ -39,6 +39,19 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
     unresolved: [],
   };
   if (all.length === 0) return result;
+
+  // The sweep drives unlink/restore from history entries, so a forged or
+  // corrupted history (a repo can ship a committed `.agentpack/history.jsonl`)
+  // must not reach that machinery. A genuine local WAL is always chain-valid;
+  // refuse to act on a broken chain (security review, sync S2). `verify
+  // --chain` surfaces the same break loudly to the user.
+  const chain = verifyChain(all);
+  if (!chain.ok) {
+    throw new Error(
+      `Refusing crash recovery: history.jsonl hash chain is broken at entry index ${chain.brokeAt}. ` +
+        `Run \`agentpack verify --chain\` to inspect; a forged or corrupted history cannot drive recovery.`,
+    );
+  }
 
   // Build a map: begin entries that have NO matching commit/recovery
   // afterward. Match is by packId + id ordering — a commit always comes after
@@ -79,20 +92,24 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
     // writes but before the manifest write would otherwise be marked
     // "success" while verify/uninstall/rollback cannot find the install
     // (codex P0-4). Manifest missing or unreadable → roll back.
+    // The packVersion must match the begin entry too (sync S2): an UPDATE
+    // that crashes between file writes and the manifest write leaves the
+    // PRIOR version's manifest on disk — same packId, stale records — which
+    // would otherwise roll forward into an inconsistent state.
     let manifestPresent = false;
     if (allPresentAndClean && planned.length > 0) {
       try {
         const m = await readInstallManifest(ws, begin.packId);
-        manifestPresent = m.packId === begin.packId;
+        manifestPresent = m.packId === begin.packId && m.packVersion === begin.packVersion;
       } catch {
         manifestPresent = false;
       }
     }
     if (allPresentAndClean && manifestPresent && planned.length > 0) {
-      // Roll forward: synthesize a commit entry.
+      // Roll forward: synthesize a commit entry matching the begin's kind.
       const committed = await recordHistory(ws, {
         id: newHistoryId(),
-        action: "install_commit",
+        action: begin.action === "update_begin" ? "update_commit" : "install_commit",
         timestamp: new Date().toISOString(),
         packId: begin.packId,
         packVersion: begin.packVersion,
@@ -103,9 +120,13 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
         recoveredBegin: begin.id,
       });
       result.recovered.push(committed);
-    } else if (planned.length > 0) {
+    } else if (planned.length > 0 || (begin.requiredBackups?.length ?? 0) > 0) {
       // Roll back: delete staged files, restore overwritten user files, append
       // a recovery entry whose result reflects whether the rollback was safe.
+      // A removal-only update (sync S2) has empty plannedFiles but non-empty
+      // requiredBackups — it must still roll back, restoring the removal
+      // targets from their backups, rather than being left as "no planned
+      // files — leave alone" (which stranded the mutated files).
       const createdSet = new Set(begin.createdPaths ?? []);
       for (const pf of planned) {
         let abs: string;
@@ -152,9 +173,17 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
       // the backup root IS its original project-relative path. Restore only
       // into destinations the unlink pass above left empty — never clobber a
       // file the user has since recreated.
+      // Update removals mutated pre-existing files that are NOT in
+      // plannedFiles (they live only in requiredBackups). Those must be
+      // force-restored over the crash-interrupted content; every other backup
+      // keeps the create-only semantics that spare a user-recreated file.
+      const plannedPaths = new Set(planned.map((pf) => pf.path));
+      const forceRestore = new Set(
+        (begin.requiredBackups ?? []).filter((p) => !plannedPaths.has(p)),
+      );
       let restored = new Set<string>();
       if (begin.backupDir) {
-        restored = await restoreBackups(ws, begin.backupDir).catch(() => {
+        restored = await restoreBackups(ws, begin.backupDir, forceRestore).catch(() => {
           // A malformed backupDir must not crash the sweep; treat as "nothing
           // restored" and let the required-backup check below decide safety.
           return new Set<string>();
@@ -214,11 +243,14 @@ export async function recoverIncomplete(projectRoot: string): Promise<RecoveryRe
  * original location (the path relative to the backup root). Restores only
  * when the destination is missing — the rollback unlink pass removes staged
  * files first, and anything else at the destination is user content we must
- * not overwrite.
+ * not overwrite. Paths in `forceRestore` (update-removal targets) are the
+ * exception: they are overwritten, since a write-/restore-kind removal left
+ * crash-interrupted content on disk that create-only would skip.
  */
 async function restoreBackups(
   ws: AgentpackPaths,
   backupDirRel: string,
+  forceRestore: Set<string> = new Set(),
 ): Promise<Set<string>> {
   const restored = new Set<string>();
   const backupRoot = fromRelative(ws.projectRoot, backupDirRel);
@@ -250,11 +282,19 @@ async function restoreBackups(
         try {
           const content = await fs.readFile(abs, "utf8");
           await fs.mkdir(path.dirname(dest), { recursive: true });
-          // `wx`: restore only if the destination is missing.
-          await fs.writeFile(dest, content, { encoding: "utf8", flag: "wx" });
+          if (forceRestore.has(nextRel)) {
+            // Update-removal targets (write-/restore-kind) left crash-
+            // interrupted content on disk, so create-only would skip them —
+            // overwrite to the pre-update backup (correctness review, S2).
+            await fs.writeFile(dest, content, "utf8");
+          } else {
+            // Everything else: restore only if the destination is missing, so
+            // a file the user recreated after the crash is never clobbered.
+            await fs.writeFile(dest, content, { encoding: "utf8", flag: "wx" });
+          }
           restored.add(nextRel);
         } catch {
-          // Destination exists or unreadable backup — skip.
+          // Destination exists (non-force path) or unreadable backup — skip.
         }
       }
     }
@@ -312,7 +352,8 @@ async function unrestoredRequiredBackups(
       // Path malformed/escaping — we never touched it, so nothing was lost.
       continue;
     }
-    // Destination holds content (user-recreated or left in place) → safe.
+    // Destination holds content (user-recreated, left in place, or a
+    // force-restored removal target that landed in `restored` above) → safe.
     try {
       await fs.stat(dest);
       continue;
@@ -351,30 +392,43 @@ function findDanglingBegins(entries: readonly HistoryEntryV1[]): HistoryEntryV1[
   for (let i = 0; i < entries.length; i++) {
     const after = entries[i];
     if (after === undefined) continue;
+    // Only a SUCCESSFUL commit (or a rollback-recovery) resolves a begin. The
+    // apply catch-path writes a `result: "failed"` commit for audit; if that
+    // counted as a match, a crashed apply would be hidden from every future
+    // sweep and its partial state never cleaned up (correctness review, S2).
+    // `install_rollback_recovery` is always terminal regardless of result.
     if (
-      (after.action === "install_commit" || after.action === "install_rollback_recovery") &&
-      after.recoveredBegin
+      ((after.action === "install_commit" || after.action === "update_commit") &&
+        after.result === "success") ||
+      after.action === "install_rollback_recovery"
     ) {
-      matchedBeginIds.add(after.recoveredBegin);
+      if (after.recoveredBegin) matchedBeginIds.add(after.recoveredBegin);
     }
   }
-  // ALSO: an install_begin immediately followed by install_commit (no
-  // recoveredBegin needed) in the normal happy path. We match those by
-  // structural locality: an install_commit whose previousEntryId equals the
-  // begin's id and whose packId+target+profile match.
+  // ALSO: a begin immediately followed by its commit (no recoveredBegin
+  // needed) in the normal happy path. We match those by structural locality:
+  // a commit whose previousEntryId equals the begin's id and whose
+  // packId+target+profile match. Sync S2: update_begin/update_commit share
+  // the WAL discipline, so the sweep treats them identically.
   const dangling: HistoryEntryV1[] = [];
   for (let i = 0; i < entries.length; i++) {
     const begin = entries[i];
     if (begin === undefined) continue;
-    if (begin.action !== "install_begin") continue;
+    if (begin.action !== "install_begin" && begin.action !== "update_begin") continue;
     if (matchedBeginIds.has(begin.id)) continue;
     // Happy-path locality match: the very next entry is a same-pack commit.
+    const commitAction =
+      begin.action === "update_begin" ? "update_commit" : "install_commit";
     let happy = false;
     for (let j = i + 1; j < entries.length; j++) {
       const next = entries[j];
       if (next === undefined) continue;
-      if (next.action !== "install_commit") continue;
+      if (next.action !== commitAction) continue;
       if (
+        // A `result: "failed"` commit (the apply catch-path's audit row) must
+        // NOT resolve the begin — otherwise a crashed apply is hidden from the
+        // sweep and its partial state never rolled back (correctness review).
+        next.result === "success" &&
         next.previousEntryId === begin.id &&
         next.packId === begin.packId &&
         next.target === begin.target &&

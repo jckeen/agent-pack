@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { planInstall, applyInstall, resolveAgentpackPaths } from "../src/install/index.js";
 import { recoverIncomplete } from "../src/install/recovery.js";
-import { readHistory } from "../src/install/history.js";
+import { readHistory, sealEntry } from "../src/install/history.js";
 
 const EXAMPLE_PACK = path.resolve(__dirname, "../../../examples/pr-quality");
 const GEN = { cli: "0.2.0-test", adapter: "0.2.0-test" };
@@ -31,9 +31,13 @@ async function mutateBeginEntry(
   const begin = entries.find((e) => e.action === "install_begin");
   if (!begin) throw new Error("no install_begin entry found");
   fn(begin);
+  // Re-seal every entry so the hash chain stays valid — `recoverIncomplete`
+  // refuses a broken chain (a forged/committed history must not drive the
+  // sweep). Deleting the new fields then re-sealing faithfully emulates an
+  // entry a pre-field CLI would have written and sealed.
   await fs.writeFile(
     ws.historyFile,
-    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    entries.map((e) => JSON.stringify(sealEntry(e as never))).join("\n") + "\n",
     "utf8",
   );
 }

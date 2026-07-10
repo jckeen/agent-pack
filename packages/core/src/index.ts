@@ -37,11 +37,15 @@ export {
   policyConfigSchema,
   loadPolicy,
   enforcePolicy,
+  enforceUpdatePolicy,
   PolicyParseError,
   type PolicyConfig,
   type PolicyEnforcementPlan,
   type PolicyEnforcementResult,
   type PolicyViolation,
+  type UpdatePolicyPlan,
+  type UpdatePolicyResult,
+  type UpdatePolicyViolation,
 } from "./policy/index.js";
 
 export * from "./schema/types.js";
@@ -231,6 +235,10 @@ export {
   verifyInstall,
   rollback,
   recoverIncomplete,
+  planUpdate,
+  applyUpdate,
+  computeExecDelta,
+  UpdateConflictError,
 } from "./install/index.js";
 export type {
   CanonicalizationSpec,
@@ -256,4 +264,10 @@ export type {
   RollbackOptions,
   RollbackResult,
   RecoveryResult,
+  UpdatePlan,
+  UpdateConflict,
+  UpdateRemoval,
+  PlanUpdateOptions,
+  ApplyUpdateOptions,
+  ApplyUpdateResult,
 } from "./install/index.js";

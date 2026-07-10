@@ -56,15 +56,26 @@ With `--all` (instead of a packId), verifies **every** pack recorded under `.age
 
 Exit codes follow the project taxonomy (see below).
 
-### `agentpack update [packId] --check [--project <dir>] [--quiet] [--json]`
+### `agentpack update [packId] [--check] [--to <ref>] [--yes] [--allow-exec] [--theirs <glob>] [--keep-local <glob>] [--dry-run] [--project <dir>] [--quiet] [--json]`
 
-Sync phase S1 ([#110](https://github.com/jckeen/agent-pack/issues/110), design in [`sync-design.md`](./sync-design.md)) ships the read-only `--check` half of `agentpack update`. For each install manifest (or just `packId`'s), it reads the recorded `source` provenance block and re-resolves it:
+The sync primitive ([`sync-design.md`](./sync-design.md); `--check` shipped in S1 [#110](https://github.com/jckeen/agent-pack/issues/110), the apply path in S2 [#111](https://github.com/jckeen/agent-pack/issues/111)).
 
-- **git sources** on the `branch` channel: re-resolve the recorded ref via the GitHub API and compare commit SHAs; a moved branch prints `old → new` and counts as an available update. `pinned` (40-hex ref) and `tag` channels never move implicitly — they're reported as pinned (`--to` arrives with the S2 apply path).
+**`--check` (read-only).** For each install manifest (or just `packId`'s), re-resolve the recorded `source` provenance block:
+
+- **git sources** on the `branch` channel: re-resolve the recorded ref via the GitHub API and compare commit SHAs; a moved branch prints `old → new` and counts as an available update. `pinned` (40-hex ref) and `tag` channels never move implicitly.
 - **registry sources** on the `latest` channel: compare the installed version against the newest published version. Exact-version installs are `pinned`.
 - installs with **no `source` block** (local paths, pre-S1 lockfiles) are reported and skipped.
 
-Exit codes: `0` = everything current (or nothing checkable), `10` = at least one update available, `1` = a check failed (network, corrupt provenance) with no update found. `--quiet` is exit-code-only; `--json` emits `{ updatesAvailable, packs[] }`. The check is **read-only** — it never touches the project tree, and never applies anything. Running `update` **without** `--check` defers loudly (exit `2`): the apply path (three-way reconcile, removals, install-grade gates) is phase S2.
+Check exit codes: `0` = everything current (or nothing checkable), `10` = at least one update available, `1` = a check failed. `--quiet` is exit-code-only; `--json` emits `{ updatesAvailable, packs[] }`. The check never touches the project tree.
+
+**Apply (bare `update`).** Re-fetches the source, then runs a per-file **three-way reconcile** — BASE (what the pack wrote at install, from the install manifest) vs LOCAL (on disk) vs NEW (the fetched version):
+
+- LOCAL == BASE, NEW moved → **applied** (this covers markerless pack-owned files like skills: ownership is the manifest hash, not a marker).
+- LOCAL edited, NEW unchanged → **retained** — your edit is kept and reported as retained drift.
+- both changed → **conflict**: the update refuses (exit `2`) listing the paths; resolve per-glob with `--theirs` (take the pack's version — your edit is backed up first, restorable) or `--keep-local` (keep your edit, skip that path). Marker-merged files (`CLAUDE.md`/`AGENTS.md`) compare the pack's *fragment*, so your content around the span never conflicts.
+- files whose atoms were **deleted upstream** are surgically removed (fragment unmerge / owned-file delete / pre-install backup restore); a user-edited removal target is skipped and reported, never deleted.
+
+Every install-grade gate runs on the delta: policy (exit `6`), **exec re-consent** — an unsigned update that adds or touches executable content (hook/`mcp_server` atoms, hook scripts, MCP configs, bang-bash command bodies) refuses without `--allow-exec`, even with `--yes` — and the policy `update` section's channel ceiling / `requireReconsent` / `maxRiskEscalation` (see [`policy.md`](./policy.md)). The channel is **re-derived live at update time** — a tampered manifest cannot turn a pinned install into a tracking one. `pinned`/`tag` installs move only via `--to <ref>` (which also re-pins `requestedRef`). Applies use the same WAL discipline as install (`update_begin`/`update_commit` + backups), so a crash mid-update is rolled back or forward by the automatic recovery sweep. `--dry-run` prints the full reconcile report and writes nothing. Registry-sourced installs: the apply path is deferred until the registry live-smoke lands — `update` prints the exact signed `install` command to run instead; `--check` fully works.
 
 Credential hygiene: the recorded `source` block is attacker-influenced input when a repo ships committed `.agentpack/installed/` state, so the check path treats it accordingly — a registry URL from a manifest must be https (plaintext only to loopback), only a token you explicitly stored via `login` for **exactly** that URL is attached (never the ambient `AGENTPACK_TOKEN`), and registry requests refuse redirects with the bearer attached.
 

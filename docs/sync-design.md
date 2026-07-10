@@ -300,9 +300,16 @@ re-run at same SHA exits 0. Lockfile snapshots byte-stable for local-path instal
 `source` field).
 
 **Phase S2 — Apply path: three-way reconcile + removals + gates** (the core; 1–2
-sessions)
+sessions) — **SHIPPED 2026-07-10 (#111)**
 Full 1.3 algorithm, `update_begin/commit` history, exec re-consent on delta, policy
-`update` section.
+`update` section. Gate met by `packages/cli/tests/update-apply.cli.test.ts` (all four
+scenarios, CI-runnable on the S1 mock-GitHub harness) + the crash-recovery kill test in
+`packages/core/tests/update-engine.test.ts`. Notes vs. the plan: exec re-consent keys
+off manifest atom-ids + file-level exec surfaces (the v1 lockfile's atoms collapse to a
+synthetic `*pack` entry, so per-atom `sourceChecksum` diffing isn't possible); the
+channel is re-derived live at update time, never trusted from the stored block (#111
+security note); the registry apply path is deferred until live-smoke (the check path
+works; `update` prints the exact signed `install` command).
 _Gate:_ four scripted scenarios: (a) clean update applies, verify clean; (b) local edit
 inside a marker span → refusal listing the path, `--theirs` applies with restorable
 backup; (c) atom deleted upstream → its files removed, user files untouched; (d)

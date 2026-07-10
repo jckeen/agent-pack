@@ -23,6 +23,8 @@ export const historyEntrySchema = z.object({
     "install_rollback_recovery",
     "uninstall",
     "rollback",
+    "update_begin",
+    "update_commit",
   ]),
   timestamp: z.string().min(1),
   packId: z.string().min(1),

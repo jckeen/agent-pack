@@ -23,7 +23,7 @@ const SECTIONS = [
   },
   {
     title: "Install / update / verify",
-    body: "`agentpack install` takes a local path, a git source (github:owner/repo@ref#subpath — no registry or account needed), or a registry id: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups, unmerge shared files). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift (--all iterates every installed pack). `agentpack update --check` re-resolves each install's recorded source (git ref or registry version) and exits 10 when an update is available — the apply path lands in sync phase S2. `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
+    body: "`agentpack install` takes a local path, a git source (github:owner/repo@ref#subpath — no registry or account needed), or a registry id: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups, unmerge shared files). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift (--all iterates every installed pack). `agentpack update` keeps installs current from their recorded source: --check re-resolves and exits 10 when an update is available; the apply path runs a BASE/LOCAL/NEW three-way reconcile (your edits are retained or conflict loudly — never silently clobbered), removes upstream-deleted files surgically, and re-runs every install gate on the delta (an unsigned exec-bearing update still requires --allow-exec). `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
     link: "/docs#install",
   },
 ];
@@ -174,7 +174,8 @@ agentpack pack plugin|mcpb|chat # Claude Code plugin / .mcpb / Chat bundle
 agentpack install <src>         # local path · github:owner/repo@ref#subpath
                                 #   · registry id
 agentpack verify <packId>|--all # drift detection against the lockfile
-agentpack update --check        # exit 10 when the installed source has moved
+agentpack update [--check]      # three-way-reconcile update from the recorded
+                                #   source (--check: exit 10 = update available)
 agentpack diff / history / rollback / uninstall
 agentpack login · whoami · tokens · publish · cache   # optional registry
 agentpack doctor                # environment checks

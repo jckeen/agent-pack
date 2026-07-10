@@ -39,6 +39,19 @@ const backupRecord = z.object({
     .refine(
       (p) => !/^[A-Za-z]:[\\/]/.test(p),
       "backups[].backupPath must be project-relative",
+    )
+    // A backup is READ during rollback/update-restore and written into the
+    // project. The manifest is attacker-influenced (repos ship committed
+    // `.agentpack/installed/*.json`), so a `..` traversal would turn a
+    // restore into an arbitrary-file-read-into-project exfiltration primitive
+    // (security review, sync S2). Confine every backup to the backups dir.
+    .refine(
+      (p) => !p.split(/[\\/]/).includes(".."),
+      "backups[].backupPath must not contain `..`",
+    )
+    .refine(
+      (p) => p.replace(/\\/g, "/").startsWith(".agentpack/backups/"),
+      "backups[].backupPath must live under .agentpack/backups/",
     ),
   originalSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
@@ -77,6 +90,9 @@ export const installManifestSchema = z.object({
   rollbackable: z.boolean(),
   rollbackBlockers: z.array(z.string()).optional(),
   source: lockfileSourceSchema.optional(),
+  updatedAt: z.string().min(1).optional(),
+  previousPackVersion: z.string().min(1).optional(),
+  riskLevel: z.enum(["low", "medium", "high", "critical"]).optional(),
 });
 
 export function serializeInstallManifest(m: InstallManifestV1): string {

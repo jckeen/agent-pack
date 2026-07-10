@@ -52,6 +52,21 @@ export {
 } from "./lockfile.js";
 
 export {
+  planUpdate,
+  applyUpdate,
+  computeExecDelta,
+  UpdateConflictError,
+} from "./update.js";
+export type {
+  UpdatePlan,
+  UpdateConflict,
+  UpdateRemoval,
+  PlanUpdateOptions,
+  ApplyUpdateOptions,
+  ApplyUpdateResult,
+} from "./update.js";
+
+export {
   installManifestSchema,
   parseInstallManifest,
   serializeInstallManifest,

@@ -4,7 +4,27 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { planInstall, applyInstall, resolveAgentpackPaths } from "../src/install/index.js";
 import { recoverIncomplete } from "../src/install/recovery.js";
-import { readHistory } from "../src/install/history.js";
+import { readHistory, sealEntry } from "../src/install/history.js";
+
+/**
+ * Rewrite history.jsonl from parsed entries, re-sealing each so the hash
+ * chain stays valid. A begin entry with a deliberately bad field (e.g. a
+ * malformed backupDir) is still a properly-SEALED entry on a real machine —
+ * `recoverIncomplete` refuses a broken chain (a forged/committed history must
+ * not drive the sweep), so these defensive-path tests must produce a valid
+ * chain, not rely on lenient reading.
+ */
+async function rewriteSealed(
+  ws: { historyFile: string },
+  entries: Array<Record<string, unknown>>,
+): Promise<void> {
+  const sealed = entries.map((e) => sealEntry(e as never));
+  await fs.writeFile(
+    ws.historyFile,
+    sealed.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    "utf8",
+  );
+}
 
 const EXAMPLE_PACK = path.resolve(__dirname, "../../../examples/pr-quality");
 const GEN = { cli: "0.2.0-test", adapter: "0.2.0-test" };
@@ -209,13 +229,7 @@ describe("recovery restoreBackups edge cases", () => {
     const entries = lines.map((l) => JSON.parse(l));
     const begin = entries.find((e) => e.action === "install_begin");
     begin.backupDir = "../outside-project";
-    // Re-seal is unnecessary for this test path — recovery reads entries
-    // leniently; write the mutated line back.
-    await fs.writeFile(
-      ws.historyFile,
-      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
-      "utf8",
-    );
+    await rewriteSealed(ws, entries);
 
     const result = await recoverIncomplete(dir);
     expect(result.rolledBack.length).toBe(1);
@@ -248,11 +262,7 @@ describe("recovery backupDir containment (codex re-review P2)", () => {
     const entries = lines.map((l) => JSON.parse(l));
     const begin = entries.find((e) => e.action === "install_begin");
     begin.backupDir = "not-backups";
-    await fs.writeFile(
-      ws.historyFile,
-      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
-      "utf8",
-    );
+    await rewriteSealed(ws, entries);
 
     const result = await recoverIncomplete(dir);
     expect(result.rolledBack.length).toBe(1);
