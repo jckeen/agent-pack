@@ -8,22 +8,22 @@ const SECTIONS = [
   },
   {
     title: "Security model",
-    body: "Risk is computed from atom risk levels, required permissions, and the install profile. Permission summaries are first-class — no silent capability escalation. Hooks, secrets, MCP servers, and shell execution always surface as warnings.",
+    body: "Risk is computed from atom risk levels, required permissions, and the install profile. Permission summaries are first-class — no silent capability escalation. Hooks, secrets, MCP servers, and shell execution always surface as warnings, and executable content is gated behind an explicit --allow-exec unless the pack is signature-verified.",
     link: "/docs#security",
   },
   {
-    title: "Adapters",
-    body: "AgentPack compiles to Claude Code (CLAUDE.md, .claude/skills, .claude/agents, .claude/settings.json), Codex (AGENTS.md, .codex/config.toml, .codex/hooks.json, .codex/skills), Cursor (.cursor/rules, .cursor/mcp.json, AGENTS.md), ChatGPT Apps (project-instructions.md, MCP app skeleton), and Generic (AGENTS.md, skills/, README-agent.md, agentpack.json).",
+    title: "Adapters & cross-surface",
+    body: "AgentPack compiles to Claude Code (CLAUDE.md, .claude/skills, .claude/agents, .claude/settings.json), Codex (AGENTS.md, .codex/config.toml, .codex/hooks.json, .codex/skills), Cursor (.cursor/rules, .cursor/mcp.json, AGENTS.md), ChatGPT Apps (project-instructions.md, MCP app skeleton), and Generic (AGENTS.md, skills/, README-agent.md, agentpack.json) — the AGENTS.md output is also what agents like Google Antigravity read. Beyond file installs, `pack plugin` builds a Claude Code plugin, `pack mcpb` a .mcpb bundle, and `pack chat` a Claude Chat project bundle.",
     link: "/docs#adapters",
   },
   {
     title: "CLI",
-    body: "The agentpack CLI: init, validate, inspect, plan, pack export, doctor, install, uninstall, diff, history, rollback, verify. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.agentpack/history.jsonl` (hash-chained, WAL-protected).",
+    body: "The agentpack CLI: init, import, validate, inspect, plan, pack (export / plugin / mcpb / chat), doctor, install, uninstall, diff, history, rollback, verify, plus registry auth (login, whoami, tokens, publish) and cache. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.agentpack/history.jsonl` (hash-chained, WAL-protected). `import --from claude | claude-code | codex | chatgpt-gpt` compiles an existing setup into a pack.",
     link: "/docs#cli",
   },
   {
-    title: "Install / uninstall / verify (Phase 2)",
-    body: "`agentpack install` is the local install flow: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift. `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
+    title: "Install / update / verify",
+    body: "`agentpack install` takes a local path, a git source (github:owner/repo@ref#subpath — no registry or account needed), or a registry id: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups, unmerge shared files). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift. `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
     link: "/docs#install",
   },
 ];
@@ -35,8 +35,8 @@ export default function DocsPage() {
         <span className="pill-accent">Documentation</span>
         <h1 className="h1">AgentPack Registry Documentation</h1>
         <p className="max-w-2xl text-ink-600">
-          The AgentPack standard, security model, adapter behavior, and the
-          agentpack CLI — at a glance.
+          The AgentPack standard, security model, adapter behavior, and the agentpack CLI —
+          at a glance.
         </p>
       </header>
 
@@ -52,8 +52,8 @@ export default function DocsPage() {
       <section id="standard" className="card space-y-3">
         <h2 className="h2">Anatomy of an AgentPack</h2>
         <p className="text-sm text-ink-600">
-          Every pack has a manifest, a set of atoms, install profiles, and a
-          compatibility table:
+          Every pack has a manifest, a set of atoms, install profiles, and a compatibility
+          table:
         </p>
         <pre className="codeblock overflow-x-auto whitespace-pre text-xs">{`agentpack: "1.0"
 
@@ -87,11 +87,30 @@ atoms:
       <section id="security" className="card space-y-3">
         <h2 className="h2">Security and permissions</h2>
         <ul className="list-disc space-y-1 pl-5 text-sm text-ink-600">
-          <li>Hook atoms are <strong>always high risk</strong> — they run shell commands after edits.</li>
+          <li>
+            Hook atoms are <strong>always high risk</strong> — they run shell commands after
+            edits.
+          </li>
           <li>MCP servers requiring secrets escalate to high.</li>
-          <li>Shell + secrets + network + filesystem.write together raises the plan to critical.</li>
+          <li>
+            Shell + secrets + network + filesystem.write together raises the plan to
+            critical.
+          </li>
           <li>Safe profile excludes hooks, MCP servers, and shell-executing atoms.</li>
-          <li>The CLI never writes outside the <code className="font-mono">--out</code> directory.</li>
+          <li>
+            Unsigned packs that ship executable content (hooks, MCP servers, bang-bash
+            commands) require an explicit <code className="font-mono">--allow-exec</code> —{" "}
+            <code className="font-mono">--yes</code> alone never crosses that line. A{" "}
+            <code className="font-mono">--require-sig</code>-verified install is exempt.
+          </li>
+          <li>
+            <code className="font-mono">pack export</code> never writes outside{" "}
+            <code className="font-mono">--out</code>.{" "}
+            <code className="font-mono">install</code> writes only into your project root —
+            every write is backed up, hashed into{" "}
+            <code className="font-mono">AGENTPACK.lock</code>, and recorded in the
+            tamper-evident history chain, so uninstall/rollback restore your files exactly.
+          </li>
         </ul>
       </section>
 
@@ -105,25 +124,58 @@ atoms:
             </tr>
           </thead>
           <tbody className="divide-y divide-ink-100">
-            <Row name="Claude Code" files="CLAUDE.md · .claude/skills/* · .claude/agents/* · .claude/settings.json" />
-            <Row name="Codex" files="AGENTS.md · .codex/config.toml · .codex/hooks.json · .codex/skills/* · .codex/agents/*" />
+            <Row
+              name="Claude Code"
+              files="CLAUDE.md · .claude/skills/* · .claude/agents/* · .claude/settings.json"
+            />
+            <Row
+              name="Codex"
+              files="AGENTS.md · .codex/config.toml · .codex/hooks.json · .codex/skills/* · .codex/agents/*"
+            />
             <Row name="Cursor" files="AGENTS.md · .cursor/rules/*.mdc · .cursor/mcp.json" />
-            <Row name="ChatGPT Apps" files="project-instructions.md · app-manifest.json · mcp-server/* (export-only stub)" />
-            <Row name="Generic" files="AGENTS.md · skills/* · README-agent.md · agentpack.json" />
+            <Row
+              name="ChatGPT Apps"
+              files="project-instructions.md · app-manifest.json · mcp-server/* (export-only stub)"
+            />
+            <Row
+              name="Generic"
+              files="AGENTS.md · skills/* · README-agent.md · agentpack.json"
+            />
+            <Row
+              name="Antigravity (via Generic)"
+              files="reads the Generic target's AGENTS.md + GEMINI.md — verified against agy 1.1.0; skills use the same SKILL.md spec"
+            />
           </tbody>
         </table>
+        <p className="text-sm text-ink-600">
+          Beyond file installs, <code className="font-mono">pack plugin</code> compiles a
+          pack into a Claude Code plugin (installable from a plugin marketplace — Code,
+          Cowork, Desktop, web), <code className="font-mono">pack mcpb</code> builds a{" "}
+          <code className="font-mono">.mcpb</code> bundle from stdio MCP servers, and{" "}
+          <code className="font-mono">pack chat</code> emits a Claude Chat project bundle.
+          Each atom carries an honest portability ceiling —{" "}
+          <code className="font-mono">inspect</code> shows what reaches every surface and
+          what stays terminal-only (hooks, ambient CLAUDE.md).
+        </p>
       </section>
 
       <section id="cli" className="card space-y-3">
         <h2 className="h2">CLI commands</h2>
         <pre className="codeblock overflow-x-auto whitespace-pre text-xs">{`agentpack init                  # scaffold a starter AGENTPACK.yaml
+agentpack import --from <src>   # compile an existing setup into a pack
+                                #   (claude | claude-code | codex | chatgpt-gpt)
 agentpack validate [path]       # validate a manifest
-agentpack inspect [path]        # print metadata, atoms, profiles, risk
+agentpack inspect [path]        # metadata, atoms, profiles, risk, portability
 agentpack plan [path] \\
     --target <t> --profile <p>  # plan + risk + permission summary
 agentpack pack export [path] \\
-    --target <t> --profile <p> \\
-    --out <dir>                 # write platform-native files
+    --target <t> --out <dir>    # write platform-native files
+agentpack pack plugin|mcpb|chat # Claude Code plugin / .mcpb / Chat bundle
+agentpack install <src>         # local path · github:owner/repo@ref#subpath
+                                #   · registry id
+agentpack verify <packId>       # drift detection against the lockfile
+agentpack diff / history / rollback / uninstall
+agentpack login · whoami · tokens · publish · cache   # optional registry
 agentpack doctor                # environment checks
 `}</pre>
         <p className="text-sm text-ink-400">

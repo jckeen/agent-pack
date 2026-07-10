@@ -15,10 +15,11 @@ export default function HomePage() {
             <span className="text-ink-400">Write once. Install anywhere agents work.</span>
           </h1>
           <p className="mt-5 max-w-xl text-lg text-ink-600">
-            AgentPack is an open packaging standard for AI agent behavior.
-            One <code className="font-mono text-sm">AGENTPACK.yaml</code> compiles to Claude
-            Code, Codex, Cursor, ChatGPT Apps, and a generic AGENTS.md
-            target — with permissions and risk visible before you install.
+            AgentPack is an open packaging standard for AI agent behavior. One{" "}
+            <code className="font-mono text-sm">AGENTPACK.yaml</code> compiles to Claude
+            Code, Codex, Cursor, ChatGPT Apps, and a generic AGENTS.md target that agents
+            like Google Antigravity read — with permissions and risk visible before you
+            install.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Link
@@ -46,17 +47,22 @@ export default function HomePage() {
             CLI quickstart
           </span>
           <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-relaxed">
-{`# Validate a pack
-npx agentpack validate examples/pr-quality
+            {`# Not on npm yet — clone & build once:
+#   git clone https://github.com/jckeen/agent-pack
+#   cd agent-pack && pnpm install && pnpm build
 
-# Plan an install for Claude Code, safe profile
-npx agentpack plan examples/pr-quality \\
-  --target claude-code --profile safe
+# Install a pack straight from GitHub
+# (no registry or account needed)
+agentpack install \\
+  github:jckeen/agent-pack@master#examples/pr-quality
 
-# Export to native files
-npx agentpack pack export examples/pr-quality \\
-  --target claude-code --profile safe \\
-  --out dist/claude`}
+# Import your existing Claude Code setup
+agentpack import --from claude-code ~/.claude \\
+  --id you.your-pack --out my-pack
+
+# Compile it for any target
+agentpack pack export my-pack \\
+  --target codex --out dist/codex`}
           </pre>
         </div>
       </section>

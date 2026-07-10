@@ -13,7 +13,7 @@ One `AGENTPACK.yaml` describes a bundle of agent configuration — skills, rules
 2. **Installs it safely.** A content-addressed engine produces a lockfile, hash-chained history, drift detection, and atomic rollback — npm-grade discipline for agent config, with surgical merge into your existing `CLAUDE.md`.
 3. **Carries it across surfaces.** Compile to a Claude Code **plugin** (reaches Code, Cowork, Desktop, and the web Directory) or run a remote **MCP connector** (reaches _every_ surface, including claude.ai chat and mobile) — with honest per-atom **portability ceilings** so you know what travels and what's terminal-only.
 
-It also compiles to **Codex**, **Cursor**, **ChatGPT Apps**, and a generic `AGENTS.md` target. AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, the connector, and the adapters are all in this repo and stay free forever.
+It also compiles to **Codex**, **Cursor**, **ChatGPT Apps**, and a generic `AGENTS.md` target — which is exactly what agents like **Google Antigravity** consume (Antigravity auto-loads a workspace's `AGENTS.md` and `GEMINI.md`; verified against agy 1.1.0, and its skills use the same [Agent Skills](https://agentskills.io) `SKILL.md` format AgentPack emits). AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, the connector, and the adapters are all in this repo and stay free forever.
 
 > **Status:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Cross-surface reach spans four compile/import targets — `pack plugin`, `pack mcpb`, `pack chat`, and `import` (Claude / Codex / ChatGPT-GPT) — plus `@agentpack/connector`, a remote-MCP prototype that reaches every surface. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). For the current shipped state and version see [`STATUS.md`](./STATUS.md), [`CHANGELOG.md`](./CHANGELOG.md), and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
 
@@ -253,6 +253,8 @@ Full reference: [`docs/cli.md`](./docs/cli.md).
 | **cursor**      | `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json`                                                                                |
 | **chatgpt**     | `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only)                                                  |
 | **generic**     | `AGENTS.md`, `skills/*`, `README-agent.md`, `agentpack.json`                                                                          |
+
+The **generic** target's `AGENTS.md` is also the path to agents without a dedicated adapter: **Google Antigravity** auto-loads a workspace's `AGENTS.md`/`GEMINI.md` (verified against agy 1.1.0) and reads Agent-Skills-spec `SKILL.md` folders, so `pack export --target generic` reaches it today. We dogfood this: Antigravity runs the runtime-verification lane in this repo's own multi-agent workflow.
 
 Every adapter:
 

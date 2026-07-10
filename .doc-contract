@@ -28,6 +28,11 @@ SOURCE .github/PULL_REQUEST_TEMPLATE.md
 # not prose surfaces — exempt from LIVING currency + checkbox rules.
 SOURCE packages/*/tests/fixtures/*
 
+# The registry website's prose lives in JSX (apps/registry/app/{page,docs/page}.tsx),
+# outside this contract's *.md globs. Its doc-truth guard is
+# apps/registry/tests/docs-copy.test.ts (runs in `pnpm verify`): command-list
+# parity with packages/cli/src/commands/ + bans on known-stale claims.
+
 # Open work lives in GitHub issues, never as doc checkboxes.
 BANNED:LIVING,GENERATED ^[[:space:]]*[-*] \[ \]
 # CLI was renamed workgraph -> agentpack in v0.5.1; "Workgraph" the separate

@@ -200,6 +200,8 @@ Empties the blob store.
 
 `claude-code`, `codex`, `cursor`, `chatgpt`, `generic`.
 
+There is no dedicated Antigravity target: Google Antigravity consumes the `generic` target's `AGENTS.md` (it auto-loads a workspace's `AGENTS.md` and `GEMINI.md` — verified against agy 1.1.0) and its skills use the same Agent Skills `SKILL.md` format.
+
 ## Profiles
 
 `safe`, `standard`, `full`, `enterprise` (convention — pack authors are free to define more).
