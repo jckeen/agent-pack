@@ -1,6 +1,6 @@
 # `agentpack` CLI
 
-The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`validate`, `inspect`, `plan`, `diff`, `verify`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `pack plugin`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
+The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`validate`, `inspect`, `plan`, `diff`, `verify`, `update --check`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `pack plugin`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
 
 > AgentPack isn't on npm yet (planned for v0.3.0 promotion). Until then, build the CLI locally:
 >
@@ -48,11 +48,27 @@ Resolves atoms for the profile, computes risk + permissions, runs the adapter to
 
 Computes the same plan as `install`, but prints a unified diff between current project files and what the install would write. Read-only — exits without writing.
 
-### `agentpack verify <packId> [--project <dir>] [--sig] [--sig-if-present] [--chain] [--expected-signer <san>]`
+### `agentpack verify <packId> | --all [--project <dir>] [--quiet] [--sig] [--sig-if-present] [--chain] [--expected-signer <san>]`
 
 Computes per-file SHA-256 of every lockfile-tracked file under `--project`, reports `clean` or per-path `drift[]`/`missing[]`. Files installed via **merge** (shared `CLAUDE.md` / `AGENTS.md` / JSON configs — see [`install.md`](./install.md)) are checked at fragment level: only the pack's own marker span / JSON entries must be intact, so the user editing their own sections of a shared file is not drift. With `--sig`, also verifies the Sigstore signature on the manifest and **fails (exit 5) if the lockfile is unsigned** — signing is enforced by default. Pass `--sig-if-present` for the lenient variant that passes on an unsigned lockfile (the old `--sig` behavior); `--strict` is a deprecated alias for `--sig`. With `--expected-signer <san>`, the certificate identity must equal `<san>`; the signer is also accepted if it matches `install.allowedSigners` in `agentpack.policy.json`. Without any pin, a valid signature from ANY Sigstore identity passes and the CLI says so explicitly — unless policy `install.requireIdentity` is set, which refuses an unpinned signer (exit 4). With `--chain`, validates the hash-chain integrity of `.agentpack/history.jsonl`.
 
+With `--all` (instead of a packId), verifies **every** pack recorded under `.agentpack/installed/` and exits with the most severe result across packs (chain break `3` > drift `2`); the signature flags require a single packId because `AGENTPACK.lock` records one pack's signature. `--quiet` prints nothing and communicates through the exit code only — `verify --all --quiet` is the shape the sync SessionStart notifier (phase S4) calls.
+
 Exit codes follow the project taxonomy (see below).
+
+### `agentpack update [packId] --check [--project <dir>] [--quiet] [--json]`
+
+Sync phase S1 ([#110](https://github.com/jckeen/agent-pack/issues/110), design in [`sync-design.md`](./sync-design.md)) ships the read-only `--check` half of `agentpack update`. For each install manifest (or just `packId`'s), it reads the recorded `source` provenance block and re-resolves it:
+
+- **git sources** on the `branch` channel: re-resolve the recorded ref via the GitHub API and compare commit SHAs; a moved branch prints `old → new` and counts as an available update. `pinned` (40-hex ref) and `tag` channels never move implicitly — they're reported as pinned (`--to` arrives with the S2 apply path).
+- **registry sources** on the `latest` channel: compare the installed version against the newest published version. Exact-version installs are `pinned`.
+- installs with **no `source` block** (local paths, pre-S1 lockfiles) are reported and skipped.
+
+Exit codes: `0` = everything current (or nothing checkable), `10` = at least one update available, `1` = a check failed (network, corrupt provenance) with no update found. `--quiet` is exit-code-only; `--json` emits `{ updatesAvailable, packs[] }`. The check is **read-only** — it never touches the project tree, and never applies anything. Running `update` **without** `--check` defers loudly (exit `2`): the apply path (three-way reconcile, removals, install-grade gates) is phase S2.
+
+Credential hygiene: the recorded `source` block is attacker-influenced input when a repo ships committed `.agentpack/installed/` state, so the check path treats it accordingly — a registry URL from a manifest must be https (plaintext only to loopback), only a token you explicitly stored via `login` for **exactly** that URL is attached (never the ambient `AGENTPACK_TOKEN`), and registry requests refuse redirects with the bearer attached.
+
+Env knobs (test harnesses / enterprise proxies): `AGENTPACK_GITHUB_API_URL` / `AGENTPACK_GITHUB_RAW_URL` repoint the GitHub API and raw-content hosts (used by the sync e2e gate's local mock server). With an override active, `GITHUB_TOKEN`/`GH_TOKEN` is **withheld** from the override host unless `AGENTPACK_GITHUB_TOKEN_ALLOW_OVERRIDE=1` is also set — token egress to a non-GitHub host is a conscious, greppable opt-in.
 
 ### `agentpack history [--pack <id>] [--project <dir>] [--json]`
 
@@ -220,6 +236,7 @@ There is no dedicated Antigravity target: Google Antigravity consumes the `gener
 | `7`  | integrity error (registry-declared sha256 mismatched fetched bytes)                                                                                                                                                                          |
 | `8`  | not found (registry returned 404, or a command run against an uninstalled pack — e.g. `verify`/`uninstall` with no install manifest)                                                                                                         |
 | `9`  | conflict (`uninstall` blocked by user edits; registry `version_exists` on publish)                                                                                                                                                           |
+| `10` | update available (`update --check` — success-shaped: `0` = current, `10` = the recorded source has moved)                                                                                                                                     |
 
 These codes are honored even when a command throws past its own explicit `process.exit`: the CLI's top-level handler maps typed domain errors to their pinned code (`InstallManifestNotFoundError`/`VersionNotFoundError`/`BlobNotFoundError` → 8, `IntegrityError` → 7, `UninstallConflictError` → 9) rather than collapsing everything to 1.
 

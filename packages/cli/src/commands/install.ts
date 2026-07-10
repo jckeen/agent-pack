@@ -18,13 +18,14 @@ import {
   planInstall,
   applyInstall,
   recoverIncomplete,
-  resolveLatestVersion,
   signing,
   type GitSource,
+  type LockfileSource,
   type RegistryClient,
   type TargetPlatform,
 } from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
+import { latestPublishedVersion } from "../lib/registry.js";
 import { renderPermissionSummary, riskBadge } from "../lib/render.js";
 import { CLI_VERSION } from "../lib/version.js";
 import { confirm } from "../lib/prompt.js";
@@ -111,6 +112,11 @@ export function registerInstall(program: Command): void {
           // signatures.manifest — otherwise a later `verify --sig` would falsely
           // report the install unsigned.
           let verifiedSignatureB64: string | undefined;
+          // Sync S1 (#110): provenance recorded for git + registry installs so
+          // `agentpack update` can answer "where would an update come from?".
+          // Stays undefined for local-path installs — their lockfiles must
+          // remain byte-identical to pre-S1 output.
+          let sourceProvenance: LockfileSource | undefined;
 
           // Source detection order (v0.5): local path → git source → registry id.
           //
@@ -171,6 +177,17 @@ export function registerInstall(program: Command): void {
               fetchImpl: globalThis.fetch,
             });
             source = gitResult.tmpRoot;
+            sourceProvenance = {
+              kind: "github",
+              // Canonical re-fetchable id WITHOUT the ref — the recorded
+              // requestedRef/channel say how to move, the id says where.
+              id: `github:${gitSource.owner}/${gitSource.repo}${
+                gitSource.subpath ? `#${gitSource.subpath}` : ""
+              }`,
+              requestedRef: gitSource.ref,
+              resolvedSha: gitResult.resolvedSha,
+              channel: gitResult.channel,
+            };
             const refLabel = gitSource.ref
               ? gitSource.ref === gitResult.resolvedSha
                 ? gitSource.ref
@@ -227,6 +244,16 @@ export function registerInstall(program: Command): void {
                   `for a git repo use github:owner/repo[@ref][#subpath].`,
               );
             }
+            sourceProvenance = {
+              kind: "registry",
+              id: `${publisher}/${packSlug}`,
+              registry: options.registry.replace(/\/+$/, ""),
+              requestedVersion: requestedVersion ?? null,
+              resolvedVersion,
+              // An exact requested version never moves; an omitted version
+              // tracks the newest published release.
+              channel: requestedVersion ? "pinned" : "latest",
+            };
 
             // --require-sig: per ROADMAP exit-code taxonomy 0=ok, 2=drift,
             // 3=chain, 4=sig invalid, 5=unsigned-when-required. We enforce
@@ -353,6 +380,12 @@ export function registerInstall(program: Command): void {
           // decodes from signatures.manifest.
           if (verifiedSignatureB64) {
             plan.lockfile.signatures.manifest = verifiedSignatureB64;
+          }
+
+          // Sync S1: persist provenance into the lockfile; applyInstall
+          // mirrors it into the install manifest. Absent for local paths.
+          if (sourceProvenance) {
+            plan.lockfile.source = sourceProvenance;
           }
 
           const planJson = () => ({
@@ -639,11 +672,7 @@ async function fetchRemotePack(params: {
   // 1. Resolve version.
   let version = params.requestedVersion;
   if (!version) {
-    const pkg = await client.listVersions(params.publisher, params.pack);
-    const published = pkg.versions
-      .filter((v) => v.status === "published")
-      .map((v) => v.version);
-    const latest = resolveLatestVersion(published);
+    const latest = await latestPublishedVersion(client, params.publisher, params.pack);
     if (!latest) {
       throw new Error(
         `No published stable version found for ${params.publisher}/${params.pack}`,

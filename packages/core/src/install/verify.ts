@@ -28,14 +28,23 @@ export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> 
 
   // Cross-check: lockfile checksum recorded at install vs. current lockfile
   // bytes. A drift here means the user mutated AGENTPACK.lock manually.
+  // AGENTPACK.lock is single-pack and replaced wholesale by every install, so
+  // the check only applies when the on-disk lockfile still belongs to the
+  // pack being verified — a FOREIGN pack's lockfile is the expected state of
+  // a multi-pack project, not drift (it would otherwise false-positive for
+  // every pack but the most recently installed one).
   const lockfileRaw = await fs.readFile(ws.lockfilePath, "utf8").catch(() => "");
   let lockfileDrift = false;
   if (lockfileRaw !== "") {
     try {
-      parseLockfile(lockfileRaw);
-      const currentLockfileSha = sha256Hex(lockfileRaw);
-      lockfileDrift = currentLockfileSha !== manifest.lockfileChecksum;
+      const currentLockfile = parseLockfile(lockfileRaw);
+      if (currentLockfile.packId === manifest.packId) {
+        const currentLockfileSha = sha256Hex(lockfileRaw);
+        lockfileDrift = currentLockfileSha !== manifest.lockfileChecksum;
+      }
     } catch {
+      // Unparseable lockfile bytes are a tamper/corruption signal for
+      // whichever pack is being verified — can't attribute ownership.
       lockfileDrift = true;
     }
   }

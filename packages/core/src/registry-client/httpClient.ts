@@ -7,16 +7,9 @@
 
 import { createHash } from "node:crypto";
 
-import type {
-  RegistryPack,
-  RegistryVersion,
-} from "../protocol/index.js";
+import type { RegistryPack, RegistryVersion } from "../protocol/index.js";
 
-import {
-  IntegrityError,
-  RegistryError,
-  VersionNotFoundError,
-} from "./errors.js";
+import { IntegrityError, RegistryError, VersionNotFoundError } from "./errors.js";
 import type { RegistryClient } from "./types.js";
 
 export interface HttpRegistryClientOptions {
@@ -46,13 +39,17 @@ export class HttpRegistryClient implements RegistryClient {
     const res = await this.fetchImpl(url, {
       ...init,
       headers: { ...this.headers(), ...(init?.headers as Record<string, string>) },
+      // Never follow a redirect with the bearer token attached — a
+      // cross-origin 30x would re-send Authorization to the redirect target
+      // (same invariant as the git-source fetches).
+      redirect: "error",
     });
     return res;
   }
 
   async listVersions(publisher: string, pack: string): Promise<RegistryPack> {
     const url = `${this.baseUrl}/api/packs/${encodeURIComponent(
-      publisher
+      publisher,
     )}/${encodeURIComponent(pack)}`;
     const res = await this.req(url);
     if (res.status === 404) {
@@ -61,7 +58,7 @@ export class HttpRegistryClient implements RegistryClient {
     if (!res.ok) {
       throw new RegistryError(
         `listVersions ${publisher}/${pack} → HTTP ${res.status}`,
-        res.status
+        res.status,
       );
     }
     return (await res.json()) as RegistryPack;
@@ -70,10 +67,10 @@ export class HttpRegistryClient implements RegistryClient {
   async getVersion(
     publisher: string,
     pack: string,
-    version: string
+    version: string,
   ): Promise<RegistryVersion> {
     const url = `${this.baseUrl}/api/packs/${encodeURIComponent(
-      publisher
+      publisher,
     )}/${encodeURIComponent(pack)}/versions/${encodeURIComponent(version)}`;
     const res = await this.req(url);
     if (res.status === 404) {
@@ -82,27 +79,21 @@ export class HttpRegistryClient implements RegistryClient {
     if (!res.ok) {
       throw new RegistryError(
         `getVersion ${publisher}/${pack}@${version} → HTTP ${res.status}`,
-        res.status
+        res.status,
       );
     }
     return (await res.json()) as RegistryVersion;
   }
 
-  async fetchManifest(
-    publisher: string,
-    pack: string,
-    version: string
-  ): Promise<string> {
+  async fetchManifest(publisher: string, pack: string, version: string): Promise<string> {
     const url = `${this.baseUrl}/api/packs/${encodeURIComponent(
-      publisher
-    )}/${encodeURIComponent(pack)}/versions/${encodeURIComponent(
-      version
-    )}/manifest.yaml`;
+      publisher,
+    )}/${encodeURIComponent(pack)}/versions/${encodeURIComponent(version)}/manifest.yaml`;
     const res = await this.req(url, { headers: { Accept: "application/x-yaml" } });
     if (!res.ok) {
       throw new RegistryError(
         `fetchManifest ${publisher}/${pack}@${version} → HTTP ${res.status}`,
-        res.status
+        res.status,
       );
     }
     return await res.text();
@@ -114,7 +105,7 @@ export class HttpRegistryClient implements RegistryClient {
     version: string,
     atomId: string,
     relPath: string,
-    expectedSha256: string
+    expectedSha256: string,
   ): Promise<Buffer> {
     const segments = relPath
       .split("/")
@@ -122,15 +113,15 @@ export class HttpRegistryClient implements RegistryClient {
       .map((s) => encodeURIComponent(s))
       .join("/");
     const url = `${this.baseUrl}/api/packs/${encodeURIComponent(
-      publisher
+      publisher,
     )}/${encodeURIComponent(pack)}/versions/${encodeURIComponent(
-      version
+      version,
     )}/atoms/${encodeURIComponent(atomId)}/${segments}`;
     const res = await this.req(url, { headers: { Accept: "*/*" } });
     if (!res.ok) {
       throw new RegistryError(
         `fetchAtomFile ${publisher}/${pack}@${version}/${atomId}/${relPath} → HTTP ${res.status}`,
-        res.status
+        res.status,
       );
     }
     const bytes = Buffer.from(await res.arrayBuffer());

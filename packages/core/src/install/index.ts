@@ -7,6 +7,7 @@ export type {
   LockfileAtomEntry,
   LockfileSignatures,
   LockfileDependencyEntry,
+  LockfileSource,
   InstallManifestV1,
   HistoryAction,
   HistoryActor,
@@ -47,6 +48,7 @@ export {
   serializeLockfile,
   lockfileChecksum,
   lockfileSchema,
+  lockfileSourceSchema,
 } from "./lockfile.js";
 
 export {
@@ -73,10 +75,7 @@ export {
 export { planInstall, diffPlan } from "./plan.js";
 export { applyInstall } from "./apply.js";
 export type { ApplyInstallOptions, ApplyInstallResult } from "./apply.js";
-export {
-  uninstall,
-  UninstallConflictError,
-} from "./uninstall.js";
+export { uninstall, UninstallConflictError } from "./uninstall.js";
 export type { UninstallOptions, UninstallResult } from "./uninstall.js";
 export { verifyInstall } from "./verify.js";
 export type { VerifyOptions } from "./verify.js";

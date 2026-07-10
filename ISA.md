@@ -898,3 +898,22 @@ Resolves the eight `[DEFERRED-VERIFY]` findings (ISC-289..296, GitHub #14–#21)
 
 - **Accuracy fix verified against live docs, not memory**: the hooks ceiling was corrected only after confirming Hooks as a Cowork plugin component in the current extensions doc; the `CLAUDE.md`-loader limitation (instructions/rules stay `terminal`) is unchanged because that surface genuinely doesn't exist on Cowork.
 - **`.mcpb` is the LOCAL path, distinct from connectors**: `.mcpb` bundles local stdio servers for Cowork/Desktop; remote http/sse servers stay on the connector/`.mcp.json` path. The emitter reuses the existing MCP security gates rather than introducing a parallel trust boundary.
+
+## Sync S1 — provenance + `update --check` (2026-07-09, #110)
+
+Phase S1 of `docs/sync-design.md` (PR #109). Git remains the transport; the lockfile now remembers where an install came from, and one read-only verb reports when that source has moved.
+
+### Sync-S1 ISCs
+
+- [x] ISC-336: `LockfileV1.source` / `InstallManifestV1.source` — optional provenance block (discriminated on `kind: github | registry`) carrying the canonical re-fetchable id, `requestedRef`/`requestedVersion`, `resolvedSha`/`resolvedVersion`, and the derived `channel`. Every field is a function of the install inputs (determinism holds); local-path installs omit the field and their lockfiles stay **byte-identical** to pre-S1 output (`source-provenance.test.ts`).
+- [x] ISC-337: `fetchGitPack` derives `channel` (`pinned` for a 40-hex ref, `tag` via a `GET /git/ref/tags/{ref}` probe, `branch` otherwise/omitted) and the CLI persists the block into `AGENTPACK.lock` + the install manifest instead of printing-and-dropping the SHA (`git-source-channel.test.ts`, `update.cli.test.ts`).
+- [x] ISC-338: `agentpack update [packId] --check` — read-only re-resolution of each install manifest's recorded source: branch-channel git sources compare commit SHAs (prints `old → new`), latest-channel registry sources compare published versions, `pinned`/`tag` never move implicitly, missing provenance is reported and skipped. Exit taxonomy extended with `10 = update available` (`ExitCode.UpdateAvailable`); bare `update` without `--check` defers loudly to phase S2 (exit 2). Zero filesystem writes, asserted by tree-snapshot diff.
+- [x] ISC-339: `agentpack verify [packId] | --all [--quiet]` — `--all` iterates `.agentpack/installed/` and exits with the most severe result across packs (3 > 2 > 4 > 5); `--quiet` is exit-code-only; signature flags require a single packId (the lockfile records one pack's signature).
+- [x] ISC-341 (review round, security HIGH + code-review P1): `update --check` credential binding — manifest-recorded registry URLs must be https (plaintext loopback-only), only a `login`-stored token for exactly that URL is attached (`getStoredToken`; never ambient `AGENTPACK_TOKEN`), registry client sets `redirect: "error"`; GitHub token withheld under base-URL overrides without `AGENTPACK_GITHUB_TOKEN_ALLOW_OVERRIDE=1`; `source.requestedRef` schema-enforces `REF_RE`; `verifyInstall` no longer counts a FOREIGN pack's `AGENTPACK.lock` as drift (pre-existing multi-pack false positive surfaced by `--all`). All five fixed failing-test-first (`update.cli.test.ts` hardening + multi-pack describes, `git-source-channel.test.ts` token gating, `source-provenance.test.ts` ref grammar).
+- [x] ISC-340: e2e gate (CI-runnable, no network): `packages/cli/tests/update.cli.test.ts` runs the real CLI against a local mock GitHub server via new `AGENTPACK_GITHUB_API_URL` / `AGENTPACK_GITHUB_RAW_URL` base-URL overrides — install `github:<fixture>@main`, advance the fixture, `update --check` exits 10 printing old → new SHA; same-SHA re-run exits 0; SHA-pinned install stays pinned when the branch moves.
+
+### Sync-S1 decisions
+
+- **Manifest is update's source of truth, not the lockfile** — `AGENTPACK.lock` is single-pack and replaced by a later install; `.agentpack/installed/<packId>.json` mirrors the `source` block per pack (per sync-design §0).
+- **`update-available` (10) outranks a partial check failure (1)** in the aggregate exit code — the actionable signal is "something moved"; errors stay visible in the report.
+- **Base-URL env overrides over a live fixture repo** for the gate: deterministic, offline, runs on every CI push instead of operator-only; the override is only reachable by an attacker who already controls the process environment (the same position that controls `GITHUB_TOKEN`/`PATH`).

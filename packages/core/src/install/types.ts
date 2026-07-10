@@ -56,6 +56,42 @@ export interface LockfileAtomEntry {
   outputs: LockfileFileEntry[];
 }
 
+/**
+ * Where an install came from — the provenance `agentpack update` re-resolves
+ * to answer "is a newer version available?". Absent on local-path installs.
+ * Every field is a function of the install inputs (never the machine), so
+ * lockfile determinism holds.
+ */
+export type LockfileSource =
+  | {
+      kind: "github";
+      /** Canonical re-fetchable id WITHOUT the ref (e.g. `github:owner/repo#subpath`). */
+      id: string;
+      /** The ref the user typed; null = repo default branch. */
+      requestedRef: string | null;
+      /** The 40-hex commit SHA actually installed. */
+      resolvedSha: string;
+      /**
+       * Pinning policy, derived at install time: a 40-hex ref never moves
+       * (`pinned`), a tag never moves implicitly (`tag`), a branch or omitted
+       * ref is trackable (`branch`).
+       */
+      channel: "pinned" | "tag" | "branch";
+    }
+  | {
+      kind: "registry";
+      /** `<publisher>/<pack>` as resolvable against `registry`. */
+      id: string;
+      /** Registry base URL the install resolved against. */
+      registry: string;
+      /** The version the user typed; null = latest published. */
+      requestedVersion: string | null;
+      /** The concrete version actually installed. */
+      resolvedVersion: string;
+      /** `pinned` = exact version requested; `latest` = tracks newest published. */
+      channel: "pinned" | "latest";
+    };
+
 export interface LockfileSignatures {
   /** Reserved for Phase 4 (Sigstore/cosign). Empty in Phase 2. */
   manifest?: string;
@@ -92,6 +128,8 @@ export interface LockfileV1 {
   dependencies: LockfileDependencyEntry[];
   /** Reserved for Phase 4. Empty object in Phase 2. */
   signatures: LockfileSignatures;
+  /** Provenance for git/registry installs (sync S1). Absent on local-path installs. */
+  source?: LockfileSource;
 }
 
 /**
@@ -136,6 +174,12 @@ export interface InstallManifestV1 {
   /** Static: was this install reversible at the time we made it? */
   rollbackable: boolean;
   rollbackBlockers?: string[];
+  /**
+   * Mirror of the lockfile's provenance block (sync S1). The per-pack source
+   * of truth for `agentpack update` — the lockfile is single-pack and may
+   * belong to a different pack after a later install.
+   */
+  source?: LockfileSource;
 }
 
 export type HistoryAction =
