@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.7.0-dev — 2026-06-19 (harden: hook-script exfiltration guard resolves symlinks before containment)
+## 0.7.0-dev — 2026-07-09 (dogfood sweep: verbatim subagent bodies #102, zero-trace planning #103)
+
+A full three-lane dogfood pass (CLI journey + independent Codex fresh-checkout verification + Antigravity registry runtime checks) confirmed the documented user journey end-to-end and surfaced two small fixes, both landed via PR with TDD (failing test first):
+
+- **Markdown-sourced subagent bodies emit verbatim (#102, PR #104).** The `claude-code` adapter injected a synthetic `# <name>` H1 into every emitted subagent, so `import --from claude-code` → `install` produced agents whose system prompt differed from the source (and a body opening with its own H1 would get a second one). `resolveSubagentBody` now marks markdown-sourced instructions `verbatim`; the title is synthesized only for YAML-descriptor / description-fallback bodies. Verified: all 17 agents of a real `~/.claude` round-trip byte-identical.
+- **Planning is read-only — dry-run/diff/gate-refused installs leave zero trace (#103, PR #105).** `planInstall` created `.agentpack/{installed,backups}` and staged its export inside `.agentpack/`, so `install --dry-run`, `diff`, and pre-commit refusals (exec gate, non-TTY confirm) all mutated the target project. Staging moved to `os.tmpdir()`; state dirs are now created only by `applyInstall` when an install commits. Found by the Codex verification lane; the stale empty `.agentpack/` in this repo's root was this bug's footprint.
 
 - **Closed a symlink bypass of the hook-script exfiltration guard (#90 follow-up).** The guard confined the hook command's path _lexically_ to the imported tree / `~/.claude`, but then read it with a symlink-following stat — so a `.sh`-named symlink **inside** the tree could redirect the read to a file outside it (e.g. `/etc/shadow`, `~/.ssh/id_rsa`). Hook files are legitimately symlinked to a dotfiles repo, so refusing symlinks outright wasn't an option. The importer now `realpath`-resolves the target and requires the **real** path to stay inside the tree / `~/.claude` / `$HOME` **and** still carry a script extension before reading. Legit dotfiles symlinks (which resolve under `$HOME`) still bundle; a symlink escaping to a non-script or out-of-tree file is refused (warned). Two regression tests (escape blocked + legit in-tree symlink allowed); verified the real `~/.claude` still bundles all hooks. 481 core + 62 cli green. (Flagged by the automated commit security review.)
 
