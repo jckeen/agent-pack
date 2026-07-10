@@ -11,6 +11,16 @@ Phase S3 of the continuous-sync design — one person's `~/.claude` on every mac
 - New `docs/sync.md` (the personal-config loop, project/CI lane, web lanes + ceilings, no-daemon triggers); `docs/cli.md` flag docs; `docs/sync-design.md` S3 marked shipped; ISA ISC-349..353.
 - **Review hardening (Codex refuter + Claude security review on PR #121, all fixed failing-test-first).** (a) `import --into` no longer swallows failed stale-atom deletions — each failure is reported per-file and the command exits 1 instead of claiming a clean fold (#122). (b) HIGH: `--force` no longer bypasses the exec consent scan — forced conflict files join the bang-bash scan, so a pre-existing user file at a `command`/`subagent` path can't turn `--force -y` into silent exec consent (both scopes; pre-existing on master, surfaced by user scope). (c) MEDIUM: a forced JSON-collision write is now the deep-merge with the pack winning only the collided keys — never the bare fragment that replaced the user's whole `settings.json`/`.mcp.json`; the forced merge is recorded as a json merge so `verify` stays clean and `uninstall` stays surgical, and the same staged content flows to `update --theirs`. No-`--force` refusals are unchanged.
 
+## 0.7.0-dev — 2026-07-10 (docs honesty: retire the "install anywhere" tagline, caveat compatibility badges)
+
+The project repositioned from "write once, install anywhere" to "the compiler + governance layer for agent configuration" — this pass retires the stale overstated copy that survived:
+
+- **Tagline retired** in the registry hero (`apps/registry/app/page.tsx`) and the root `package.json` description — now "one pack, compiled to every platform you use — with governance built in" / "the compiler and governance layer".
+- **Reach claims softened**: README license blurb no longer says platforms "see it as native" (compiled, conservative output; native consumption varies — points at `docs/adapters.md`); `examples/pr-quality/README.md` no longer claims blanket "cross-platform" (its own manifest marks ChatGPT experimental).
+- **Compatibility matrix footnote** (`apps/registry/components/CompatibilityMatrix.tsx`): the green "Supported" badge now carries the caveat the prose docs always had — supported = the adapter emits complete output; runtime consumption varies (Codex reads repo-root AGENTS.md, not project `.codex/` files) — linking `/docs#adapters`.
+- **Seed packs** (`packages/core/src/seed/seedPacks.ts`): manifest-less seeds marking codex/cursor "supported" now ship honest per-platform notes (new optional `platformNotes`, rendered as the matrix fallback when no manifest notes exist).
+- Debranded a leftover "Workgraph Registry" header in `scripts/bring-up-prod.sh`.
+
 ## 0.7.0-dev — 2026-07-10 (sync S2: the `agentpack update` apply path — #111)
 
 Phase S2 of the continuous-sync design — updates now apply, with install-grade discipline (TDD throughout):

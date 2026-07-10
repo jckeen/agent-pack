@@ -12,7 +12,9 @@ export default function HomePage() {
           <h1 className="h1 mt-3">
             Atomic packages for AI workflows.
             <br />
-            <span className="text-ink-400">Write once. Install anywhere agents work.</span>
+            <span className="text-ink-400">
+              One pack, compiled to every platform you use — with governance built in.
+            </span>
           </h1>
           <p className="mt-5 max-w-xl text-lg text-ink-600">
             AgentPack is an open packaging standard for AI agent behavior. One{" "}

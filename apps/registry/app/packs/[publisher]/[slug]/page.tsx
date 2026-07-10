@@ -57,7 +57,7 @@ export default async function PackDetailPage({
     ? Object.fromEntries(
         Object.entries(manifestTargets).map(([k, v]) => [k, v?.notes ?? ""]),
       )
-    : {};
+    : (seed.platformNotes ?? {});
 
   return (
     <div className="container-page space-y-10">
