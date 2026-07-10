@@ -201,7 +201,7 @@ async function runFoldInto(
       name: existing.metadata.name,
       version: existing.metadata.version,
     });
-    const { changes } = await foldImportInto({
+    const { changes, removalFailures } = await foldImportInto({
       result,
       existing,
       packDir,
@@ -226,6 +226,26 @@ async function runFoldInto(
         ),
       );
       process.exit(2);
+    }
+    // A failed stale-file deletion means the pack still ships that file —
+    // report per-file and exit nonzero instead of claiming a clean fold (#122).
+    if (removalFailures.length > 0) {
+      printFoldChanges(
+        changes.filter((c) => !removalFailures.some((f) => f.path === c.path)),
+        { withDiffs: false },
+      );
+      console.error(
+        pc.red(
+          `\n✗ ${removalFailures.length} stale file(s) could not be removed — the pack still contains them:`,
+        ),
+      );
+      for (const f of removalFailures) {
+        console.error(pc.red(`  ! ${f.path} — ${f.error}`));
+      }
+      console.error(
+        pc.dim("  Fix the file permissions (or remove them manually), then re-run."),
+      );
+      process.exit(1);
     }
     console.log(pc.green(`✓ Folded live config into ${packDir}:`));
     printFoldChanges(changes, { withDiffs: false });

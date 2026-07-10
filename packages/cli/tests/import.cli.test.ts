@@ -374,6 +374,48 @@ describe("agentpack import --into (fold live edits back into a pack)", () => {
     ).toContain("TWO notes");
   });
 
+  // A failed stale-atom deletion must surface, not be swallowed — otherwise
+  // the pack keeps the stale file while import reports success (#122).
+  // Root can unlink regardless of directory permissions, so skip under uid 0.
+  it.skipIf(process.getuid?.() === 0)(
+    "surfaces a failed stale-atom removal instead of reporting success",
+    async () => {
+      const live = await seedLiveDir("into-fail-live");
+      const packDir = path.join(TMP_ROOT, "into-fail-pack");
+      const imp = await run([
+        "import",
+        live,
+        "--from",
+        "claude-code",
+        "--out",
+        packDir,
+        "--id",
+        "me.failrm",
+      ]);
+      expect(imp.code, imp.stderr).toBe(0);
+      await fs.rm(path.join(live, "skills/code-review"), { recursive: true });
+      // Read-only parent dir: the walk can still list/read, but unlink fails.
+      const skillDir = path.join(packDir, "atoms/skills/code-review");
+      await fs.chmod(skillDir, 0o555);
+      try {
+        const fold = await run([
+          "import",
+          live,
+          "--from",
+          "claude-code",
+          "--into",
+          packDir,
+        ]);
+        expect(fold.code, fold.stderr + fold.stdout).not.toBe(0);
+        expect(fold.stderr + fold.stdout).toContain("atoms/skills/code-review/SKILL.md");
+        // The stale file is still in the pack — success must not be claimed.
+        await fs.access(path.join(packDir, "atoms/skills/code-review/SKILL.md"));
+      } finally {
+        await fs.chmod(skillDir, 0o755);
+      }
+    },
+  );
+
   it("removes stale atom files when the live config dropped them", async () => {
     const live = await seedLiveDir("into-rm-live");
     const packDir = path.join(TMP_ROOT, "into-rm-pack");

@@ -137,7 +137,15 @@ export async function foldImportInto(params: {
   existing: AgentPackManifest;
   packDir: string;
   apply: boolean;
-}): Promise<{ changes: FoldChange[] }> {
+}): Promise<{
+  changes: FoldChange[];
+  /**
+   * Stale-atom deletions that failed on apply (#122). Never silently
+   * swallowed: the pack still contains these files, so the caller must
+   * surface them instead of reporting the fold as clean.
+   */
+  removalFailures: Array<{ path: string; error: string }>;
+}> {
   const { result, existing, packDir } = params;
   const merged: AgentPackManifest = {
     ...result.manifest,
@@ -209,6 +217,7 @@ export async function foldImportInto(params: {
     });
   }
 
+  const removalFailures: Array<{ path: string; error: string }> = [];
   if (params.apply && changes.length > 0) {
     const toWrite = changes
       .filter((c) => c.kind !== "removed")
@@ -216,8 +225,20 @@ export async function foldImportInto(params: {
     await writeImport({ ...result, files: toWrite }, root);
     for (const c of changes) {
       if (c.kind !== "removed") continue;
-      await fs.unlink(path.join(root, c.path)).catch(() => {});
-      // Best-effort prune of now-empty dirs up to atoms/.
+      try {
+        await fs.unlink(path.join(root, c.path));
+      } catch (err) {
+        // A failed deletion means the pack STILL SHIPS the stale atom file —
+        // collect it for the caller to surface (#122); silence here would
+        // let import report success over a dirty pack.
+        removalFailures.push({
+          path: c.path,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
+      // Best-effort prune of now-empty dirs up to atoms/ (cosmetic only:
+      // an empty dir left behind carries no content, unlike a failed unlink).
       let dir = path.dirname(path.join(root, c.path));
       while (dir.startsWith(atomsDir)) {
         try {
@@ -229,7 +250,7 @@ export async function foldImportInto(params: {
       }
     }
   }
-  return { changes };
+  return { changes, removalFailures };
 }
 
 /**
