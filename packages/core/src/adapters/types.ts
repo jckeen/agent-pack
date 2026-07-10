@@ -313,6 +313,12 @@ export interface ResolvedSubagent {
   tools?: string;
   /** `model` from a markdown agent's frontmatter (Claude Code agent loader key). */
   model?: string;
+  /**
+   * True when `instructions` is a markdown agent's own body: it must be emitted
+   * verbatim — synthesizing a heading over it would alter the agent's system
+   * prompt (and double-heading a body that opens with its own `# `).
+   */
+  verbatim?: boolean;
 }
 
 /**
@@ -361,7 +367,14 @@ export async function resolveSubagentBody(
         }
       }
     }
-    return { instructions: body.trim() || atom.description, description, tools, model };
+    const trimmed = body.trim();
+    return {
+      instructions: trimmed || atom.description,
+      description,
+      tools,
+      model,
+      verbatim: trimmed !== "",
+    };
   }
 
   // YAML-descriptor form: a mapping with an `instructions` string.
