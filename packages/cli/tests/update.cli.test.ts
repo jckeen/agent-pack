@@ -334,11 +334,11 @@ describe("sync S1 — provenance + update --check (e2e gate for #110)", () => {
     expect(r.stdout).toContain("pinned");
   });
 
-  it("bare `update` without --check defers to phase S2 with exit 2", async () => {
+  it("bare `update` (apply path, S2) with nothing installed exits 0", async () => {
     const dir = await freshProject("bare-update");
     const r = await run(["update", "--project", dir]);
-    expect(r.code).toBe(2);
-    expect(r.stderr).toMatch(/--check/);
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toContain("nothing to update");
   });
 
   it("update --check with nothing installed exits 0", async () => {

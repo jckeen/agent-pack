@@ -180,6 +180,15 @@ export interface InstallManifestV1 {
    * belong to a different pack after a later install.
    */
   source?: LockfileSource;
+  /** ISO-8601 timestamp of the last `agentpack update` apply (sync S2). */
+  updatedAt?: string;
+  /** Pack version this machine ran before the last update (sync S2). */
+  previousPackVersion?: string;
+  /**
+   * Computed risk level of the installed plan (sync S2) — the baseline the
+   * policy `update.maxRiskEscalation` gate compares a new version against.
+   */
+  riskLevel?: RiskLevel;
 }
 
 export type HistoryAction =
@@ -187,7 +196,15 @@ export type HistoryAction =
   | "install_commit"
   | "install_rollback_recovery"
   | "uninstall"
-  | "rollback";
+  | "rollback"
+  /**
+   * Sync S2: `agentpack update` uses the same WAL discipline as install —
+   * `update_begin` (plannedFiles/createdPaths/requiredBackups/backupDir)
+   * before any write, `update_commit` after. The recovery sweep treats a
+   * dangling `update_begin` exactly like a dangling `install_begin`.
+   */
+  | "update_begin"
+  | "update_commit";
 
 export interface HistoryActor {
   type: "cli" | "ci" | "agent";

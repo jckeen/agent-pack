@@ -43,6 +43,22 @@ export const policyConfigSchema = z.object({
       chain: z.enum(["off", "warn", "required"]).optional(),
     })
     .default({}),
+  // Sync S2 (#111): governance over `agentpack update` — see docs/policy.md.
+  update: z
+    .object({
+      /** Ceiling: installs may not track a channel looser than this
+       * (pinned < tag < branch; registry `latest` counts as branch-loose). */
+      channel: z.enum(["pinned", "tag", "branch"]).optional(),
+      /** When re-consent (--allow-exec) is demanded. Default "exec": on an
+       * exec-bearing delta. "always": on any delta. "never": only a
+       * signature-verified update skips consent — an UNSIGNED exec delta
+       * still requires --allow-exec (the install-grade floor never lowers). */
+      requireReconsent: z.enum(["exec", "always", "never"]).optional(),
+      /** Refuse updates whose computed risk exceeds the installed version's
+       * by more than this. Default "any" (no gate). */
+      maxRiskEscalation: z.enum(["none", "one-level", "any"]).optional(),
+    })
+    .default({}),
 });
 
 export type PolicyConfig = z.infer<typeof policyConfigSchema>;

@@ -1,28 +1,48 @@
-// `agentpack update` — sync phase S1 (#110) ships the read-only `--check`
-// half: re-resolve each installed pack's recorded source and report whether
-// it has moved past the installed pin. The apply path (three-way reconcile,
-// removals, gates) is phase S2 (#111); until it lands, a bare `update`
-// defers loudly instead of pretending.
+// `agentpack update` — sync S1 (#110) shipped the read-only `--check` half;
+// sync S2 (#111) ships the apply path: re-fetch the recorded source, run the
+// BASE/LOCAL/NEW three-way reconcile, execute surgical removals, and apply
+// with install-grade gates (policy, exec re-consent, risk escalation) under
+// update_begin/update_commit WAL discipline.
 //
-// Exit codes: 0 = everything current (or nothing checkable), 10 = at least
-// one update available, 1 = a check failed (network, corrupt provenance).
+// Exit codes: 0 = applied / everything current, 10 = update available
+// (--check), 6 = policy or exec-consent refusal, 2 = unresolved conflicts or
+// usage error, 1 = a check/apply failed.
+//
+// Security posture (see #111): every gate keys off FRESHLY derived facts —
+// the channel is re-derived by the fetch, never read from the stored source
+// block, so a tampered manifest cannot turn a pinned install into a
+// silently-tracking one.
 
 import type { Command } from "commander";
 import pc from "picocolors";
 import {
   ExitCode,
   HttpRegistryClient,
+  applyUpdate,
+  computeExecDelta,
+  enforceUpdatePolicy,
+  fetchGitPack,
   listInstallManifests,
+  loadPolicy,
   parseGitId,
+  planInstall,
+  planUpdate,
   readInstallManifest,
+  recoverIncomplete,
   resolveAgentpackPaths,
   resolveGitSourceSha,
+  UpdateConflictError,
+  type GitSource,
   type InstallManifestV1,
   type LockfileSource,
+  type UpdatePlan,
 } from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 import { getStoredToken } from "../lib/credentials.js";
 import { latestPublishedVersion } from "../lib/registry.js";
+import { globToPredicate } from "../lib/glob.js";
+import { confirm } from "../lib/prompt.js";
+import { CLI_VERSION } from "../lib/version.js";
 
 interface CheckOutcome {
   packId: string;
@@ -40,8 +60,9 @@ export function registerUpdate(program: Command): void {
   program
     .command("update [packId]")
     .description(
-      "Check installed AgentPacks against their recorded source (sync S1). " +
-        "The apply path arrives in phase S2 — today only --check is supported.",
+      "Update installed AgentPacks from their recorded source: three-way reconcile " +
+        "(BASE/LOCAL/NEW), surgical removals, install-grade gates. --check is the " +
+        "read-only report (exit 10 = update available).",
     )
     .option("--project <dir>", "target project directory", process.cwd())
     .option(
@@ -49,24 +70,48 @@ export function registerUpdate(program: Command): void {
       "read-only: report whether the source has moved; exit 0 = current, 10 = update available",
       false,
     )
+    .option("--to <ref>", "explicit target ref — also how a pinned/tag install moves")
+    .option("-y, --yes", "skip confirmation prompt", false)
+    .option(
+      "--allow-exec",
+      "re-consent for an exec-bearing delta (added/changed hooks, MCP servers, bang-bash commands) — refused even with --yes otherwise, exactly like install",
+      false,
+    )
+    .option(
+      "--theirs <glob>",
+      "on conflict: take the pack's new content for matching paths (the local edit is backed up first); repeatable",
+      collect,
+      [] as string[],
+    )
+    .option(
+      "--keep-local <glob>",
+      "on conflict: keep the local edit for matching paths and skip updating them; repeatable",
+      collect,
+      [] as string[],
+    )
+    .option("--dry-run", "full reconcile report, zero writes", false)
     .option("--quiet", "print nothing; communicate via the exit code only", false)
-    .option("--json", "emit results as a single JSON object on stdout", false)
+    .option("--json", "with --check: emit results as a single JSON object on stdout", false)
     .action(
       async (
         packId: string | undefined,
-        options: { project: string; check: boolean; quiet: boolean; json: boolean },
+        options: {
+          project: string;
+          check: boolean;
+          to?: string;
+          yes: boolean;
+          allowExec: boolean;
+          theirs: string[];
+          keepLocal: string[];
+          dryRun: boolean;
+          quiet: boolean;
+          json: boolean;
+        },
       ) => {
         try {
           if (!options.check) {
-            console.error(
-              pc.red(
-                "✗ `agentpack update` (the apply path) arrives in sync phase S2.\n" +
-                  "  Today: `agentpack update --check` reports whether updates are available\n" +
-                  "  (exit 10 = update available); to move now, re-run `agentpack install`\n" +
-                  "  from the source.",
-              ),
-            );
-            process.exit(ExitCode.UsageError);
+            await runApply(packId, options);
+            return;
           }
 
           const paths = await resolveAgentpackPaths(options.project);
@@ -102,8 +147,8 @@ export function registerUpdate(program: Command): void {
             if (updates.length > 0) {
               console.log(
                 pc.dim(
-                  `\n${updates.length} update(s) available. The apply path (\`agentpack update\`) ` +
-                    `arrives in sync phase S2 — to move now, re-run \`agentpack install\` from the source.`,
+                  `\n${updates.length} update(s) available. Apply with \`agentpack update\` ` +
+                    `(add a packId to update one pack; --dry-run to preview).`,
                 ),
               );
             }
@@ -190,7 +235,9 @@ async function checkOne(manifest: InstallManifestV1): Promise<CheckOutcome> {
     }
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(registryUrl.hostname);
     if (registryUrl.protocol !== "https:" && !loopback) {
-      return fail(`recorded registry ${src.registry} is not https — refusing to contact it`);
+      return fail(
+        `recorded registry ${src.registry} is not https — refusing to contact it`,
+      );
     }
     const token = (await getStoredToken(src.registry)) ?? undefined;
     const client = new HttpRegistryClient({ baseUrl: src.registry, token });
@@ -247,7 +294,7 @@ function printOutcome(o: CheckOutcome): void {
     case "pinned":
       console.log(
         pc.dim(
-          `• ${o.packId} pinned (channel: ${o.channel}, ${o.installedSha ? short(o.installedSha) : o.installedVersion}) — pinned installs never move implicitly; \`--to\` arrives in phase S2`,
+          `• ${o.packId} pinned (channel: ${o.channel}, ${o.installedSha ? short(o.installedSha) : o.installedVersion}) — pinned installs never move implicitly; move with \`agentpack update ${o.packId} --to <ref>\``,
         ),
       );
       break;
@@ -261,5 +308,319 @@ function printOutcome(o: CheckOutcome): void {
     case "error":
       console.error(pc.red(`! ${o.packId} check failed: ${o.detail}`));
       break;
+  }
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+const SHA40_RE = /^[a-f0-9]{40}$/i;
+
+type ApplyExit = 0 | 1 | 2 | 6;
+
+interface ApplyCliOptions {
+  project: string;
+  to?: string;
+  yes: boolean;
+  allowExec: boolean;
+  theirs: string[];
+  keepLocal: string[];
+  dryRun: boolean;
+  quiet: boolean;
+}
+
+async function runApply(
+  packId: string | undefined,
+  options: ApplyCliOptions,
+): Promise<never> {
+  const say = options.quiet ? () => {} : console.log;
+  const paths = await resolveAgentpackPaths(options.project);
+  // Same posture as install: consume any crashed install/update first.
+  if (!options.dryRun) {
+    try {
+      await recoverIncomplete(options.project);
+    } catch {
+      // Non-fatal — nothing to recover in a project with no .agentpack yet.
+    }
+  }
+  const manifests: InstallManifestV1[] = packId
+    ? [await readInstallManifest(paths, packId)]
+    : await listInstallManifests(paths);
+
+  if (manifests.length === 0) {
+    say(pc.dim("No AgentPacks installed in this project — nothing to update."));
+    process.exit(0);
+  }
+  if (options.to !== undefined && manifests.length > 1) {
+    console.error(pc.red("✗ --to targets one pack — pass a packId alongside it."));
+    process.exit(ExitCode.UsageError);
+  }
+
+  // Worst-exit aggregation across packs: policy refusal (6) > conflicts (2) >
+  // error (1). The severity order happens to match numeric order, so max()
+  // suffices — revisit the ordering if a future exit code breaks that.
+  let worst: ApplyExit = 0;
+  const bump = (code: ApplyExit) => {
+    if (code > worst) worst = code;
+  };
+
+  for (const manifest of manifests) {
+    bump(await applyOne(manifest, options));
+  }
+  process.exit(worst);
+}
+
+async function applyOne(
+  manifest: InstallManifestV1,
+  options: ApplyCliOptions,
+): Promise<ApplyExit> {
+  const say = options.quiet ? () => {} : console.log;
+  const src = manifest.source;
+  if (!src) {
+    say(
+      pc.dim(
+        `• ${manifest.packId} has no source provenance (local-path install or pre-sync lockfile) — skipped`,
+      ),
+    );
+    return 0;
+  }
+  if (src.kind === "registry") {
+    say(
+      pc.dim(
+        `• ${manifest.packId} is registry-sourced — the registry apply path lands after live-smoke; ` +
+          `to move now: \`agentpack install ${src.id}${options.to ? "@" + options.to : ""} --require-sig\``,
+      ),
+    );
+    return 0;
+  }
+
+  try {
+    const parsed = parseGitId(src.id);
+    if (!parsed) {
+      console.error(
+        pc.red(
+          `! ${manifest.packId}: recorded source id is not a valid git source: ${src.id}`,
+        ),
+      );
+      return 1;
+    }
+    const ref = options.to ?? src.requestedRef;
+    // Fast pinned check: a 40-hex requested ref can never move without --to.
+    // The authoritative channel below is re-derived by the fetch — never
+    // trusted from the stored block (#111 security note).
+    if (options.to === undefined && ref !== null && SHA40_RE.test(ref)) {
+      say(
+        pc.dim(
+          `• ${manifest.packId} pinned at ${ref.slice(0, 12)} — pinned installs never move implicitly; pass --to <ref> to move`,
+        ),
+      );
+      return 0;
+    }
+    const source: GitSource = { ...parsed, ref };
+    const fetched = await fetchGitPack({ source, fetchImpl: globalThis.fetch });
+    if (options.to === undefined && fetched.channel !== "branch") {
+      say(
+        pc.dim(
+          `• ${manifest.packId} pinned (channel: ${fetched.channel}) — pinned installs never move implicitly; pass --to <ref> to move`,
+        ),
+      );
+      return 0;
+    }
+    if (fetched.resolvedSha === src.resolvedSha) {
+      say(
+        pc.green(`✓ ${manifest.packId} up to date`) +
+          pc.dim(` (${fetched.channel}, ${fetched.resolvedSha.slice(0, 12)})`),
+      );
+      return 0;
+    }
+
+    const newPlan = await planInstall({
+      source: fetched.tmpRoot,
+      target: manifest.target,
+      profile: manifest.profile,
+      projectRoot: options.project,
+      generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
+    });
+    newPlan.lockfile.source = {
+      kind: "github",
+      id: src.id,
+      requestedRef: ref,
+      resolvedSha: fetched.resolvedSha,
+      channel: fetched.channel,
+    };
+    const update = await planUpdate({ newPlan, priorManifest: manifest });
+
+    const theirs = globToPredicate(options.theirs);
+    const keepLocal = globToPredicate(options.keepLocal);
+
+    // Freshly derived facts feed the gates: written set (clean + theirs
+    // resolutions), removals, exec delta, live channel, new risk.
+    const writtenPaths = [
+      ...update.cleanUpdates,
+      ...update.conflicts.filter((c) => theirs(c.path)).map((c) => c.path),
+    ];
+    const contentByPath = new Map<string, string>();
+    for (const f of [...update.writeFiles, ...update.conflicts.map((c) => c.file)]) {
+      contentByPath.set(f.path, f.content);
+    }
+    const delta = computeExecDelta({
+      priorManifest: manifest,
+      atomTypes: newPlan.atomTypes,
+      writtenPaths,
+      removedPaths: update.removals.map((r) => r.path),
+      writtenContents: contentByPath,
+    });
+    const execDelta = delta.addedExecAtoms.length > 0 || delta.execSurfaceWrites.length > 0;
+    const anyDelta = writtenPaths.length > 0 || update.removals.length > 0;
+
+    const policy = await loadPolicy(options.project);
+    const gate = enforceUpdatePolicy(policy, {
+      channel: fetched.channel,
+      execDelta,
+      anyDelta,
+      allowExec: options.allowExec,
+      signatureVerified: false, // git sources cannot be signature-verified in v0.5
+      installedRisk: manifest.riskLevel,
+      newRisk: newPlan.riskLevel,
+    });
+    for (const w of gate.warnings) say(pc.yellow(`  ⚠ ${w}`));
+    if (!gate.ok) {
+      console.error(
+        pc.red(`\n✗ ${manifest.packId} update refused by policy/consent gates:`),
+      );
+      for (const v of gate.violations) {
+        console.error(pc.red(`  ! [${v.code}] ${v.message}`));
+        if (v.hint) console.error(pc.dim(`    ${v.hint}`));
+      }
+      if (execDelta) {
+        for (const a of delta.addedExecAtoms) {
+          console.error(pc.red(`  • added exec atom: ${a}`));
+        }
+        for (const f of delta.execSurfaceWrites) {
+          console.error(pc.red(`  • exec surface touched: ${f}`));
+        }
+      }
+      return 6;
+    }
+
+    const unresolved = update.conflicts.filter(
+      (c) => !theirs(c.path) && !keepLocal(c.path),
+    );
+
+    printUpdateReport(say, manifest.packId, src.resolvedSha, fetched.resolvedSha, update, {
+      theirs,
+      keepLocal,
+    });
+
+    if (options.dryRun) {
+      say(pc.dim("\n(--dry-run) No files were written."));
+      return unresolved.length > 0 ? 2 : 0;
+    }
+    if (unresolved.length > 0) {
+      console.error(
+        pc.red(
+          `\n✗ ${unresolved.length} conflict(s) — the local file and the new pack version both changed:`,
+        ),
+      );
+      for (const c of unresolved) console.error(pc.red(`  • ${c.path} (${c.reason})`));
+      console.error(
+        pc.dim(
+          "  Resolve with --theirs <glob> (take the pack's version; local edit backed up) or --keep-local <glob> (keep the local edit).",
+        ),
+      );
+      return 2;
+    }
+
+    if (!options.yes) {
+      const ok = await confirm(
+        pc.bold(
+          `\nUpdate ${manifest.packId} ${update.fromVersion} → ${update.toVersion} (${src.resolvedSha.slice(0, 12)} → ${fetched.resolvedSha.slice(0, 12)})? [y/N] `,
+        ),
+      );
+      if (!ok) {
+        say(pc.dim("Aborted."));
+        return 1;
+      }
+    }
+
+    const result = await applyUpdate({
+      update,
+      resolutions: { theirs, keepLocal },
+      actor: { type: "cli" },
+    });
+    say(
+      pc.green(
+        `\n✓ Updated ${manifest.packId} ${update.fromVersion} → ${update.toVersion} (${fetched.resolvedSha.slice(0, 12)}).`,
+      ),
+    );
+    say(pc.dim(`  • ${result.written.length} file(s) written.`));
+    if (result.removed.length > 0) {
+      say(
+        pc.dim(
+          `  • ${result.removed.length} file(s) removed: ${result.removed.join(", ")}`,
+        ),
+      );
+    }
+    if (result.skippedRemovals.length > 0) {
+      say(
+        pc.yellow(
+          `  ⚠ removal skipped (user-edited): ${result.skippedRemovals.join(", ")}`,
+        ),
+      );
+    }
+    if (result.retained.length > 0) {
+      say(pc.dim(`  • retained local edits: ${result.retained.join(", ")}`));
+    }
+    say(pc.dim(`  • History entry: ${result.commitEntry.id}`));
+    return 0;
+  } catch (err) {
+    if (err instanceof UpdateConflictError) {
+      console.error(pc.red(`✗ ${manifest.packId}: ${err.message}`));
+      return 2;
+    }
+    console.error(
+      pc.red(
+        `! ${manifest.packId} update failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    return 1;
+  }
+}
+
+function printUpdateReport(
+  say: (msg: string) => void,
+  packId: string,
+  fromSha: string,
+  toSha: string,
+  update: UpdatePlan,
+  resolutions: { theirs: (p: string) => boolean; keepLocal: (p: string) => boolean },
+): void {
+  say(
+    pc.bold(
+      `\nUpdate plan: ${packId} ${update.fromVersion} → ${update.toVersion} (${fromSha.slice(0, 12)} → ${toSha.slice(0, 12)})`,
+    ),
+  );
+  if (update.cleanUpdates.length > 0) {
+    say(pc.cyan(`Apply (${update.cleanUpdates.length}):`));
+    for (const p of update.cleanUpdates) say(pc.cyan(`  ~ ${p}`));
+  }
+  if (update.retainedDrift.length > 0) {
+    say(
+      pc.dim(`Retained local edits (upstream unchanged, ${update.retainedDrift.length}):`),
+    );
+    for (const p of update.retainedDrift) say(pc.dim(`  = ${p}`));
+  }
+  if (update.removals.length > 0) {
+    say(pc.yellow(`Remove (upstream deleted, ${update.removals.length}):`));
+    for (const r of update.removals) say(pc.yellow(`  - ${r.path}`));
+  }
+  for (const c of update.conflicts) {
+    const resolution = resolutions.theirs(c.path)
+      ? "resolved: --theirs"
+      : resolutions.keepLocal(c.path)
+        ? "resolved: --keep-local"
+        : "UNRESOLVED";
+    say(pc.red(`  ! ${c.path} (${c.reason}) — ${resolution}`));
   }
 }

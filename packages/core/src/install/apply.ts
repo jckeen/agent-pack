@@ -7,6 +7,7 @@ import {
   resolveAgentpackPaths,
   ensureAgentpackDirs,
   realpathContained,
+  fromRelative,
   toRelative,
   backupDirForInstall,
 } from "./paths.js";
@@ -17,7 +18,14 @@ import {
 } from "./manifest.js";
 import { recordHistory, newHistoryId, withProjectLock } from "./history.js";
 import { serializeLockfile, lockfileChecksum } from "./lockfile.js";
+import { pruneEmptyParents } from "./uninstall.js";
 import { sha256Hex, normalizeForHash } from "./checksum.js";
+
+/** A surgical removal decided by the update engine (sync S2). */
+export type UpdateRemovalAction =
+  | { kind: "unlink"; path: string }
+  | { kind: "write"; path: string; content: string }
+  | { kind: "restore"; path: string; backupPath: string };
 
 export interface ApplyInstallOptions {
   plan: InstallPlanV2;
@@ -28,6 +36,20 @@ export interface ApplyInstallOptions {
   force?: boolean;
   /** Caller identifier for the history actor. */
   actor?: { type: "cli" | "ci" | "agent"; id?: string };
+  /**
+   * Sync S2: when set, this apply is an `agentpack update` — WAL rows use
+   * update_begin/update_commit, the removal actions are executed (each
+   * target backed up first), and retained paths are carried forward from
+   * the prior manifest instead of being re-recorded from staged content.
+   */
+  updateMode?: {
+    previousPackVersion: string;
+    removalActions: UpdateRemovalAction[];
+    /** Paths kept local (retained drift / --keep-local): prior manifest
+     * records for them are copied verbatim so ownership survives. */
+    carryForward: string[];
+    priorManifest: InstallManifestV1;
+  };
 }
 
 export interface ApplyInstallResult {
@@ -103,9 +125,9 @@ async function applyInstallLocked(
   );
 
   // 1. WAL begin
-  const beginEntry = await recordHistory(ws, {
+  await recordHistory(ws, {
     id: newHistoryId(),
-    action: "install_begin",
+    action: opts.updateMode ? "update_begin" : "install_begin",
     timestamp: new Date().toISOString(),
     packId: plan.packId,
     packVersion: plan.packVersion,
@@ -117,10 +139,14 @@ async function applyInstallLocked(
     // modified/forced-conflict = existing file that gets backed up). Recovery
     // unlinks createdPaths unconditionally on rollback (a partial create has a
     // non-matching hash) and treats each requiredBackup as restore-or-fail.
+    // Update-mode removal targets are pre-existing files this apply mutates
+    // or deletes, so they join requiredBackups — the recovery sweep restores
+    // them if the update dies between begin and commit.
     createdPaths: plan.created.map((f) => f.path),
     requiredBackups: [
       ...plan.modified.map((f) => f.path),
       ...(opts.force ? plan.conflicts.map((c) => c.file.path) : []),
+      ...(opts.updateMode?.removalActions ?? []).map((a) => a.path),
     ],
     backupDir: toRelative(ws.projectRoot, backupBase),
     actor: opts.actor ?? { type: "cli" },
@@ -133,6 +159,10 @@ async function applyInstallLocked(
   const created: InstallManifestV1["created"] = [];
   const modifiedRecords: InstallManifestV1["modified"] = [];
   const backups: InstallManifestV1["backups"] = [];
+  // Update-mode removal targets (pre-existing files a removal mutated) — the
+  // synchronous-failure catch restores these from their backups, since they
+  // are never pushed into `writtenAbsolute`.
+  const removalRestore: Array<{ abs: string; rel: string }> = [];
 
   // Combined list: created + modified + (forced) conflicts.
   const toWrite = [
@@ -239,6 +269,54 @@ async function applyInstallLocked(
       }
     }
 
+    // 3.5 (update mode) — surgical removals of upstream-deleted atom outputs.
+    // Every target is a pre-existing file: back up the current content into
+    // this apply's backup dir FIRST (it is listed in the begin entry's
+    // requiredBackups, so the recovery sweep restores it after a crash), then
+    // unlink / write the unmerged remainder / restore the pre-install backup.
+    for (const action of opts.updateMode?.removalActions ?? []) {
+      const abs = path.resolve(ws.projectRoot, action.path);
+      await realpathContained(ws.projectRoot, abs);
+      const current = await fs.readFile(abs, "utf8").catch(() => undefined);
+      if (current !== undefined) {
+        const backupRel = path.posix.join(
+          ".agentpack",
+          "backups",
+          sanitizePack(plan.packId),
+          path.basename(backupBase),
+          toRelative(ws.projectRoot, abs),
+        );
+        const backupAbs = path.resolve(ws.projectRoot, backupRel);
+        await realpathContained(ws.projectRoot, backupAbs);
+        await fs.mkdir(path.dirname(backupAbs), { recursive: true });
+        await fs.writeFile(backupAbs, current, "utf8");
+        backups.push({
+          original: action.path,
+          backupPath: backupRel,
+          originalSha256: sha256Hex(normalizeForHash(current)),
+        });
+      }
+      if (action.kind === "unlink") {
+        await fs.unlink(abs).catch(() => {});
+        await pruneEmptyParents(ws.projectRoot, abs);
+      } else if (action.kind === "write") {
+        await atomicWriteFile(abs, action.content);
+      } else {
+        // restore: read the pre-install backup and write it back. The read
+        // SOURCE comes from the prior manifest (attacker-influenced), so it
+        // is confined the same way every other stored path is — the schema
+        // already rejects `..`/out-of-backups paths, this is defense in depth.
+        const restoreSrc = fromRelative(ws.projectRoot, action.backupPath);
+        await realpathContained(ws.projectRoot, restoreSrc);
+        const data = await fs.readFile(restoreSrc, "utf8");
+        await atomicWriteFile(abs, data);
+      }
+      // Track for the synchronous-failure catch below: a removal mutated a
+      // pre-existing file, so a later throw must restore it from the backup
+      // we just wrote (writtenAbsolute does not include removal targets).
+      removalRestore.push({ abs, rel: action.path });
+    }
+
     // 4. AGENTPACK.lock — back up any existing lockfile first (it may belong
     // to a previously-installed pack; a failed install must restore it).
     const priorLock = await fs.readFile(ws.lockfilePath, "utf8").catch(() => undefined);
@@ -265,14 +343,41 @@ async function applyInstallLocked(
     writtenAbsolute.push(ws.lockfilePath);
     writtenRelative.push(toRelative(ws.projectRoot, ws.lockfilePath));
 
-    // 5. Install manifest
+    // 5. Install manifest. Update mode carries retained paths (drift the
+    // user kept / --keep-local) forward from the prior manifest verbatim —
+    // their records describe what the pack LAST wrote, which is what verify
+    // (drift report) and uninstall (ownership proof) must compare against.
+    const um = opts.updateMode;
+    if (um) {
+      for (const rel of um.carryForward) {
+        if (
+          created.some((c) => c.path === rel) ||
+          modifiedRecords.some((m) => m.path === rel)
+        ) {
+          continue;
+        }
+        const priorCreated = um.priorManifest.created.find((c) => c.path === rel);
+        const priorModifiedEntry = um.priorManifest.modified.find((m) => m.path === rel);
+        if (priorCreated) created.push(priorCreated);
+        else if (priorModifiedEntry) modifiedRecords.push(priorModifiedEntry);
+        const priorBackup = um.priorManifest.backups.find((b) => b.original === rel);
+        if (priorBackup && !backups.some((b) => b.original === rel)) {
+          backups.push(priorBackup);
+        }
+      }
+    }
+    const carriedMerges = um
+      ? (um.priorManifest.merges ?? []).filter((m) => um.carryForward.includes(m.path))
+      : [];
     const manifest: InstallManifestV1 = {
       manifestVersion: 1,
       packId: plan.packId,
       packVersion: plan.packVersion,
       target: plan.target,
       profile: plan.profile,
-      installedAt: new Date().toISOString(),
+      // An update preserves the original install time; updatedAt records the
+      // update itself.
+      installedAt: um ? um.priorManifest.installedAt : new Date().toISOString(),
       cliVersion: plan.lockfile.generator.cli,
       adapterVersions: { [plan.target]: plan.lockfile.generator.adapter },
       created,
@@ -281,25 +386,36 @@ async function applyInstallLocked(
       atomIds: plan.atoms,
       // Keep merge records only for paths this manifest actually tracks —
       // verify and uninstall use them for fragment-level checks and surgical
-      // removal.
-      merges: (plan.merges ?? []).filter(
-        (m) =>
-          created.some((c) => c.path === m.path) ||
-          modifiedRecords.some((r) => r.path === m.path),
-      ),
+      // removal. Retained paths keep their PRIOR fragment records.
+      merges: [
+        ...(plan.merges ?? []).filter(
+          (m) =>
+            created.some((c) => c.path === m.path) ||
+            modifiedRecords.some((r) => r.path === m.path),
+        ),
+        ...carriedMerges,
+      ].filter((m, i, arr) => arr.findIndex((x) => x.path === m.path) === i),
       lockfileChecksum: lockfileChecksum(plan.lockfile),
       rollbackable: true,
       // Mirror the lockfile's provenance (sync S1): the lockfile is
       // single-pack and may be replaced by a later install, so the manifest
       // is the per-pack source of truth for `agentpack update`.
       ...(plan.lockfile.source ? { source: plan.lockfile.source } : {}),
+      // Baseline for the policy `update.maxRiskEscalation` gate (sync S2).
+      riskLevel: plan.riskLevel,
+      ...(um
+        ? {
+            updatedAt: new Date().toISOString(),
+            previousPackVersion: um.previousPackVersion,
+          }
+        : {}),
     };
     const manifestPath = await writeInstallManifest(ws, manifest);
 
     // 6. WAL commit
     const commitEntry = await recordHistory(ws, {
       id: newHistoryId(),
-      action: "install_commit",
+      action: opts.updateMode ? "update_commit" : "install_commit",
       timestamp: new Date().toISOString(),
       packId: plan.packId,
       packVersion: plan.packVersion,
@@ -336,10 +452,31 @@ async function applyInstallLocked(
         await fs.unlink(w).catch(() => {});
       }
     }
-    // Record the failure for audit; recovery sweep still owns rollback.
+    // Update-mode removals mutated pre-existing files that are NOT in
+    // writtenAbsolute — restore each from the backup written just before the
+    // mutation, so a synchronous failure after removals doesn't strand them.
+    for (const { abs, rel } of removalRestore) {
+      const backup = backupByOriginal.get(rel);
+      if (!backup) continue;
+      try {
+        const original = await fs.readFile(
+          fromRelative(ws.projectRoot, backup.backupPath),
+          "utf8",
+        );
+        await fs.writeFile(abs, original, "utf8");
+      } catch {
+        // Backup unreadable — the still-dangling begin entry hands rollback
+        // to the next recovery sweep.
+      }
+    }
+    // Record the failure for audit. Do NOT set `recoveredBegin` — that field
+    // marks a begin as resolved in `findDanglingBegins`, so pointing it at
+    // our own begin would hide the crashed apply from the next recovery
+    // sweep. Leave the begin genuinely dangling (security/correctness review,
+    // sync S2).
     await recordHistory(ws, {
       id: newHistoryId(),
-      action: "install_commit",
+      action: opts.updateMode ? "update_commit" : "install_commit",
       timestamp: new Date().toISOString(),
       packId: plan.packId,
       packVersion: plan.packVersion,
@@ -348,7 +485,6 @@ async function applyInstallLocked(
       actor: opts.actor ?? { type: "cli" },
       result: "failed",
       error: err instanceof Error ? err.message : String(err),
-      recoveredBegin: beginEntry.id,
     }).catch(() => {});
     throw err;
   }

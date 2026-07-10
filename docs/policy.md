@@ -115,6 +115,32 @@ shell-execution hooks.
 
 ---
 
+## `update` — governance over `agentpack update` (sync S2, #111)
+
+```jsonc
+"update": {
+  "channel": "pinned" | "tag" | "branch",           // ceiling: installs may not track looser than this
+  "requireReconsent": "exec" | "always" | "never",  // default "exec"
+  "maxRiskEscalation": "none" | "one-level" | "any" // default "any"
+}
+```
+
+- **`channel`** — refuses an update whose live-derived channel is looser than
+  the ceiling (`pinned` < `tag` < `branch`; a registry `latest` counts as
+  branch-loose). The channel is re-derived at update time from the actual ref,
+  never read from the stored provenance block.
+- **`requireReconsent`** — when `--allow-exec` is demanded. `"exec"` (default):
+  on an exec-bearing delta (added hook/`mcp_server` atoms, or writes/removals
+  touching hook scripts, MCP configs, `settings.json` of a hook-shipping pack,
+  bang-bash command bodies). `"always"`: on **any** delta. `"never"`: only a
+  signature-verified update skips consent — an **unsigned** exec delta still
+  requires `--allow-exec` whatever this says; the install-grade floor never
+  lowers.
+- **`maxRiskEscalation`** — refuses an update whose computed risk exceeds the
+  installed version's by more than allowed. Installs record their risk level
+  from S2 onward; for older installs the gate warns and applies from the next
+  update.
+
 ## What policy does NOT do (yet)
 
 - **Org-managed central policy.** Phase 6 adds `/api/orgs/<slug>/policy` and an

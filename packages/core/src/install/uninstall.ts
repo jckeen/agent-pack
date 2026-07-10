@@ -252,7 +252,7 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
   return { packId: opts.packId, removed, restored, conflicts };
 }
 
-async function pruneEmptyParents(projectRoot: string, startAbs: string): Promise<void> {
+export async function pruneEmptyParents(projectRoot: string, startAbs: string): Promise<void> {
   let cur = path.dirname(startAbs);
   while (cur !== projectRoot && cur.startsWith(projectRoot)) {
     try {
