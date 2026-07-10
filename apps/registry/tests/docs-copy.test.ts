@@ -35,6 +35,7 @@ const CLI_COMMANDS = [
   "history",
   "rollback",
   "verify",
+  "update",
   "login",
   "whoami",
   "tokens",

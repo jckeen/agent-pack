@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0-dev — 2026-07-09 (sync S1: lockfile provenance + `update --check` — #110)
+
+Phase S1 of the continuous-sync design (`docs/sync-design.md`, PR #109), TDD throughout:
+
+- **Lockfile + install manifest remember where an install came from.** New optional `source` provenance block (`kind: github | registry` — canonical id, requested ref/version, resolved SHA/version, derived `channel: pinned|tag|branch|latest`). `install` from git/registry persists it instead of printing-and-dropping the resolved SHA; local-path installs omit it, keeping their lockfiles byte-identical to pre-S1 output. The per-pack install manifest mirrors the block (the lockfile is single-pack).
+- **`agentpack update [packId] --check`** — read-only: re-resolves each recorded source and exits `10` (new `ExitCode.UpdateAvailable`) when a branch-channel git source or latest-channel registry source has moved, printing `old → new`. `pinned`/`tag`/exact-version installs never move implicitly. Bare `update` defers loudly to the S2 apply path (exit 2). Zero filesystem writes (tree-snapshot-asserted).
+- **`agentpack verify --all [--quiet]`** — iterates every installed pack, exits with the most severe result; `--quiet` is exit-code-only (the shape the S4 SessionStart notifier will call).
+- **CI-runnable e2e gate** (`packages/cli/tests/update.cli.test.ts`): real CLI against a local mock GitHub server via new `AGENTPACK_GITHUB_API_URL`/`AGENTPACK_GITHUB_RAW_URL` env overrides — install fixture@main, advance the fixture, `--check` exits 10; same-SHA exits 0; pinned stays pinned.
+- **Review hardening (independent security + correctness passes, all fixed with failing-test-first):** a tampered install manifest can no longer steer credentials — `update --check` requires https for manifest-recorded registries (plaintext only to loopback), attaches only a `login`-stored token for exactly that URL (never the ambient `AGENTPACK_TOKEN`), and the registry client refuses redirects with the bearer attached; with a GitHub base-URL override active, `GITHUB_TOKEN`/`GH_TOKEN` is withheld unless `AGENTPACK_GITHUB_TOKEN_ALLOW_OVERRIDE=1`; the source schema enforces the git ref grammar. Fixed a pre-existing `verifyInstall` bug that `--all` made prominent: a foreign pack's `AGENTPACK.lock` (the normal state of a multi-pack project) false-reported as drift for every pack but the last-installed one.
+- Docs: `docs/cli.md` (update/verify sections, exit code 10, credential hygiene, env knobs), `docs/install.md` lockfile shape, `docs/git-source.md`, `docs/sync-design.md` S1 marked shipped, website docs page + command-parity guard, ISA ISC-336..341.
+
 ## 0.7.0-dev — 2026-07-09 (deps wave, website doc-truth + Antigravity, sync design)
 
 Second wave of the 2026-07-09 session — dependency triage, website copy sync, and the continuous-sync design:

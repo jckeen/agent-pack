@@ -4,6 +4,7 @@ import type { TargetPlatform } from "../schema/types.js";
 import type { InstallManifestV1 } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
 import { installManifestPath } from "./paths.js";
+import { lockfileSourceSchema } from "./lockfile.js";
 
 const TARGET_PLATFORMS_ARR: readonly TargetPlatform[] = [
   "claude-code",
@@ -75,6 +76,7 @@ export const installManifestSchema = z.object({
   lockfileChecksum: z.string().regex(/^[a-f0-9]{64}$/),
   rollbackable: z.boolean(),
   rollbackBlockers: z.array(z.string()).optional(),
+  source: lockfileSourceSchema.optional(),
 });
 
 export function serializeInstallManifest(m: InstallManifestV1): string {

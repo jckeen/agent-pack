@@ -18,12 +18,12 @@ const SECTIONS = [
   },
   {
     title: "CLI",
-    body: "The agentpack CLI: init, import, validate, inspect, plan, pack (export / plugin / mcpb / chat), doctor, install, uninstall, diff, history, rollback, verify, plus registry auth (login, whoami, tokens, publish) and cache. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.agentpack/history.jsonl` (hash-chained, WAL-protected). `import --from claude | claude-code | codex | chatgpt-gpt` compiles an existing setup into a pack.",
+    body: "The agentpack CLI: init, import, validate, inspect, plan, pack (export / plugin / mcpb / chat), doctor, install, uninstall, diff, history, rollback, verify, update, plus registry auth (login, whoami, tokens, publish) and cache. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.agentpack/history.jsonl` (hash-chained, WAL-protected). `import --from claude | claude-code | codex | chatgpt-gpt` compiles an existing setup into a pack.",
     link: "/docs#cli",
   },
   {
     title: "Install / update / verify",
-    body: "`agentpack install` takes a local path, a git source (github:owner/repo@ref#subpath — no registry or account needed), or a registry id: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups, unmerge shared files). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift. `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
+    body: "`agentpack install` takes a local path, a git source (github:owner/repo@ref#subpath — no registry or account needed), or a registry id: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups, unmerge shared files). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift (--all iterates every installed pack). `agentpack update --check` re-resolves each install's recorded source (git ref or registry version) and exits 10 when an update is available — the apply path lands in sync phase S2. `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
     link: "/docs#install",
   },
 ];
@@ -173,7 +173,8 @@ agentpack pack export [path] \\
 agentpack pack plugin|mcpb|chat # Claude Code plugin / .mcpb / Chat bundle
 agentpack install <src>         # local path · github:owner/repo@ref#subpath
                                 #   · registry id
-agentpack verify <packId>       # drift detection against the lockfile
+agentpack verify <packId>|--all # drift detection against the lockfile
+agentpack update --check        # exit 10 when the installed source has moved
 agentpack diff / history / rollback / uninstall
 agentpack login · whoami · tokens · publish · cache   # optional registry
 agentpack doctor                # environment checks

@@ -13,6 +13,7 @@ import { registerDiff } from "./commands/diff.js";
 import { registerHistory } from "./commands/history.js";
 import { registerRollback } from "./commands/rollback.js";
 import { registerVerify } from "./commands/verify.js";
+import { registerUpdate } from "./commands/update.js";
 import { registerLogin } from "./commands/login.js";
 import { registerWhoami } from "./commands/whoami.js";
 import { registerTokens } from "./commands/tokens.js";
@@ -43,6 +44,7 @@ registerDiff(program);
 registerHistory(program);
 registerRollback(program);
 registerVerify(program);
+registerUpdate(program);
 // Phase 3 + Phase 5 commands.
 registerLogin(program);
 registerWhoami(program);

@@ -163,6 +163,17 @@ diffability:
 Important: there is **no `installedAt` field** in the lockfile. Timestamps
 are non-deterministic and live in the install manifest only.
 
+Git- and registry-sourced installs additionally record an optional `source`
+provenance block (sync S1 — [`sync-design.md`](./sync-design.md)), e.g.
+`{ "kind": "github", "id": "github:owner/repo#subpath", "requestedRef": "main",
+"resolvedSha": "<40-hex pin>", "channel": "branch" }` — every field is a
+function of the install inputs, so determinism holds. It is what
+`agentpack update --check` re-resolves. Local-path installs omit the field
+entirely, keeping their lockfiles byte-identical to pre-S1 output. The install
+manifest mirrors the same block (the lockfile is single-pack and may be
+replaced by a later install, so the per-pack manifest is update's source of
+truth).
+
 `signatures` and `dependencies` are reserved for Phase 4 (Sigstore/cosign)
 and Phase 3 (transitive deps from a hosted registry). They're empty in
 Phase 2 but the schema slot exists to avoid a v2 bump later.

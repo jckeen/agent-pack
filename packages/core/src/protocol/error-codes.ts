@@ -27,6 +27,12 @@ export const ExitCode = {
   IntegrityError: 7,
   NotFound: 8,
   Conflict: 9,
+  /**
+   * `agentpack update --check`: at least one installed pack's source has
+   * moved past the installed pin (sync S1). Success-shaped for scripting:
+   * 0 = everything current, 10 = updates available, 1 = check failed.
+   */
+  UpdateAvailable: 10,
 } as const;
 
 export type ExitCodeName = keyof typeof ExitCode;

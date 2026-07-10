@@ -23,7 +23,9 @@ export interface CredentialsFile {
 }
 
 const WORKGRAPH_HOME = (): string =>
-  process.env.AGENTPACK_HOME ?? process.env.WORKGRAPH_HOME ?? path.join(os.homedir(), ".agentpack");
+  process.env.AGENTPACK_HOME ??
+  process.env.WORKGRAPH_HOME ??
+  path.join(os.homedir(), ".agentpack");
 
 export function credentialsPath(): string {
   return path.join(WORKGRAPH_HOME(), "credentials.json");
@@ -48,7 +50,7 @@ export async function readCredentials(): Promise<CredentialsFile> {
 
 export async function writeCredentials(
   registryUrl: string,
-  entry: CredentialsEntry
+  entry: CredentialsEntry,
 ): Promise<void> {
   const current = await readCredentials();
   current.registries[registryUrl] = entry;
@@ -61,11 +63,19 @@ export async function clearCredentials(registryUrl: string): Promise<void> {
   await persist(current);
 }
 
-export async function getToken(
-  registryUrl: string
-): Promise<string | null> {
-  const envToken = process.env.AGENTPACK_TOKEN;
-  if (envToken) return envToken;
+export async function getToken(registryUrl: string): Promise<string | null> {
+  return process.env.AGENTPACK_TOKEN ?? (await getStoredToken(registryUrl));
+}
+
+/**
+ * Like `getToken` but WITHOUT the ambient `AGENTPACK_TOKEN` fallback — only a
+ * token the user explicitly stored (via `login`) for exactly this registry
+ * URL. Use this whenever the registry URL comes from persisted state rather
+ * than the user's own invocation (e.g. `update --check` reading a `source`
+ * block out of an install manifest): a tampered manifest must not be able to
+ * steer the ambient token to an attacker-chosen host.
+ */
+export async function getStoredToken(registryUrl: string): Promise<string | null> {
   const creds = await readCredentials();
   return creds.registries[registryUrl]?.token ?? null;
 }

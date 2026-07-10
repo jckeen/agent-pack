@@ -8,6 +8,7 @@ import type {
 import type { LockfileV1, LockfileAtomEntry, LockfileFileEntry } from "./types.js";
 import { CANONICALIZATION } from "./types.js";
 import { canonicalJson, sha256Hex, sortByPath } from "./checksum.js";
+import { REF_RE } from "../git-source/index.js";
 
 const ATOM_TYPES_ARR = [
   "instruction",
@@ -51,6 +52,30 @@ const atomEntrySchema = z.object({
   outputs: z.array(fileEntrySchema),
 });
 
+/**
+ * Provenance block shared by AGENTPACK.lock and the install manifest
+ * (sync S1). Discriminated on `kind`; absent entirely on local-path installs.
+ */
+export const lockfileSourceSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("github"),
+    id: z.string().min(1),
+    // Same ref grammar parseGitId enforces at install time — the schema is
+    // the trust boundary for a tampered manifest/lockfile read back later.
+    requestedRef: z.string().regex(REF_RE).nullable(),
+    resolvedSha: z.string().regex(/^[a-f0-9]{40}$/),
+    channel: z.enum(["pinned", "tag", "branch"]),
+  }),
+  z.object({
+    kind: z.literal("registry"),
+    id: z.string().min(1),
+    registry: z.string().min(1),
+    requestedVersion: z.string().min(1).nullable(),
+    resolvedVersion: z.string().min(1),
+    channel: z.enum(["pinned", "latest"]),
+  }),
+]);
+
 export const lockfileSchema = z.object({
   lockfileVersion: z.literal(1),
   packId: z.string().min(1),
@@ -76,6 +101,7 @@ export const lockfileSchema = z.object({
     manifest: z.string().optional(),
     provenance: z.string().optional(),
   }),
+  source: lockfileSourceSchema.optional(),
 });
 
 export interface BuildLockfileInput {

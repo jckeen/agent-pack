@@ -12,8 +12,10 @@ export * as signing from "./signing/index.js";
 export {
   parseGitId,
   fetchGitPack,
+  resolveGitSourceSha,
   type GitSource,
   type FetchGitPackOptions,
+  type FetchGitPackResult,
 } from "./git-source/index.js";
 
 // Iteration-4 modules (Phase 3 + Phase 5).
@@ -205,6 +207,7 @@ export {
   serializeLockfile,
   lockfileChecksum,
   lockfileSchema,
+  lockfileSourceSchema,
   installManifestSchema,
   parseInstallManifest,
   serializeInstallManifest,
@@ -236,6 +239,7 @@ export type {
   LockfileAtomEntry,
   LockfileSignatures,
   LockfileDependencyEntry,
+  LockfileSource,
   InstallManifestV1,
   HistoryAction,
   HistoryActor,

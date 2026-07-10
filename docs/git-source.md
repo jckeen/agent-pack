@@ -42,7 +42,7 @@ The CLI's `install [pack]` command resolves the `pack` argument in this order:
 3. Each file is fetched from `raw.githubusercontent.com` at the pinned SHA into a temp directory.
 4. The existing `planInstall` → `applyInstall` pipeline takes over: diff against project root, back up overwrites, atomically write, append to history.jsonl, write AGENTPACK.lock.
 
-The lockfile records the per-file sha256 of what was actually fetched and the install profile.
+The lockfile records the per-file sha256 of what was actually fetched and the install profile, plus a `source` provenance block (canonical id, requested ref, resolved SHA, and channel `pinned`/`tag`/`branch`) that `agentpack update --check` re-resolves — see [`install.md`](./install.md) and [`sync-design.md`](./sync-design.md).
 
 ## Authentication, private repos, and rate limits
 

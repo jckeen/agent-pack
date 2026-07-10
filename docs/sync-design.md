@@ -36,10 +36,11 @@ The building blocks are nearly all shipped:
 | Whole-config import                                                                    | `agentpack import --from claude-code` (`packages/cli/src/commands/import.ts`)                             |
 | Plugin/chat/mcpb compile targets                                                       | `packages/cli/src/commands/pack.ts`, `docs/integration-roadmap.md`                                        |
 
-**The missing fact is provenance.** `fetchGitPack` pins and returns `resolvedSha` and
-`requestedRef`, and the CLI _prints_ them — then throws them away. Neither `LockfileV1`
-nor `InstallManifestV1` records where the pack came from. An installed project literally
-cannot answer "where would an update come from?" Everything below starts by fixing that.
+**The missing fact was provenance.** `fetchGitPack` pins and returns `resolvedSha` and
+`requestedRef`, and the CLI _printed_ them — then threw them away. Neither `LockfileV1`
+nor `InstallManifestV1` recorded where the pack came from. An installed project literally
+could not answer "where would an update come from?" **Fixed in S1 (#110):** both now
+carry the `source` block below.
 
 A second wrinkle to design around: `AGENTPACK.lock` is single-pack (top-level `packId`),
 and `applyInstall` backs up and replaces any prior lockfile. The per-pack source of truth
@@ -257,7 +258,7 @@ exists for. Rules:
 | Trigger                   | Verdict                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Manual `agentpack update` | **Always the primitive.** Everything else is a notifier.                                                                                                                                                                                                                                                                                                          |
-| SessionStart hook         | **Recommended notifier.** Ship a first-party `agentpack.sync-check` pack with one SessionStart hook: `agentpack update --check --all --quiet \|\| echo "AgentPack updates available — run: agentpack update"`. Read-only, fast on the cached-SHA path, degrades silently offline, never applies anything. Bonus: the sync feature ships _as a pack_.              |
+| SessionStart hook         | **Recommended notifier.** Ship a first-party `agentpack.sync-check` pack with one SessionStart hook: `agentpack update --check --quiet \|\| echo "AgentPack updates available — run: agentpack update"`. Read-only, fast on the cached-SHA path, degrades silently offline, never applies anything. Bonus: the sync feature ships _as a pack_.              |
 | CI in the pack repo       | **Recommended for the push direction, phase S4.** GitHub Action on push/tag: validate, re-emit the plugin (`pack plugin`), optionally open dependabot-style PRs against registered consumer repos running `agentpack update` — lockfile + compiled output as the diff, PR review as the consent gate. The only sanctioned "auto" path, because a human merges it. |
 | git post-merge hook       | Not default — per-repo installed hook (chicken-and-egg with governance) duplicating SessionStart. Document as an option; build nothing.                                                                                                                                                                                                                           |
 | Daemon / file-watcher     | **Not building.** Violates no-daemon, adds a resident attack surface to a supply-chain-sensitive tool, and saves nothing: config changes matter at session start, not mid-session.                                                                                                                                                                                |
@@ -288,9 +289,11 @@ exists for. Rules:
 
 ## 7. Phasing (tool-verifiable gates, roadmap style)
 
-**Phase S1 — Provenance + `update --check`** (small; one session)
+**Phase S1 — Provenance + `update --check`** (small; one session) — **SHIPPED 2026-07-09 (#110)**
 Lockfile/manifest `source` block on git + registry installs; `update --check`;
-`verify --all --quiet`.
+`verify --all --quiet`. Gate met by `packages/cli/tests/update.cli.test.ts`
+(CI-runnable: local mock GitHub server via `AGENTPACK_GITHUB_API_URL` /
+`AGENTPACK_GITHUB_RAW_URL` env overrides).
 _Gate:_ scripted e2e — install `github:<fixture>@main` into a temp project, push a new
 commit to the fixture, `agentpack update --check` exits 10 printing old SHA → new SHA;
 re-run at same SHA exits 0. Lockfile snapshots byte-stable for local-path installs (no
@@ -330,7 +333,7 @@ optional).
 
 ---
 
-**First commit:** the single highest-leverage change is tiny and unblocks everything —
+**First commit:** the single highest-leverage change was tiny and unblocked everything —
 persist `resolvedSha`/`requestedRef` from `fetchGitPack` into the lockfile and install
-manifest in `packages/cli/src/commands/install.ts`, where they are currently printed and
-dropped.
+manifest in `packages/cli/src/commands/install.ts`, where they were printed and
+dropped. Shipped as phase S1 (#110).

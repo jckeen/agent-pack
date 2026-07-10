@@ -289,6 +289,10 @@ async function applyInstallLocked(
       ),
       lockfileChecksum: lockfileChecksum(plan.lockfile),
       rollbackable: true,
+      // Mirror the lockfile's provenance (sync S1): the lockfile is
+      // single-pack and may be replaced by a later install, so the manifest
+      // is the per-pack source of truth for `agentpack update`.
+      ...(plan.lockfile.source ? { source: plan.lockfile.source } : {}),
     };
     const manifestPath = await writeInstallManifest(ws, manifest);
 

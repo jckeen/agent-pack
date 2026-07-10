@@ -69,7 +69,7 @@ const GIT_ID_RE =
  * From security-reviewer HIGH-4 (iter-5); widened in codex P2 review to
  * allow `+`.
  */
-const REF_RE = /^[A-Za-z0-9._/+-]{1,255}$/;
+export const REF_RE = /^[A-Za-z0-9._/+-]{1,255}$/;
 
 export function parseGitId(input: string): GitSource | null {
   if (!input || typeof input !== "string") return null;
@@ -104,6 +104,26 @@ export function parseGitId(input: string): GitSource | null {
 }
 
 /**
+ * Base URLs for the GitHub API and raw-content hosts. Overridable via
+ * `AGENTPACK_GITHUB_API_URL` / `AGENTPACK_GITHUB_RAW_URL` for tests (the
+ * sync-S1 e2e gate runs a local mock server) and enterprise proxies. The
+ * override only matters to an attacker who already controls the process
+ * environment — the same position that controls GITHUB_TOKEN and PATH.
+ */
+function apiBase(): string {
+  return (process.env["AGENTPACK_GITHUB_API_URL"] ?? "https://api.github.com").replace(
+    /\/+$/,
+    "",
+  );
+}
+
+function rawBase(): string {
+  return (
+    process.env["AGENTPACK_GITHUB_RAW_URL"] ?? "https://raw.githubusercontent.com"
+  ).replace(/\/+$/, "");
+}
+
+/**
  * Auth token for GitHub fetches. `GITHUB_TOKEN` (Actions convention) or
  * `GH_TOKEN` (gh CLI convention). Enables private-repo installs and lifts
  * the 60-requests/hour anonymous api.github.com rate limit.
@@ -112,8 +132,31 @@ function githubToken(): string | undefined {
   return process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"] ?? undefined;
 }
 
+let warnedTokenSuppressed = false;
+
 function githubHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const token = githubToken();
+  // Invariant: the bearer token only ever reaches GitHub's own hosts (every
+  // fetch here also sets `redirect: "error"` for the same reason). A base-URL
+  // override points these fetches at a NON-GitHub host, so the token is
+  // withheld unless the caller explicitly opts in — otherwise an override
+  // smuggled into the environment of a later, more-trusted invocation would
+  // turn a trusted egress channel into a token-exfiltration channel.
+  const overridden =
+    process.env["AGENTPACK_GITHUB_API_URL"] !== undefined ||
+    process.env["AGENTPACK_GITHUB_RAW_URL"] !== undefined;
+  const allowOverrideToken = process.env["AGENTPACK_GITHUB_TOKEN_ALLOW_OVERRIDE"] === "1";
+  if (token && overridden && !allowOverrideToken) {
+    if (!warnedTokenSuppressed) {
+      warnedTokenSuppressed = true;
+      console.error(
+        "agentpack: AGENTPACK_GITHUB_API_URL/AGENTPACK_GITHUB_RAW_URL override active — " +
+          "GITHUB_TOKEN/GH_TOKEN NOT sent to the override host. " +
+          "Set AGENTPACK_GITHUB_TOKEN_ALLOW_OVERRIDE=1 to send it (enterprise proxies).",
+      );
+    }
+    return { ...extra };
+  }
   return {
     ...extra,
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -163,7 +206,7 @@ async function resolveDefaultBranch(
   repo: string,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<string> {
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const url = `${apiBase()}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const res = await fetchImpl(url, {
     headers: githubHeaders({ Accept: "application/vnd.github+json" }),
     // Never follow a redirect with the bearer token attached — a cross-origin
@@ -198,7 +241,7 @@ async function resolveRefToSha(
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<string> {
   if (SHA40_RE.test(ref)) return ref.toLowerCase();
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
+  const url = `${apiBase()}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
   const res = await fetchImpl(url, {
     headers: githubHeaders({ Accept: "application/vnd.github+json" }),
     // Never follow a redirect with the bearer token attached — a cross-origin
@@ -226,7 +269,7 @@ async function listTree(
   sha: string,
   fetchImpl: typeof fetch,
 ): Promise<string[]> {
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}?recursive=1`;
+  const url = `${apiBase()}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}?recursive=1`;
   const res = await fetchImpl(url, {
     headers: githubHeaders({ Accept: "application/vnd.github+json" }),
     // Never follow a redirect with the bearer token attached — a cross-origin
@@ -256,7 +299,7 @@ async function listTree(
  */
 function rawUrl(owner: string, repo: string, ref: string, filePath: string): string {
   const cleanPath = filePath.replace(/^\/+/, "");
-  return `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${cleanPath
+  return `${rawBase()}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${cleanPath
     .split("/")
     .map(encodeURIComponent)
     .join("/")}`;
@@ -287,6 +330,53 @@ export interface FetchGitPackResult {
   resolvedSha: string;
   /** The ref the user typed (`null` if `@ref` was omitted). */
   requestedRef: string | null;
+  /**
+   * Update channel, derived at fetch time (sync S1): a 40-hex ref is
+   * `pinned`, a ref the tags endpoint recognizes is `tag`, everything else
+   * (including an omitted ref → default branch) is `branch`. Recorded in the
+   * lockfile's `source` block; `pinned`/`tag` installs never move implicitly.
+   */
+  channel: "pinned" | "tag" | "branch";
+}
+
+/**
+ * Classify a ref for the update channel. One extra API probe for explicit
+ * non-SHA refs (`GET /git/ref/tags/{ref}`: 200 = tag, 404 = branch); other
+ * probe failures throw — if the API is unreachable or rate-limited, the tree
+ * listing that follows would fail anyway, and guessing a channel would bake
+ * a wrong pinning policy into the lockfile.
+ */
+async function deriveChannel(
+  owner: string,
+  repo: string,
+  ref: string | null,
+  fetchImpl: typeof fetch,
+): Promise<"pinned" | "tag" | "branch"> {
+  if (ref === null) return "branch";
+  if (SHA40_RE.test(ref)) return "pinned";
+  const url = `${apiBase()}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/tags/${encodeURIComponent(ref)}`;
+  const res = await fetchImpl(url, {
+    headers: githubHeaders({ Accept: "application/vnd.github+json" }),
+    // Never follow a redirect with the bearer token attached (security H3).
+    redirect: "error",
+  });
+  if (res.ok) return "tag";
+  if (res.status === 404) return "branch";
+  throw describeGitHubFailure(res, url, `classifying ref "${ref}" as tag or branch`);
+}
+
+/**
+ * Re-resolve a git source to the commit SHA its ref points at right now —
+ * the read-only primitive behind `agentpack update --check`. Resolves the
+ * default branch when `source.ref` is null, exactly like `fetchGitPack`.
+ */
+export async function resolveGitSourceSha(
+  source: GitSource,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<string> {
+  const ref =
+    source.ref ?? (await resolveDefaultBranch(source.owner, source.repo, fetchImpl));
+  return resolveRefToSha(source.owner, source.repo, ref, fetchImpl);
 }
 
 /**
@@ -314,6 +404,7 @@ export async function fetchGitPack(
   // Pin every subsequent fetch to a SHA. Branches and tags resolve through
   // GitHub's commits endpoint; 40-hex SHAs pass through unchanged.
   const ref = await resolveRefToSha(source.owner, source.repo, userRefOrDefault, fetchImpl);
+  const channel = await deriveChannel(source.owner, source.repo, requestedRef, fetchImpl);
 
   const subpathPrefix = source.subpath
     ? `${source.subpath.replace(/^\/+|\/+$/g, "")}/`
@@ -375,5 +466,5 @@ export async function fetchGitPack(
     await fs.writeFile(dest, bytes);
   }
 
-  return { tmpRoot, resolvedSha: ref, requestedRef };
+  return { tmpRoot, resolvedSha: ref, requestedRef, channel };
 }

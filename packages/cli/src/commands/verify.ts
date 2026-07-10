@@ -4,15 +4,39 @@ import path from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
 
-import { loadPolicy, parseLockfile, signing, verifyInstall } from "@agentpack/core";
+import {
+  listInstallManifests,
+  loadPolicy,
+  parseLockfile,
+  resolveAgentpackPaths,
+  signing,
+  verifyInstall,
+} from "@agentpack/core";
 
 import { failCleanly } from "../lib/error.js";
 
+interface VerifyCliOptions {
+  project: string;
+  chain: boolean;
+  sig: boolean;
+  sigIfPresent: boolean;
+  strict: boolean;
+  expectedSigner?: string;
+  all: boolean;
+  quiet: boolean;
+}
+
 export function registerVerify(program: Command): void {
   program
-    .command("verify <packId>")
+    .command("verify [packId]")
     .description("Verify that installed files still match the lockfile (drift detection).")
     .option("--project <dir>", "target project directory", process.cwd())
+    .option(
+      "--all",
+      "verify every installed pack under .agentpack/installed/ (sync S1)",
+      false,
+    )
+    .option("--quiet", "print nothing; communicate via the exit code only", false)
     .option("--chain", "also verify the history.jsonl hash chain", false)
     .option(
       "--sig",
@@ -33,122 +57,161 @@ export function registerVerify(program: Command): void {
       "--expected-signer <san>",
       "with --sig: require the Sigstore certificate identity (SAN) to equal this value",
     )
-    .action(
-      async (
-        packId: string,
-        options: {
-          project: string;
-          chain: boolean;
-          sig: boolean;
-          sigIfPresent: boolean;
-          strict: boolean;
-          expectedSigner?: string;
-        },
-      ) => {
-        try {
-          const result = await verifyInstall({
-            packId,
-            projectRoot: options.project,
-            checkChain: options.chain,
-          });
-
-          // Drift takes precedence — if any file is modified or missing, the
-          // signature is moot (it was over a different hash than what's on
-          // disk now). Per ROADMAP exit codes: 2 = drift, 3 = chain broken,
-          // 4 = signature mismatch, 5 = unsigned-when-required.
-          if (result.chainOk === false) {
-            console.error(
-              pc.red(
-                `✗ history.jsonl chain integrity FAILED at entry index ${result.chainBrokeAt}.`,
-              ),
-            );
-            process.exit(3);
-          }
-          if (!result.clean) {
-            console.error(pc.red(`✗ ${packId} has drift:`));
-            for (const d of result.drift) {
-              console.error(
-                `  ${pc.red("•")} ${d.path}: expected ${d.expected.slice(0, 12)}…, actual ${d.actual.slice(0, 12)}…`,
-              );
-            }
-            for (const m of result.missing) {
-              console.error(`  ${pc.red("•")} ${m}: missing`);
-            }
-            process.exit(2);
-          }
-
-          // Drift-clean — optionally also verify the signature.
-          //
-          // #35 fix 2: `--sig` ENFORCES by default — an unsigned lockfile is a
-          // failure (exit 5). The old lenient "verify only if a signature
-          // exists" behavior lives behind `--sig-if-present`. `--strict` is
-          // kept as a deprecated alias for the enforcing behavior. The
-          // signature check runs whenever ANY of these flags is set.
-          const sigChecking = options.sig || options.sigIfPresent || options.strict;
-          // Enforce (fail on unsigned) unless the caller explicitly opted into
-          // lenient mode via --sig-if-present.
-          const enforceSigned = sigChecking && !options.sigIfPresent;
-          if (sigChecking) {
-            const policy = await loadPolicy(options.project);
-            const sigResult = await checkLockfileSignature(
-              options.project,
-              packId,
-              enforceSigned,
-              options.expectedSigner,
-              policy?.install.allowedSigners,
-              policy?.install.requireIdentity,
-            );
-            if (sigResult.code === "ok") {
-              if (sigResult.pinned) {
-                console.log(
-                  pc.green(
-                    `✓ ${packId} clean — signature valid, signer pinned (${sigResult.san})`,
-                  ),
-                );
-              } else {
-                console.log(
-                  pc.green(
-                    `✓ ${packId} clean — signature cryptographically valid (${sigResult.san})`,
-                  ) +
-                    " " +
-                    pc.yellow(
-                      "(signer identity not pinned — pass --expected-signer to enforce)",
-                    ),
-                );
-              }
-            } else if (sigResult.code === "unsigned") {
-              if (enforceSigned) {
-                console.error(
-                  pc.red(
-                    `✗ ${packId} clean but UNSIGNED — --sig requires a signature. ` +
-                      `Pass --sig-if-present to allow unsigned packs.`,
-                  ),
-                );
-                process.exit(5);
-              }
-              console.log(
-                pc.green(`✓ ${packId} clean — no drift.`) + " " + pc.yellow("(unsigned)"),
-              );
-            } else {
-              console.error(
-                pc.red(
-                  `✗ ${packId} clean but SIGNATURE INVALID — ${sigResult.reason}${sigResult.detail ? ` (${sigResult.detail})` : ""}`,
-                ),
-              );
-              process.exit(4);
-            }
-          } else {
-            console.log(pc.green(`✓ ${packId} clean — no drift.`));
-            if (options.chain) {
-              console.log(pc.dim("  • History chain integrity: ok."));
-            }
-          }
-          process.exit(0);
-        } catch (err) {
-          failCleanly(err);
+    .action(async (packId: string | undefined, options: VerifyCliOptions) => {
+      try {
+        if (!packId && !options.all) {
+          console.error(
+            pc.red("✗ Provide a packId, or pass --all to verify every installed pack."),
+          );
+          process.exit(2);
         }
-      },
+        if (packId && options.all) {
+          console.error(pc.red("✗ Pass either a packId or --all, not both."));
+          process.exit(2);
+        }
+        const sigChecking = options.sig || options.sigIfPresent || options.strict;
+        if (options.all && sigChecking) {
+          // AGENTPACK.lock is single-pack: with --all there is no per-pack
+          // signature to check, and pretending otherwise would report the
+          // last-installed pack's signature for every pack.
+          console.error(
+            pc.red("✗ --sig/--sig-if-present/--strict require a single packId."),
+          );
+          process.exit(2);
+        }
+
+        let ids: string[];
+        if (options.all) {
+          const paths = await resolveAgentpackPaths(options.project);
+          ids = (await listInstallManifests(paths)).map((m) => m.packId);
+          if (ids.length === 0) {
+            if (!options.quiet) {
+              console.log(pc.dim("No AgentPacks installed — nothing to verify."));
+            }
+            process.exit(0);
+          }
+        } else {
+          ids = [packId as string];
+        }
+
+        const codes: number[] = [];
+        for (const id of ids) {
+          codes.push(await verifyOne(id, options));
+        }
+        // Severity across packs: chain break > drift > signature invalid >
+        // unsigned-when-required (same ordering the single-pack path applies
+        // within one pack).
+        for (const severity of [3, 2, 4, 5]) {
+          if (codes.includes(severity)) process.exit(severity);
+        }
+        process.exit(0);
+      } catch (err) {
+        failCleanly(err);
+      }
+    });
+}
+
+/**
+ * Verify one pack and return its exit code (0 clean, 2 drift, 3 chain broken,
+ * 4 signature invalid, 5 unsigned-when-required) instead of exiting — the
+ * caller aggregates across packs for --all.
+ */
+async function verifyOne(packId: string, options: VerifyCliOptions): Promise<number> {
+  const say = options.quiet ? () => {} : console.log;
+  const sayErr = options.quiet ? () => {} : console.error;
+
+  const result = await verifyInstall({
+    packId,
+    projectRoot: options.project,
+    checkChain: options.chain,
+  });
+
+  // Drift takes precedence — if any file is modified or missing, the
+  // signature is moot (it was over a different hash than what's on
+  // disk now). Per ROADMAP exit codes: 2 = drift, 3 = chain broken,
+  // 4 = signature mismatch, 5 = unsigned-when-required.
+  if (result.chainOk === false) {
+    sayErr(
+      pc.red(
+        `✗ history.jsonl chain integrity FAILED at entry index ${result.chainBrokeAt}.`,
+      ),
     );
+    return 3;
+  }
+  if (!result.clean) {
+    sayErr(pc.red(`✗ ${packId} has drift:`));
+    for (const d of result.drift) {
+      sayErr(
+        `  ${pc.red("•")} ${d.path}: expected ${d.expected.slice(0, 12)}…, actual ${d.actual.slice(0, 12)}…`,
+      );
+    }
+    for (const m of result.missing) {
+      sayErr(`  ${pc.red("•")} ${m}: missing`);
+    }
+    return 2;
+  }
+
+  // Drift-clean — optionally also verify the signature.
+  //
+  // #35 fix 2: `--sig` ENFORCES by default — an unsigned lockfile is a
+  // failure (exit 5). The old lenient "verify only if a signature
+  // exists" behavior lives behind `--sig-if-present`. `--strict` is
+  // kept as a deprecated alias for the enforcing behavior. The
+  // signature check runs whenever ANY of these flags is set.
+  const sigChecking = options.sig || options.sigIfPresent || options.strict;
+  // Enforce (fail on unsigned) unless the caller explicitly opted into
+  // lenient mode via --sig-if-present.
+  const enforceSigned = sigChecking && !options.sigIfPresent;
+  if (sigChecking) {
+    const policy = await loadPolicy(options.project);
+    const sigResult = await checkLockfileSignature(
+      options.project,
+      packId,
+      enforceSigned,
+      options.expectedSigner,
+      policy?.install.allowedSigners,
+      policy?.install.requireIdentity,
+    );
+    if (sigResult.code === "ok") {
+      if (sigResult.pinned) {
+        say(
+          pc.green(`✓ ${packId} clean — signature valid, signer pinned (${sigResult.san})`),
+        );
+      } else {
+        say(
+          pc.green(
+            `✓ ${packId} clean — signature cryptographically valid (${sigResult.san})`,
+          ) +
+            " " +
+            pc.yellow("(signer identity not pinned — pass --expected-signer to enforce)"),
+        );
+      }
+    } else if (sigResult.code === "unsigned") {
+      if (enforceSigned) {
+        sayErr(
+          pc.red(
+            `✗ ${packId} clean but UNSIGNED — --sig requires a signature. ` +
+              `Pass --sig-if-present to allow unsigned packs.`,
+          ),
+        );
+        return 5;
+      }
+      say(pc.green(`✓ ${packId} clean — no drift.`) + " " + pc.yellow("(unsigned)"));
+    } else {
+      sayErr(
+        pc.red(
+          `✗ ${packId} clean but SIGNATURE INVALID — ${sigResult.reason}${sigResult.detail ? ` (${sigResult.detail})` : ""}`,
+        ),
+      );
+      return 4;
+    }
+  } else {
+    say(pc.green(`✓ ${packId} clean — no drift.`));
+    if (options.chain) {
+      say(pc.dim("  • History chain integrity: ok."));
+    }
+  }
+  return 0;
 }
 
 interface SigOk {
