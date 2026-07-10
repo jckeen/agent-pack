@@ -8,12 +8,12 @@ const NAV = [
 
 export function Header() {
   return (
-    <header className="border-b border-ink-100 bg-white/70 backdrop-blur">
+    <header className="border-b border-ink-100 bg-white/70 backdrop-blur-sm">
       <div className="container-page flex h-16 items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
           <span
             aria-hidden
-            className="inline-block h-7 w-7 rounded-md bg-gradient-to-br from-accent-500 to-accent-700"
+            className="inline-block h-7 w-7 rounded-md bg-linear-to-br from-accent-500 to-accent-700"
           />
           <span className="font-semibold tracking-tight text-ink-900">
             AgentPack

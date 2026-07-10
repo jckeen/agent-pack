@@ -51,7 +51,7 @@ export function ValidateForm() {
           placeholder={PLACEHOLDER}
           spellCheck={false}
           rows={26}
-          className="w-full rounded-lg border border-ink-200 bg-white p-3 font-mono text-xs leading-relaxed shadow-soft focus:border-accent-500 focus:outline-none"
+          className="w-full rounded-lg border border-ink-200 bg-white p-3 font-mono text-xs leading-relaxed shadow-soft focus:border-accent-500 focus:outline-hidden"
         />
         <div className="flex gap-2">
           <button

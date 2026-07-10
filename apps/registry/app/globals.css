@@ -1,43 +1,98 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-:root {
-  color-scheme: light;
+@theme {
+  --color-ink-50: #f5f6f8;
+  --color-ink-100: #e9ebf0;
+  --color-ink-200: #cdd2dc;
+  --color-ink-400: #8a92a3;
+  --color-ink-600: #475066;
+  --color-ink-800: #1c2233;
+  --color-ink-900: #0d1120;
+  --color-ink-950: #070914;
+
+  --color-accent-50: #eef4ff;
+  --color-accent-100: #dbe5ff;
+  --color-accent-400: #7ea1ff;
+  --color-accent-500: #5079ff;
+  --color-accent-600: #3257ee;
+  --color-accent-700: #2440c8;
+
+  --color-risk-low: #15803d;
+  --color-risk-medium: #b45309;
+  --color-risk-high: #b91c1c;
+  --color-risk-critical: #7f1d1d;
+
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', Menlo, monospace;
+
+  --shadow-soft:
+    0 1px 2px rgba(13, 17, 32, 0.06), 0 4px 12px rgba(13, 17, 32, 0.04);
 }
 
-html,
-body {
-  background-color: theme("colors.ink.50");
-  color: theme("colors.ink.900");
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
 }
 
-@layer components {
-  .container-page {
-    @apply mx-auto w-full max-w-6xl px-6;
-  }
-  .card {
-    @apply rounded-xl border border-ink-100 bg-white p-6 shadow-soft;
-  }
-  .pill {
-    @apply inline-flex items-center rounded-full border border-ink-100 bg-ink-50 px-2.5 py-0.5 text-xs font-medium text-ink-600;
-  }
-  .pill-accent {
-    @apply inline-flex items-center rounded-full border border-accent-100 bg-accent-50 px-2.5 py-0.5 text-xs font-medium text-accent-700;
-  }
-  .h1 {
-    @apply text-3xl font-semibold tracking-tight text-ink-900 md:text-4xl;
-  }
-  .h2 {
-    @apply text-xl font-semibold tracking-tight text-ink-900;
-  }
-  .h3 {
-    @apply text-sm font-semibold uppercase tracking-wider text-ink-400;
-  }
-  .prose-tight p {
+@utility container-page {
+  @apply mx-auto w-full max-w-6xl px-6;
+}
+
+@utility card {
+  @apply rounded-xl border border-ink-100 bg-white p-6 shadow-soft;
+}
+
+@utility pill {
+  @apply inline-flex items-center rounded-full border border-ink-100 bg-ink-50 px-2.5 py-0.5 text-xs font-medium text-ink-600;
+}
+
+@utility pill-accent {
+  @apply inline-flex items-center rounded-full border border-accent-100 bg-accent-50 px-2.5 py-0.5 text-xs font-medium text-accent-700;
+}
+
+@utility h1 {
+  @apply text-3xl font-semibold tracking-tight text-ink-900 md:text-4xl;
+}
+
+@utility h2 {
+  @apply text-xl font-semibold tracking-tight text-ink-900;
+}
+
+@utility h3 {
+  @apply text-sm font-semibold uppercase tracking-wider text-ink-400;
+}
+
+@utility prose-tight {
+  & p {
     @apply mt-2 text-ink-600;
   }
-  .codeblock {
-    @apply rounded-lg bg-ink-900 px-4 py-3 font-mono text-sm text-ink-50;
+}
+
+@utility codeblock {
+  @apply rounded-lg bg-ink-900 px-4 py-3 font-mono text-sm text-ink-50;
+}
+
+@layer utilities {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-900);
   }
 }

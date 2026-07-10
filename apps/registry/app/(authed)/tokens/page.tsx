@@ -197,7 +197,7 @@ export default async function TokensPage({
               required
               maxLength={120}
               placeholder="e.g. local-dev or CI publish"
-              className="mt-1 block w-full rounded-md border border-ink-200 px-3 py-2 text-sm shadow-sm focus:border-ink-400 focus:outline-none"
+              className="mt-1 block w-full rounded-md border border-ink-200 px-3 py-2 text-sm shadow-xs focus:border-ink-400 focus:outline-hidden"
             />
           </div>
           <fieldset>
@@ -213,7 +213,7 @@ export default async function TokensPage({
                     name="scopes"
                     value={scope}
                     defaultChecked={scope === "read:packs"}
-                    className="h-4 w-4 rounded border-ink-300"
+                    className="h-4 w-4 rounded-sm border-ink-300"
                   />
                   <code className="font-mono text-xs">{scope}</code>
                 </label>
