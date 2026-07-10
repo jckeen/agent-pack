@@ -228,14 +228,18 @@ export async function foldImportInto(params: {
       try {
         await fs.unlink(path.join(root, c.path));
       } catch (err) {
-        // A failed deletion means the pack STILL SHIPS the stale atom file —
-        // collect it for the caller to surface (#122); silence here would
+        // ENOENT = the desired end-state already holds (the file vanished
+        // between the stale walk and the unlink) — not a failure. Any OTHER
+        // failed deletion means the pack STILL SHIPS the stale atom file —
+        // collect it for the caller to surface (#122); silence there would
         // let import report success over a dirty pack.
-        removalFailures.push({
-          path: c.path,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        continue;
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          removalFailures.push({
+            path: c.path,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          continue;
+        }
       }
       // Best-effort prune of now-empty dirs up to atoms/ (cosmetic only:
       // an empty dir left behind carries no content, unlike a failed unlink).
