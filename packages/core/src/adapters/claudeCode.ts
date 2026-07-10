@@ -211,17 +211,18 @@ export const claudeCodeAdapter = defineAdapter({
       // Resolve the body from either a markdown agent (frontmatter + prompt) or
       // a YAML descriptor — so a manifest can reference an existing
       // `.claude/agents/*.md` in place without losing the system prompt.
-      const { instructions, description, tools, model } = await resolveSubagentBody(
-        packRoot,
-        atom,
-      );
+      const { instructions, description, tools, model, verbatim } =
+        await resolveSubagentBody(packRoot, atom);
       // Frontmatter carries only keys Claude Code's agent loader understands
       // (name, description, tools, model) — provenance and risk live in the
       // lockfile. Prefer values lifted from the source agent's frontmatter;
       // yamlFrontmatter omits undefined keys.
+      // A markdown-sourced body is the agent's actual system prompt — emit it
+      // verbatim (#102). Descriptor/fallback bodies get a synthesized title.
+      const body = verbatim ? instructions : `# ${atom.name}\n\n${instructions}`;
       files.push({
         path: `.claude/agents/${slug}.md`,
-        content: `${yamlFrontmatter({ name: slug, description: description ?? atom.description, tools, model })}\n# ${atom.name}\n\n${instructions}\n`,
+        content: `${yamlFrontmatter({ name: slug, description: description ?? atom.description, tools, model })}\n${body}\n`,
         action: "create",
       });
     }
