@@ -20,3 +20,7 @@ The open-source positioning is load-bearing: the entire architecture (self-host 
 
 - v0.3.0 registry promotion is held until `scripts/smoke-e2e.sh` round-trips publish→install against live infra (needs `DATABASE_URL` + R2 + GitHub OAuth).
 - Vercel: project `agent-pack-registry` is linked under the operator's Vercel team. First deploy needs `rootDirectory = apps/registry` set in the dashboard, then `vercel --prod=false` from repo root.
+
+### Gotchas
+
+- The editor's live TypeScript diagnostics on this repo's `*.test.ts` files are chronically bogus — `Cannot find module 'node:fs/promises'`, `Cannot find name 'Map'`, "ES5 requires the Promise constructor", `'a'.repeat` errors. They stem from the diagnostic server resolving the wrong tsconfig/lib for test files, not from real type errors. **`pnpm verify` / `tsc -b` is the source of truth** — trust it over the inline diagnostics stream, and don't "fix" test code (or chase phantom "not exported" errors on source files) to silence them.
