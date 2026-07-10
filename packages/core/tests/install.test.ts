@@ -38,14 +38,27 @@ describe("planInstall", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  it("leaves zero filesystem trace in the project — planning is read-only (#103)", async () => {
+    const dir = await tempProject();
+    await planInstall({
+      source: EXAMPLE_PACK,
+      target: "generic",
+      profile: "safe",
+      projectRoot: dir,
+      generator: GEN,
+    });
+    // A plan (and therefore install --dry-run, diff, and a gate-refused
+    // install, which all stop after planning) must not create .agentpack/
+    // or anything else in the target project.
+    expect(await fs.readdir(dir)).toEqual([]);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   it("flags a pre-existing non-mergeable file as conflict; marker files merge instead", async () => {
     const dir = await tempProject();
     // A user-owned file at a non-merge path (skill output) is a conflict...
     await fs.mkdir(path.join(dir, "skills/code-review"), { recursive: true });
-    await fs.writeFile(
-      path.join(dir, "skills/code-review/SKILL.md"),
-      "user content\n",
-    );
+    await fs.writeFile(path.join(dir, "skills/code-review/SKILL.md"), "user content\n");
     // ...while a user-owned AGENTS.md (marker surface) merges, not conflicts.
     await fs.writeFile(path.join(dir, "AGENTS.md"), "user content\n");
     const plan = await planInstall({
@@ -177,10 +190,7 @@ describe("applyInstall", () => {
   it("refuses conflicts without --force", async () => {
     const dir = await tempProject();
     await fs.mkdir(path.join(dir, "skills/code-review"), { recursive: true });
-    await fs.writeFile(
-      path.join(dir, "skills/code-review/SKILL.md"),
-      "user content\n",
-    );
+    await fs.writeFile(path.join(dir, "skills/code-review/SKILL.md"), "user content\n");
     const plan = await planInstall({
       source: EXAMPLE_PACK,
       target: "generic",
@@ -242,10 +252,7 @@ describe("verifyInstall", () => {
       generator: GEN,
     });
     await applyInstall({ plan });
-    await fs.appendFile(
-      path.join(dir, "skills/code-review/SKILL.md"),
-      "\ntampered\n",
-    );
+    await fs.appendFile(path.join(dir, "skills/code-review/SKILL.md"), "\ntampered\n");
     const r = await verifyInstall({ packId: plan.packId, projectRoot: dir });
     expect(r.clean).toBe(false);
     expect(r.drift.some((d) => d.path === "skills/code-review/SKILL.md")).toBe(true);
@@ -278,7 +285,11 @@ describe("verifyInstall", () => {
       generator: GEN,
     });
     await applyInstall({ plan });
-    const r = await verifyInstall({ packId: plan.packId, projectRoot: dir, checkChain: true });
+    const r = await verifyInstall({
+      packId: plan.packId,
+      projectRoot: dir,
+      checkChain: true,
+    });
     expect(r.chainOk).toBe(true);
     await fs.rm(dir, { recursive: true, force: true });
   });
@@ -300,7 +311,9 @@ describe("uninstall", () => {
     expect(result.conflicts).toHaveLength(0);
     // Manifest should be gone.
     const ws = await resolveAgentpackPaths(dir);
-    await expect(readInstallManifest(ws, plan.packId)).rejects.toThrow(/No install manifest/);
+    await expect(readInstallManifest(ws, plan.packId)).rejects.toThrow(
+      /No install manifest/,
+    );
     // Files should be gone.
     await expect(fs.stat(path.join(dir, "AGENTS.md"))).rejects.toThrow();
     await fs.rm(dir, { recursive: true, force: true });
@@ -316,11 +329,10 @@ describe("uninstall", () => {
       generator: GEN,
     });
     await applyInstall({ plan });
-    await fs.appendFile(
-      path.join(dir, "skills/code-review/SKILL.md"),
-      "\nuser change\n",
+    await fs.appendFile(path.join(dir, "skills/code-review/SKILL.md"), "\nuser change\n");
+    await expect(uninstall({ packId: plan.packId, projectRoot: dir })).rejects.toThrow(
+      /conflict/i,
     );
-    await expect(uninstall({ packId: plan.packId, projectRoot: dir })).rejects.toThrow(/conflict/i);
     await fs.rm(dir, { recursive: true, force: true });
   });
 
@@ -346,7 +358,9 @@ describe("uninstall", () => {
     const dir = await tempProject();
     // Ensure .agentpack exists so resolveAgentpackPaths succeeds.
     await fs.mkdir(path.join(dir, ".agentpack"), { recursive: true });
-    await expect(uninstall({ packId: "nope", projectRoot: dir })).rejects.toThrow(/No install manifest/);
+    await expect(uninstall({ packId: "nope", projectRoot: dir })).rejects.toThrow(
+      /No install manifest/,
+    );
     await fs.rm(dir, { recursive: true, force: true });
   });
 });

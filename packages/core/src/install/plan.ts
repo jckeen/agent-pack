@@ -1,11 +1,12 @@
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createPatch } from "diff";
 import type { AdapterOutputFile, ProfileName, TargetPlatform } from "../schema/types.js";
 import type { InstallPlanV2, DiffEntry, LockfileV1 } from "./types.js";
 import { exportPack } from "../exports/exportPack.js";
 import { loadManifest } from "../parser/loadManifest.js";
-import { resolveAgentpackPaths, ensureAgentpackDirs, realpathContained } from "./paths.js";
+import { resolveAgentpackPaths, realpathContained } from "./paths.js";
 import { buildLockfile } from "./lockfile.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 import {
@@ -53,13 +54,16 @@ export interface PlanInstallOptions {
  *   3. Build the LockfileV1 from the staged files (deterministic; no timestamps).
  */
 export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlanV2> {
+  // Planning is read-only against the project: no `.agentpack/` state dirs,
+  // no staging inside the project. A plan backs `install --dry-run`, `diff`,
+  // and gate-refused installs — all of which must leave zero trace (#103).
+  // `applyInstall` creates the state dirs when an install actually commits.
   const ws = await resolveAgentpackPaths(opts.projectRoot);
-  await ensureAgentpackDirs(ws);
   const loaded = await loadManifest(opts.source);
 
   // We reuse exportPack's staging logic by writing to a temp dir. This keeps
   // export semantics single-sourced. The temp dir is cleaned at the end.
-  const tmp = await fs.mkdtemp(path.join(ws.agentpackDir, ".plan-staging-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-plan-staging-"));
   try {
     const result = await exportPack({
       source: opts.source,
