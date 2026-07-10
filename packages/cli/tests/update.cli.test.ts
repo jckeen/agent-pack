@@ -835,6 +835,197 @@ describe("sync S3 — install/update --scope user (e2e gate for #112)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// PR #121 review round: --force interactions with the consent gates. Both
+// pre-existing on master, but --scope user makes them reachable enough to fix
+// here (and the fixes cover project scope too).
+// ---------------------------------------------------------------------------
+
+/** Live config whose ONLY exec surface is a bang-bash slash command. */
+async function seedLiveCommandConfig(home: string): Promise<void> {
+  const claudeDir = path.join(home, ".claude");
+  await fs.mkdir(path.join(claudeDir, "commands"), { recursive: true });
+  await fs.writeFile(
+    path.join(claudeDir, "CLAUDE.md"),
+    "# Cmd Pack\n\n## Notes\n\nJust a note.\n",
+  );
+  await fs.writeFile(
+    path.join(claudeDir, "commands/ship.md"),
+    "---\ndescription: Ship it\n---\n\nRun !`git push` and report the result.\n",
+  );
+}
+
+/** Live config whose settings.json declares one MCP server. */
+async function seedLiveMcpConfig(home: string): Promise<void> {
+  const claudeDir = path.join(home, ".claude");
+  await fs.mkdir(claudeDir, { recursive: true });
+  await fs.writeFile(
+    path.join(claudeDir, "CLAUDE.md"),
+    "# MCP Pack\n\n## Notes\n\nJust a note.\n",
+  );
+  await fs.writeFile(
+    path.join(claudeDir, "settings.json"),
+    JSON.stringify({
+      mcpServers: { shared: { command: "node", args: ["server-v1.js"] } },
+    }),
+  );
+}
+
+describe("--force never bypasses exec consent (#121 review HIGH)", () => {
+  // The bang-bash scan is the ONLY consent gate for command/subagent atoms
+  // (they are not hook/mcp_server execAtoms). --force writes conflict files
+  // to disk, so conflicts MUST be in the scan — otherwise a pre-existing user
+  // file at the command's path turns --force -y into silent exec consent.
+  it("user scope: forced conflict on a bang-bash command file is refused without --allow-exec", async () => {
+    const homeA = await freshProject("force-exec-a");
+    await seedLiveCommandConfig(homeA);
+    await importAndServePack(homeA);
+
+    const homeB = await freshProject("force-exec-b");
+    const userFile = path.join(homeB, ".claude/commands/ship.md");
+    await fs.mkdir(path.dirname(userFile), { recursive: true });
+    await fs.writeFile(userFile, "# my own ship notes\n");
+
+    const refused = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--force",
+        "--yes",
+      ],
+      { HOME: homeB },
+    );
+    expect(refused.code, refused.stderr + refused.stdout).toBe(6);
+    expect(refused.stderr).toContain("commands/ship.md");
+    // The refusal wrote nothing: the user's file is untouched.
+    expect(await fs.readFile(userFile, "utf8")).toBe("# my own ship notes\n");
+
+    const allowed = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--force",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(allowed.code, allowed.stderr + allowed.stdout).toBe(0);
+    expect(await fs.readFile(userFile, "utf8")).toContain("!`git push`");
+  }, 120_000);
+
+  it("project scope: forced conflict on a bang-bash command file is refused without --allow-exec", async () => {
+    const homeA = await freshProject("force-exec-proj-a");
+    await seedLiveCommandConfig(homeA);
+    await importAndServePack(homeA);
+
+    const dir = await freshProject("force-exec-proj");
+    const userFile = path.join(dir, ".claude/commands/ship.md");
+    await fs.mkdir(path.dirname(userFile), { recursive: true });
+    await fs.writeFile(userFile, "# my own ship notes\n");
+
+    const refused = await run([
+      "install",
+      `github:${OWNER}/${REPO}@main`,
+      "--target",
+      "claude-code",
+      "--project",
+      dir,
+      "--force",
+      "--yes",
+    ]);
+    expect(refused.code, refused.stderr + refused.stdout).toBe(6);
+    expect(refused.stderr).toContain(".claude/commands/ship.md");
+    expect(await fs.readFile(userFile, "utf8")).toBe("# my own ship notes\n");
+
+    const allowed = await run([
+      "install",
+      `github:${OWNER}/${REPO}@main`,
+      "--target",
+      "claude-code",
+      "--project",
+      dir,
+      "--force",
+      "--yes",
+      "--allow-exec",
+    ]);
+    expect(allowed.code, allowed.stderr + allowed.stdout).toBe(0);
+    expect(await fs.readFile(userFile, "utf8")).toContain("!`git push`");
+  }, 120_000);
+});
+
+describe("--force on a JSON collision deep-merges, never replaces the file (#121 review MEDIUM)", () => {
+  it("user's non-colliding MCP servers survive a forced .mcp.json collision", async () => {
+    const homeA = await freshProject("force-json-a");
+    await seedLiveMcpConfig(homeA);
+    await importAndServePack(homeA);
+
+    const homeB = await freshProject("force-json-b");
+    const mcpPath = path.join(homeB, ".claude/.mcp.json");
+    await fs.mkdir(path.dirname(mcpPath), { recursive: true });
+    const userMcp = {
+      mcpServers: {
+        mine: { type: "stdio", command: "node", args: ["mine.js"], env: {} },
+        shared: { type: "stdio", command: "node", args: ["different.js"], env: {} },
+      },
+    };
+    await fs.writeFile(mcpPath, JSON.stringify(userMcp, null, 2) + "\n");
+
+    // Without --force the collision still refuses (classification unchanged).
+    const refused = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(refused.code, refused.stderr + refused.stdout).toBe(2);
+    expect(JSON.parse(await fs.readFile(mcpPath, "utf8"))).toEqual(userMcp);
+
+    // With --force: deep-merge — the pack wins ONLY the collided key; the
+    // user's other servers survive (previously the bare fragment replaced
+    // the whole file).
+    const forced = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--yes",
+        "--allow-exec",
+        "--force",
+      ],
+      { HOME: homeB },
+    );
+    expect(forced.code, forced.stderr + forced.stdout).toBe(0);
+    const merged = JSON.parse(await fs.readFile(mcpPath, "utf8"));
+    expect(merged.mcpServers.mine).toEqual(userMcp.mcpServers.mine);
+    expect(merged.mcpServers.shared.args).toEqual(["server-v1.js"]);
+
+    // The forced merge is recorded as a json merge, so verify stays clean.
+    const v = await run(["verify", "--all", "--project", path.join(homeB, ".claude")], {
+      HOME: homeB,
+    });
+    expect(v.code, v.stderr + v.stdout).toBe(0);
+  }, 120_000);
+});
+
 describe("verify in a multi-pack project (single-pack lockfile)", () => {
   // AGENTPACK.lock is single-pack and overwritten by every install; the
   // lockfile-checksum cross-check must not report a FOREIGN pack's lockfile

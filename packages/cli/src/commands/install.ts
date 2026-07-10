@@ -555,6 +555,12 @@ export function registerInstall(program: Command): void {
           // (e.g. the README quickstart's /pr-summary) stays frictionless.
           const BANG_BASH = /!`/;
           const plannedOutputs = [...plan.created, ...plan.modified, ...plan.unchanged];
+          // --force also writes conflict files to disk (backed up first) —
+          // they must clear the same consent scan. Excluding them let a
+          // pre-existing user file at a command's path turn `--force -y` into
+          // silent exec consent (#121 review, HIGH): the bang-bash scan is the
+          // ONLY gate for command/subagent atoms, which are never execAtoms.
+          if (options.force) plannedOutputs.push(...plan.conflicts.map((c) => c.file));
           // User scope drops the `.claude/` prefix (sync S3): commands/agents
           // land at the ~/.claude root, so match the scope's actual layout.
           const execPathRe =

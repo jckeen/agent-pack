@@ -13,6 +13,7 @@ import {
   isMarkerBlock,
   mergeMarkerFile,
   mergeJsonConfig,
+  forceMergeJsonConfig,
   JSON_MERGE_PATHS,
   type MergeRecord,
 } from "./merge.js";
@@ -167,6 +168,14 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
           recordMerge(cls.strategy);
           break;
         case "conflict":
+          // JSON collision: stage the force-merge result so a --force apply
+          // (and update --theirs, which consumes this staged file) writes the
+          // deep-merge, and record the pristine fragment so verify/uninstall
+          // treat the forced write as a json merge.
+          if (cls.forcedContent !== undefined) {
+            f.content = cls.forcedContent;
+            recordMerge("json");
+          }
           conflicts.push({
             file: f,
             reason: cls.reason,
@@ -246,6 +255,14 @@ type Classification =
       reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision";
       existingSha256: string;
       otherPackId?: string;
+      /**
+       * For JSON collisions: the deep-merge result with the pack winning ONLY
+       * the collided keys — the content a `--force` apply writes. Without it
+       * a forced apply would write the bare fragment, replacing the user's
+       * whole config file (#121 review, MEDIUM). The conflict classification
+       * itself is unchanged: no --force still refuses.
+       */
+      forcedContent?: string;
     };
 
 async function classify(input: {
@@ -284,10 +301,18 @@ async function classify(input: {
       if (normalizeForHash(res.merged) === existingNormalized) return { kind: "unchanged" };
       return { kind: "merge", strategy: "json", mergedContent: res.merged };
     }
+    // Collision: still refuse without --force, but stage what a forced apply
+    // writes — the deep-merge with the pack winning only the collided keys —
+    // never the bare fragment (which would drop the user's other entries).
+    const forced =
+      "invalidJson" in res
+        ? null
+        : forceMergeJsonConfig(existing, input.plannedContent, input.priorFragment);
     return {
       kind: "conflict",
       reason: "invalidJson" in res ? "no-marker-existing-content" : "json-collision",
       existingSha256: sha256Hex(existingNormalized),
+      ...(forced !== null ? { forcedContent: forced } : {}),
     };
   }
 

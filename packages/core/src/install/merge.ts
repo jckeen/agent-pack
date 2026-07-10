@@ -175,6 +175,31 @@ export function mergeJsonConfig(
   fragmentRaw: string,
   priorFragmentRaw?: string,
 ): JsonMergeResult {
+  return mergeJsonImpl(existingRaw, fragmentRaw, priorFragmentRaw, false);
+}
+
+/**
+ * Deep-merge where the pack's fragment wins ONLY the collided keys — what a
+ * `--force` apply writes for a JSON-collision conflict. The user's
+ * non-colliding entries always survive; writing the bare fragment would
+ * replace their whole config file (#121 review, MEDIUM). Returns null when
+ * the existing content is not parseable JSON (nothing mergeable to preserve).
+ */
+export function forceMergeJsonConfig(
+  existingRaw: string,
+  fragmentRaw: string,
+  priorFragmentRaw?: string,
+): string | null {
+  const res = mergeJsonImpl(existingRaw, fragmentRaw, priorFragmentRaw, true);
+  return res.ok ? res.merged : null;
+}
+
+function mergeJsonImpl(
+  existingRaw: string,
+  fragmentRaw: string,
+  priorFragmentRaw: string | undefined,
+  force: boolean,
+): JsonMergeResult {
   const existing = parseJsonObject(existingRaw);
   const fragment = parseJsonObject(fragmentRaw);
   if (!existing || !fragment) return { ok: false, invalidJson: true };
@@ -202,22 +227,32 @@ export function mergeJsonConfig(
     } else if (isObj(fragVal)) {
       const cur = isObj(curVal) ? (curVal as Json) : curVal === undefined ? {} : null;
       if (cur === null) {
-        collisions.push(key);
+        if (force) {
+          base[key] = fragVal;
+        } else {
+          collisions.push(key);
+        }
         continue;
       }
       const out: Json = { ...cur };
       for (const [name, val] of Object.entries(fragVal as Json)) {
         if (name in out && !deepEqual(out[name], val)) {
-          collisions.push(`${key}.${name}`);
-          continue;
+          if (!force) {
+            collisions.push(`${key}.${name}`);
+            continue;
+          }
+          // force: the pack wins this collided entry.
         }
         out[name] = val;
       }
       base[key] = out;
     } else {
       if (curVal !== undefined && !deepEqual(curVal, fragVal)) {
-        collisions.push(key);
-        continue;
+        if (!force) {
+          collisions.push(key);
+          continue;
+        }
+        // force: the pack wins this collided key.
       }
       base[key] = fragVal;
     }
