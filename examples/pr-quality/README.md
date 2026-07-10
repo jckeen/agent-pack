@@ -1,6 +1,6 @@
 # Pull Request Quality Pack
 
-A complete example AgentPack for cross-platform pull request review workflows.
+A complete example AgentPack for pull request review workflows across Claude Code, Codex, Cursor, and the generic AGENTS.md target (ChatGPT Apps output is experimental — see the manifest's compatibility block).
 
 Profiles:
 

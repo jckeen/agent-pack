@@ -4,11 +4,7 @@
 // fully populated example (PR-Quality) so the registry can render a real
 // detail page without a database.
 
-import type {
-  CompatibilityStatus,
-  RiskLevel,
-  TargetPlatform,
-} from "../schema/types.js";
+import type { CompatibilityStatus, RiskLevel, TargetPlatform } from "../schema/types.js";
 
 export interface SeedPack {
   id: string;
@@ -20,12 +16,22 @@ export interface SeedPack {
   riskLevel: RiskLevel;
   tags: string[];
   platforms: Record<TargetPlatform, CompatibilityStatus>;
+  /** Honest per-platform caveats shown in the compatibility matrix when the
+   * seed has no manifest (a manifest's own compatibility notes win). */
+  platformNotes?: Partial<Record<TargetPlatform, string>>;
   atomTypes: string[];
   /** Where the live AGENTPACK.yaml example lives in the monorepo, when available. */
   examplePath?: string;
   /** Whether this seed is wired to a real manifest in the repo. */
   hasExample?: boolean;
 }
+
+// "Supported" means the adapter emits complete output; runtime consumption
+// still varies by platform (docs/adapters.md).
+const CODEX_NOTE =
+  "Compiled output; Codex consumes the repo-root AGENTS.md only — see the adapters doc.";
+const CURSOR_NOTE =
+  "Compiled output; skills inline into AGENTS.md and hooks have no stable Cursor target — see the adapters doc.";
 
 export const SEED_PACKS: SeedPack[] = [
   {
@@ -92,6 +98,7 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "unsupported",
       generic: "supported",
     },
+    platformNotes: { codex: CODEX_NOTE },
     atomTypes: ["instruction", "skill", "rule", "template", "hook"],
   },
   {
@@ -100,8 +107,7 @@ export const SEED_PACKS: SeedPack[] = [
     slug: "cursor-rules-starter",
     name: "Cursor Rules Starter Pack",
     version: "0.1.0",
-    description:
-      "Project rules, frontend/testing standards, and MCP config for Cursor.",
+    description: "Project rules, frontend/testing standards, and MCP config for Cursor.",
     riskLevel: "medium",
     tags: ["cursor", "rules", "mcp"],
     platforms: {
@@ -111,6 +117,7 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "unsupported",
       generic: "supported",
     },
+    platformNotes: { cursor: CURSOR_NOTE },
     atomTypes: ["rule", "mcp_server", "template"],
   },
   {
@@ -130,14 +137,8 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "experimental",
       generic: "supported",
     },
-    atomTypes: [
-      "instruction",
-      "rule",
-      "workflow",
-      "command",
-      "skill",
-      "eval",
-    ],
+    platformNotes: { codex: CODEX_NOTE, cursor: CURSOR_NOTE },
+    atomTypes: ["instruction", "rule", "workflow", "command", "skill", "eval"],
   },
   {
     id: "agentpack.grant-research",
@@ -156,6 +157,7 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "experimental",
       generic: "supported",
     },
+    platformNotes: { codex: CODEX_NOTE, cursor: CURSOR_NOTE },
     atomTypes: ["workflow", "skill", "command", "template", "eval"],
   },
   {
@@ -175,6 +177,7 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "partial",
       generic: "supported",
     },
+    platformNotes: { codex: CODEX_NOTE, cursor: CURSOR_NOTE },
     atomTypes: ["instruction", "rule", "workflow", "command", "eval"],
   },
   {
@@ -194,6 +197,7 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "unsupported",
       generic: "supported",
     },
+    platformNotes: { codex: CODEX_NOTE, cursor: CURSOR_NOTE },
     atomTypes: ["skill", "workflow", "command", "hook"],
   },
   {
@@ -213,13 +217,8 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "partial",
       generic: "supported",
     },
-    atomTypes: [
-      "workflow",
-      "skill",
-      "command",
-      "template",
-      "context_pack",
-    ],
+    platformNotes: { codex: CODEX_NOTE, cursor: CURSOR_NOTE },
+    atomTypes: ["workflow", "skill", "command", "template", "context_pack"],
   },
   {
     id: "agentpack.github-mcp-connector",
@@ -238,6 +237,7 @@ export const SEED_PACKS: SeedPack[] = [
       chatgpt: "experimental",
       generic: "partial",
     },
+    platformNotes: { codex: CODEX_NOTE, cursor: CURSOR_NOTE },
     atomTypes: ["mcp_server", "instruction", "rule", "template", "eval"],
   },
 ];
