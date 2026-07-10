@@ -314,7 +314,7 @@ export default async function AdminPacksPage({
                           />
                           <button
                             type="submit"
-                            className="rounded border border-ink-300 px-3 py-1 text-sm hover:bg-ink-50"
+                            className="rounded-sm border border-ink-300 px-3 py-1 text-sm hover:bg-ink-50"
                           >
                             Unquarantine
                           </button>
@@ -332,11 +332,11 @@ export default async function AdminPacksPage({
                             required
                             maxLength={500}
                             placeholder="Reason (required, max 500 chars)"
-                            className="w-64 rounded border border-ink-300 px-2 py-1 text-sm"
+                            className="w-64 rounded-sm border border-ink-300 px-2 py-1 text-sm"
                           />
                           <button
                             type="submit"
-                            className="rounded border border-red-300 bg-red-50 px-3 py-1 text-sm text-red-900 hover:bg-red-100"
+                            className="rounded-sm border border-red-300 bg-red-50 px-3 py-1 text-sm text-red-900 hover:bg-red-100"
                           >
                             Quarantine
                           </button>

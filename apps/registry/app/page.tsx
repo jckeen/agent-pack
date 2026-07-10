@@ -6,7 +6,7 @@ export default function HomePage() {
   const featured = SEED_PACKS.slice(0, 6);
   return (
     <div className="container-page space-y-16">
-      <section className="grid items-center gap-10 md:grid-cols-[1.4fr,1fr]">
+      <section className="grid items-center gap-10 md:grid-cols-[1.4fr_1fr]">
         <div>
           <span className="pill-accent">AgentPack standard · v1.0</span>
           <h1 className="h1 mt-3">

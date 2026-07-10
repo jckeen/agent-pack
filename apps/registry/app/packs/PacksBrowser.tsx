@@ -60,18 +60,18 @@ export function PacksBrowser({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 md:grid-cols-[2fr,1fr,1fr]">
+      <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search packs by name, description, tag…"
-          className="w-full rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm shadow-soft focus:border-accent-500 focus:outline-none"
+          className="w-full rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm shadow-soft focus:border-accent-500 focus:outline-hidden"
         />
         <select
           value={activeRisk}
           onChange={(e) => setActiveRisk(e.target.value as RiskLevel | "all")}
-          className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm shadow-soft focus:border-accent-500 focus:outline-none"
+          className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm shadow-soft focus:border-accent-500 focus:outline-hidden"
         >
           {RISK_FILTERS.map((r) => (
             <option key={r.value} value={r.value}>
@@ -84,7 +84,7 @@ export function PacksBrowser({
           onChange={(e) =>
             setActiveTarget(e.target.value as TargetPlatform | "any")
           }
-          className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm shadow-soft focus:border-accent-500 focus:outline-none"
+          className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm shadow-soft focus:border-accent-500 focus:outline-hidden"
         >
           {TARGET_FILTERS.map((t) => (
             <option key={t.value} value={t.value}>

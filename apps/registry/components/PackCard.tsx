@@ -29,7 +29,7 @@ export function PackCard({ pack }: { pack: SeedPack }) {
       </div>
       <div className="flex flex-wrap gap-1.5 text-xs text-ink-400">
         {pack.atomTypes.map((t) => (
-          <span key={t} className="rounded bg-ink-50 px-1.5 py-0.5">
+          <span key={t} className="rounded-sm bg-ink-50 px-1.5 py-0.5">
             {t}
           </span>
         ))}

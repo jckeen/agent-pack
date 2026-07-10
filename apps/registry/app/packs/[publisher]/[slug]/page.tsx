@@ -92,7 +92,7 @@ export default async function PackDetailPage({
         </div>
       </header>
 
-      <section className="grid gap-6 md:grid-cols-[2fr,1fr]">
+      <section className="grid gap-6 md:grid-cols-[2fr_1fr]">
         <div className="card space-y-4">
           <h2 className="h2">Install</h2>
           {isQuarantined ? (
