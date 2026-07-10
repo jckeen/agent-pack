@@ -100,4 +100,30 @@ describe("subagent atom body resolution", () => {
     );
     expect(emitted).toContain("UNIQUE_YAML_BODY_MARKER");
   });
+
+  it("emits a markdown-sourced body verbatim — no synthesized heading (#102)", async () => {
+    const outDir = path.join(tmpRoot, "out-verbatim");
+    await exportPack({ source: path.join(tmpRoot, "pack"), target: "claude-code", outDir });
+    const emitted = await fs.readFile(
+      path.join(outDir, ".claude/agents/md-agent.md"),
+      "utf8",
+    );
+    expect(emitted).not.toContain("# md-agent");
+    // The body after the frontmatter is exactly the source prompt.
+    const body = emitted.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+    const sourceBody = MD_AGENT.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+    expect(body).toBe(sourceBody);
+  });
+
+  it("keeps the synthesized heading for descriptor-sourced bodies", async () => {
+    const outDir = path.join(tmpRoot, "out-verbatim");
+    await exportPack({ source: path.join(tmpRoot, "pack"), target: "claude-code", outDir });
+    const emitted = await fs.readFile(
+      path.join(outDir, ".claude/agents/yaml-agent.md"),
+      "utf8",
+    );
+    // A YAML descriptor has no markdown body of its own; the heading gives the
+    // emitted agent a title and stays for back-compat.
+    expect(emitted).toContain("# yaml-agent");
+  });
 });
