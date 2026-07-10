@@ -180,7 +180,7 @@ export type PublishInitRequest = z.infer<typeof publishInitRequestSchema>;
 export const presignedUploadSchema = z.object({
   path: relativePathSchema,
   url: z.string().url(),
-  headers: z.record(z.string()),
+  headers: z.record(z.string(), z.string()),
 });
 
 export type PresignedUpload = z.infer<typeof presignedUploadSchema>;
