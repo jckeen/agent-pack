@@ -196,20 +196,41 @@ function parseSubagent(
       message: `Omitted security-sensitive or unsupported custom-agent settings: ${omittedKeys.join(", ")}.`,
     });
   }
+  let instructions: string | undefined;
+  if (Object.prototype.hasOwnProperty.call(agent, "developer_instructions")) {
+    if (typeof agent["developer_instructions"] === "string") {
+      instructions = agent["developer_instructions"] as string;
+    } else {
+      warnings.push({
+        source,
+        message: "Custom agent developer_instructions must be a string; omitted.",
+      });
+    }
+  } else if (typeof agent["instructions"] === "string") {
+    instructions = agent["instructions"] as string;
+    warnings.push({
+      source,
+      message: "Legacy custom-agent instructions key imported; use developer_instructions.",
+    });
+  } else if (typeof agent["prompt"] === "string") {
+    instructions = agent["prompt"] as string;
+    warnings.push({
+      source,
+      message: "Legacy custom-agent prompt key imported; use developer_instructions.",
+    });
+  } else {
+    warnings.push({
+      source,
+      message: "Custom agent is missing required developer_instructions.",
+    });
+  }
   return {
     name,
     description:
       typeof agent["description"] === "string"
         ? (agent["description"] as string)
         : undefined,
-    instructions:
-      typeof agent["developer_instructions"] === "string"
-        ? (agent["developer_instructions"] as string)
-        : typeof agent["instructions"] === "string"
-          ? (agent["instructions"] as string)
-          : typeof agent["prompt"] === "string"
-            ? (agent["prompt"] as string)
-            : undefined,
+    instructions,
     config,
   };
 }

@@ -35,23 +35,43 @@ const IGNORE = new Set([".git", "node_modules", ".DS_Store"]);
 const MAX_FILES = 5000;
 const MAX_BYTES = 5 * 1024 * 1024;
 
-function isCodexArtifactPath(rel: string): boolean {
+function isCodexArtifactPath(rel: string, homeStyle: boolean): boolean {
+  if (homeStyle) {
+    return (
+      rel === "AGENTS.md" ||
+      rel === "config.toml" ||
+      rel === "hooks.json" ||
+      rel === "skills" ||
+      rel === "agents" ||
+      /^skills\//.test(rel) ||
+      /^agents\/[^/]+\.toml$/.test(rel)
+    );
+  }
   return (
     rel === "AGENTS.md" ||
-    rel === ".codex/AGENTS.md" ||
-    rel === "config.toml" ||
-    rel === ".codex/config.toml" ||
-    rel === "hooks.json" ||
-    rel === ".codex/hooks.json" ||
     rel === ".agents" ||
     rel === ".agents/skills" ||
     rel === ".codex" ||
+    rel === ".codex/AGENTS.md" ||
+    rel === ".codex/config.toml" ||
+    rel === ".codex/hooks.json" ||
     rel === ".codex/skills" ||
     rel === ".codex/agents" ||
-    rel === "skills" ||
-    rel === "agents" ||
-    /^(?:\.agents\/skills|\.codex\/skills|skills)\//.test(rel) ||
-    /^(?:\.codex\/agents|agents)\/[^/]+\.toml$/.test(rel)
+    /^(?:\.agents\/skills|\.codex\/skills)\//.test(rel) ||
+    /^\.codex\/agents\/[^/]+\.toml$/.test(rel)
+  );
+}
+
+function shouldTraverseCodexDirectory(rel: string, homeStyle: boolean): boolean {
+  if (homeStyle) {
+    return rel === "skills" || rel === "agents" || /^(?:skills|agents)\//.test(rel);
+  }
+  return (
+    rel === ".agents" ||
+    rel === ".agents/skills" ||
+    rel.startsWith(".agents/skills/") ||
+    rel === ".codex" ||
+    rel.startsWith(".codex/")
   );
 }
 
@@ -61,6 +81,7 @@ async function readTree(root: string): Promise<{
   warnings: Array<{ source: string; message: string }>;
 }> {
   const realRoot = await fs.realpath(root);
+  const homeStyle = path.basename(realRoot) === ".codex";
   const tree = new Map<string, string>();
   const warnings: Array<{ source: string; message: string }> = [];
   let count = 0;
@@ -75,7 +96,7 @@ async function readTree(root: string): Promise<{
         // Refuse symlinks that escape the root (traversal defense).
         const target = await fs.realpath(abs).catch(() => null);
         if (!target || (target !== realRoot && !target.startsWith(realRoot + path.sep))) {
-          if (isCodexArtifactPath(rel)) {
+          if (isCodexArtifactPath(rel, homeStyle)) {
             warnings.push({
               source: rel,
               message:
@@ -86,17 +107,17 @@ async function readTree(root: string): Promise<{
         }
         const stat = await fs.stat(abs).catch(() => null);
         if (stat?.isDirectory()) {
-          await walk(abs, rel);
+          if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, rel);
           continue;
         }
         if (!stat?.isFile()) continue;
       } else if (entry.isDirectory()) {
-        await walk(abs, rel);
+        if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, rel);
         continue;
       } else if (!entry.isFile()) {
         continue;
       }
-      if (!isCodexArtifactPath(rel)) continue;
+      if (!isCodexArtifactPath(rel, homeStyle)) continue;
       if (++count > MAX_FILES) {
         throw new Error(
           `Codex source has more than ${MAX_FILES} files; refusing to import.`,
@@ -104,7 +125,7 @@ async function readTree(root: string): Promise<{
       }
       const stat = await fs.stat(abs);
       if (stat.size > MAX_BYTES) {
-        if (isCodexArtifactPath(rel)) {
+        if (isCodexArtifactPath(rel, homeStyle)) {
           warnings.push({
             source: rel,
             message: `Oversized Codex resource skipped; files must be at most ${MAX_BYTES} bytes.`,
@@ -114,7 +135,7 @@ async function readTree(root: string): Promise<{
       }
       const content = await fs.readFile(abs);
       if (!isUtf8(content)) {
-        if (isCodexArtifactPath(rel)) {
+        if (isCodexArtifactPath(rel, homeStyle)) {
           warnings.push({
             source: rel,
             message:

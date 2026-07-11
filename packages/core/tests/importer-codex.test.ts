@@ -149,6 +149,22 @@ describe("parseCodex", () => {
     );
   });
 
+  it("warns when required custom-agent instructions are malformed", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/agents/malformed.toml": 'name = "Malformed"\ndeveloper_instructions = 42\n',
+      }),
+    );
+    expect(parsed.subagents[0]?.instructions).toBeUndefined();
+    expect(
+      parsed.warnings.some((warning) =>
+        /developer_instructions must be a string/.test(warning.message),
+      ),
+    ).toBe(true);
+    const result = buildCodexManifest(parsed, { id: "acme.malformed" });
+    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+  });
+
   it("warns and skips malformed TOML rather than throwing", () => {
     const parsed = parseCodex(tree({ ".codex/config.toml": "this = = broken" }));
     expect(parsed.mcpServers).toEqual([]);
@@ -321,6 +337,24 @@ describe("importCodexDir (I/O + round-trip)", () => {
       expect(result.warnings).toEqual([]);
       expect(result.manifest.compatibility.targets.codex?.status).toBe("supported");
     } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not traverse unreadable unrelated directories", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-unrelated-directory-"));
+    const unrelated = path.join(dir, "unrelated");
+    try {
+      await fs.writeFile(path.join(dir, "AGENTS.md"), "## Working Style\n\nbody\n");
+      await fs.mkdir(unrelated);
+      await fs.writeFile(path.join(unrelated, "private.txt"), "private");
+      await fs.chmod(unrelated, 0o000);
+
+      const result = await importCodexDir(dir, { id: "acme.unrelated" });
+      expect(result.warnings).toEqual([]);
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("supported");
+    } finally {
+      await fs.chmod(unrelated, 0o700).catch(() => undefined);
       await fs.rm(dir, { recursive: true, force: true });
     }
   });

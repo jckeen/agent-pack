@@ -1,4 +1,5 @@
-const SAFE_STRING_KEYS = new Set(["model", "model_reasoning_effort"]);
+const REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
+const NICKNAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 
 export interface SanitizedCodexAgentConfig {
   config: Record<string, unknown>;
@@ -17,12 +18,23 @@ export function sanitizeCodexAgentConfig(
   const omittedKeys: string[] = [];
 
   for (const [key, value] of Object.entries(input)) {
-    if (SAFE_STRING_KEYS.has(key) && typeof value === "string") {
+    if (key === "model" && typeof value === "string" && value.trim() !== "") {
+      config[key] = value;
+    } else if (
+      key === "model_reasoning_effort" &&
+      typeof value === "string" &&
+      REASONING_EFFORTS.has(value)
+    ) {
       config[key] = value;
     } else if (
       key === "nickname_candidates" &&
       Array.isArray(value) &&
-      value.every((candidate) => typeof candidate === "string")
+      value.length > 0 &&
+      value.length <= 10 &&
+      value.every(
+        (candidate) => typeof candidate === "string" && NICKNAME_RE.test(candidate),
+      ) &&
+      new Set(value).size === value.length
     ) {
       config[key] = value;
     } else {
