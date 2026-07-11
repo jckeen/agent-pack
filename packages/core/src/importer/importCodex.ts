@@ -35,6 +35,19 @@ const IGNORE = new Set([".git", "node_modules", ".DS_Store"]);
 const MAX_FILES = 5000;
 const MAX_BYTES = 5 * 1024 * 1024;
 
+function isCodexArtifactPath(rel: string): boolean {
+  return (
+    rel === "AGENTS.md" ||
+    rel === ".codex/AGENTS.md" ||
+    rel === "config.toml" ||
+    rel === ".codex/config.toml" ||
+    rel === "hooks.json" ||
+    rel === ".codex/hooks.json" ||
+    /^(?:\.agents\/skills|\.codex\/skills|skills)\//.test(rel) ||
+    /^(?:\.codex\/agents|agents)\//.test(rel)
+  );
+}
+
 /** Recursively read a Codex dir into a forward-slash relative path map. */
 async function readTree(root: string): Promise<{
   tree: Map<string, string>;
@@ -75,13 +88,24 @@ async function readTree(root: string): Promise<{
         );
       }
       const stat = await fs.stat(abs);
-      if (stat.size > MAX_BYTES) continue; // skip oversized blobs
+      if (stat.size > MAX_BYTES) {
+        if (isCodexArtifactPath(rel)) {
+          warnings.push({
+            source: rel,
+            message: `Oversized Codex resource skipped; files must be at most ${MAX_BYTES} bytes.`,
+          });
+        }
+        continue;
+      }
       const content = await fs.readFile(abs);
       if (!isUtf8(content)) {
-        warnings.push({
-          source: rel,
-          message: "Non-UTF-8 resource skipped; binary skill assets are not supported yet.",
-        });
+        if (isCodexArtifactPath(rel)) {
+          warnings.push({
+            source: rel,
+            message:
+              "Non-UTF-8 Codex resource skipped; binary assets are not supported yet.",
+          });
+        }
         continue;
       }
       tree.set(rel, content.toString("utf8"));

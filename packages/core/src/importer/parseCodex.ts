@@ -11,6 +11,7 @@
 
 import { parse as parseToml } from "smol-toml";
 import { parseClaudeMd, type ParsedClaudeMd } from "./parseClaudeMd.js";
+import { sanitizeCodexAgentConfig } from "../codex/customAgentConfig.js";
 
 export interface CodexSkill {
   /** Directory name under `.agents/skills/` (also the skill `name`). */
@@ -152,7 +153,11 @@ function collectHookEntries(events: Record<string, unknown>): CodexHook[] {
   return hooks;
 }
 
-function parseSubagent(content: string): CodexSubagent | null {
+function parseSubagent(
+  content: string,
+  source: string,
+  warnings: CodexWarning[],
+): CodexSubagent | null {
   let table: Record<string, unknown>;
   try {
     table = parseToml(content) as Record<string, unknown>;
@@ -169,7 +174,7 @@ function parseSubagent(content: string): CodexSubagent | null {
     (typeof agent["id"] === "string" && (agent["id"] as string)) ||
     "";
   if (!name) return null;
-  const config = Object.fromEntries(
+  const rawConfig = Object.fromEntries(
     Object.entries(agent).filter(
       ([key]) =>
         ![
@@ -182,6 +187,13 @@ function parseSubagent(content: string): CodexSubagent | null {
         ].includes(key),
     ),
   );
+  const { config, omittedKeys } = sanitizeCodexAgentConfig(rawConfig);
+  if (omittedKeys.length > 0) {
+    warnings.push({
+      source,
+      message: `Omitted security-sensitive or unsupported custom-agent settings: ${omittedKeys.join(", ")}.`,
+    });
+  }
   return {
     name,
     description:
@@ -304,7 +316,7 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
   const subagents: CodexSubagent[] = [];
   for (const [p, content] of tree) {
     if (!subagentRe.test(p)) continue;
-    const sub = parseSubagent(content);
+    const sub = parseSubagent(content, p, warnings);
     if (sub) subagents.push(sub);
     else warnings.push({ source: p, message: `Failed to parse subagent ${p}; skipped.` });
   }

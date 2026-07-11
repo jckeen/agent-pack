@@ -41,22 +41,27 @@ Fidelity notes (these mirror what Claude Code actually reads):
 
 **Target:** `codex`
 
-| Atom          | Output                                                                                                                    |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `instruction` | `AGENTS.md` section                                                                                                       |
-| `rule`        | `AGENTS.md` rules section (full body)                                                                                     |
-| `skill`       | `.agents/skills/<slug>/` + an index entry in `AGENTS.md`                                                                  |
-| `command`     | `.agents/skills/<slug>/SKILL.md` + `AGENTS.md` index entry                                                                |
-| `subagent`    | `.codex/agents/<slug>.toml` with `developer_instructions`                                                                 |
-| `hook`        | `.codex/hooks.json`                                                                                                       |
-| `mcp_server`  | `.codex/config.toml` `[mcp_servers.<slug>]` table (same declaration + shell-escape gate as claude-code)                  |
-| `workflow`    | `AGENTS.md` workflow section                                                                                              |
+| Atom          | Output                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------- |
+| `instruction` | `AGENTS.md` section                                                                                     |
+| `rule`        | `AGENTS.md` rules section (full body)                                                                   |
+| `skill`       | `.agents/skills/<slug>/` + an index entry in `AGENTS.md`                                                |
+| `command`     | `.agents/skills/<slug>/SKILL.md` + `AGENTS.md` index entry                                              |
+| `subagent`    | `.codex/agents/<slug>.toml` with `developer_instructions`                                               |
+| `hook`        | `.codex/hooks.json`                                                                                     |
+| `mcp_server`  | `.codex/config.toml` `[mcp_servers.<slug>]` table (same declaration + shell-escape gate as claude-code) |
+| `workflow`    | `AGENTS.md` workflow section                                                                            |
 
 **Honesty note:** Codex discovers repository skills under `.agents/skills/`
 and custom agents under `.codex/agents/`. The adapter also indexes skills in
 `AGENTS.md` for inspection. Trusted projects load `.codex/config.toml`, and
 project hooks are discovered from `.codex/hooks.json`; project-specific MCP
 configuration stays scoped to that repository.
+
+Imported custom agents preserve exact instructions and inert model/nickname
+preferences. Sandbox, MCP, skills, provider, and unknown custom-agent settings
+are omitted with warnings because they can carry executable configuration or
+credentials and must not bypass AgentPack's permission gates.
 
 ## Cursor
 

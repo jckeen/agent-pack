@@ -1,5 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import { stringify as stringifyToml } from "smol-toml";
+import { sanitizeCodexAgentConfig } from "../codex/customAgentConfig.js";
 import type { AdapterExportOptions, AdapterOutputFile, Atom } from "../schema/types.js";
 import {
   atomsByType,
@@ -345,12 +346,19 @@ export const codexAdapter = defineAdapter({
       const body = await resolveSubagentBody(packRoot, atom);
       const descriptor = await parseAtomYaml(packRoot, atom);
       const rawCodexConfig = descriptor?.["codex_config"];
-      const codexConfig =
+      const unsafeCodexConfig =
         rawCodexConfig &&
         typeof rawCodexConfig === "object" &&
         !Array.isArray(rawCodexConfig)
           ? (rawCodexConfig as Record<string, unknown>)
           : {};
+      const { config: codexConfig, omittedKeys } =
+        sanitizeCodexAgentConfig(unsafeCodexConfig);
+      if (omittedKeys.length > 0) {
+        warnings.push(
+          `Subagent \`${atom.id}\` omitted security-sensitive or unsupported Codex config: ${omittedKeys.join(", ")}.`,
+        );
+      }
       const tomlTable = {
         ...codexConfig,
         name: atom.name,

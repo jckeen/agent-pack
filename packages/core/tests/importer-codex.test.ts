@@ -12,7 +12,7 @@ import {
   getAdapter,
   resolveAtoms,
 } from "../src/index.js";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { parse as parseToml } from "smol-toml";
 
 const FIXTURE_DIR = path.resolve(
@@ -278,9 +278,121 @@ describe("importCodexDir (I/O + round-trip)", () => {
       expect(result.warnings).toContainEqual({
         line: 0,
         message:
-          ".agents/skills/demo/asset.bin: Non-UTF-8 resource skipped; binary skill assets are not supported yet.",
+          ".agents/skills/demo/asset.bin: Non-UTF-8 Codex resource skipped; binary assets are not supported yet.",
       });
       expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores unrelated project binaries without downgrading Codex", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-unrelated-binary-"));
+    try {
+      await fs.writeFile(
+        path.join(dir, "AGENTS.md"),
+        "# Project\n\n## Rules\n\nBe precise.\n",
+      );
+      await fs.writeFile(path.join(dir, "logo.png"), Uint8Array.from([255, 0, 128, 65]));
+
+      const result = await importCodexDir(dir, { id: "acme.binary" });
+      expect(result.warnings).toEqual([]);
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("supported");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns and downgrades when an oversized skill resource is skipped", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-oversized-skill-"));
+    try {
+      const skillDir = path.join(dir, ".agents/skills/demo");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+      );
+      await fs.writeFile(path.join(skillDir, "large.txt"), "x".repeat(5 * 1024 * 1024 + 1));
+
+      const result = await importCodexDir(dir, { id: "acme.oversized" });
+      expect(
+        result.warnings.some((warning) => /Oversized Codex resource/.test(warning.message)),
+      ).toBe(true);
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("omits secret-bearing and executable custom-agent config", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/agents/risky.toml": [
+          'name = "Risky"',
+          'description = "Risky agent"',
+          'developer_instructions = "Review carefully."',
+          'model = "gpt-5"',
+          'sandbox_mode = "danger-full-access"',
+          "[mcp_servers.private]",
+          'command = "run-private-server"',
+          'env = { TOKEN = "fixture-private-value" }',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, { id: "acme.risky" });
+    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+    const descriptor = result.files.find((file) =>
+      file.relativePath.includes("subagents"),
+    )!;
+    expect(descriptor.content).toContain("model: gpt-5");
+    expect(descriptor.content).not.toContain("sandbox_mode");
+    expect(descriptor.content).not.toContain("mcp_servers");
+    expect(descriptor.content).not.toContain("fixture-private-value");
+    expect(
+      result.warnings.some((warning) => /mcp_servers.*sandbox_mode/.test(warning.message)),
+    ).toBe(true);
+  });
+
+  it("sanitizes unsafe custom-agent config in authored packs at export", async () => {
+    const result = await importCodexDir(FIXTURE_DIR, OPTS);
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-authored-agent-"));
+    try {
+      for (const file of result.files) {
+        const target = path.join(dir, file.relativePath);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, file.content, "utf8");
+      }
+      const subagent = result.manifest.atoms.find((atom) => atom.type === "subagent")!;
+      const descriptorPath = path.join(dir, subagent.path);
+      const descriptor = parseYaml(await fs.readFile(descriptorPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      descriptor.codex_config = {
+        model: "gpt-5",
+        sandbox_mode: "danger-full-access",
+        mcp_servers: { private: { env: { TOKEN: "fixture-private-value" } } },
+      };
+      await fs.writeFile(descriptorPath, stringifyYaml(descriptor), "utf8");
+
+      const adapter = getAdapter("codex")!;
+      const out = await adapter.export({
+        manifest: result.manifest,
+        packRoot: dir,
+        resolvedAtoms: resolveAtoms({ manifest: result.manifest, profile: "all" }),
+        profile: "all",
+        target: "codex",
+      });
+      const emitted = out.files.find(
+        (file) => file.path === ".codex/agents/security-reviewer.toml",
+      )!;
+      expect(emitted.content).toContain('model = "gpt-5"');
+      expect(emitted.content).not.toContain("sandbox_mode");
+      expect(emitted.content).not.toContain("mcp_servers");
+      expect(emitted.content).not.toContain("fixture-private-value");
+      expect(
+        out.warnings.some((warning) => /mcp_servers.*sandbox_mode/.test(warning)),
+      ).toBe(true);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -322,22 +434,16 @@ describe("importCodexDir (I/O + round-trip)", () => {
       )!;
       const reparsedSubagent = parseToml(subagentToml.content) as {
         developer_instructions?: string;
-        sandbox_mode?: string;
         model?: string;
         model_reasoning_effort?: string;
-        mcp_servers?: string[];
         nickname_candidates?: string[];
-        skills?: { config?: Record<string, boolean> };
       };
       expect(reparsedSubagent.developer_instructions).toBe(
         "\n  You are a security-focused code reviewer. Flag auth, injection, secrets, and SSRF risks.\n",
       );
-      expect(reparsedSubagent.sandbox_mode).toBe("read-only");
       expect(reparsedSubagent.model).toBe("gpt-5");
       expect(reparsedSubagent.model_reasoning_effort).toBe("high");
-      expect(reparsedSubagent.mcp_servers).toEqual(["github"]);
       expect(reparsedSubagent.nickname_candidates).toEqual(["Security", "AppSec"]);
-      expect(reparsedSubagent.skills?.config).toEqual({ "code-review": true });
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

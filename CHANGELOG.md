@@ -11,8 +11,10 @@
   `.agents/skills/` surface and across to Claude Code without changing text.
   Non-UTF-8 resources are skipped with a warning instead of being corrupted,
   ambiguous current/legacy skill copies are rejected instead of overwritten,
-  and Codex custom-agent instructions, sandbox, model, MCP, skills, and other
-  native settings survive the round trip.
+  and Codex custom-agent instructions plus inert model/nickname settings
+  survive the round trip. Sandbox, MCP, skills, provider, and unknown settings
+  are omitted with warnings so they cannot bypass permission gates or leak
+  credentials.
 - The standard and personal-config sync guide document the distinction between
   native-source fidelity and compiled target output.
 
