@@ -13,6 +13,9 @@
 // block, so a tampered manifest cannot turn a pinned install into a
 // silently-tracking one.
 
+import os from "node:os";
+import path from "node:path";
+
 import type { Command } from "commander";
 import pc from "picocolors";
 import {
@@ -66,6 +69,11 @@ export function registerUpdate(program: Command): void {
     )
     .option("--project <dir>", "target project directory", process.cwd())
     .option(
+      "--scope <scope>",
+      "update scope: `project` (default) or `user` — user scope targets the ~/.claude install (sync S3)",
+      "project",
+    )
+    .option(
       "--check",
       "read-only: report whether the source has moved; exit 0 = current, 10 = update available",
       false,
@@ -97,6 +105,7 @@ export function registerUpdate(program: Command): void {
         packId: string | undefined,
         options: {
           project: string;
+          scope: string;
           check: boolean;
           to?: string;
           yes: boolean;
@@ -107,8 +116,29 @@ export function registerUpdate(program: Command): void {
           quiet: boolean;
           json: boolean;
         },
+        command: Command,
       ) => {
         try {
+          if (options.scope !== "project" && options.scope !== "user") {
+            console.error(
+              pc.red(`Invalid --scope \`${options.scope}\`. Choose: project, user`),
+            );
+            process.exit(ExitCode.UsageError);
+          }
+          // `--scope user` targets the ~/.claude install (sync S3). The
+          // per-pack mapping itself comes from the install manifest's recorded
+          // scope — this flag only picks WHICH .agentpack/ state dir to read.
+          if (options.scope === "user") {
+            if (command.getOptionValueSource("project") === "cli") {
+              console.error(
+                pc.red(
+                  "✗ --project and --scope user are mutually exclusive — user scope always targets ~/.claude.",
+                ),
+              );
+              process.exit(ExitCode.UsageError);
+            }
+            options.project = path.join(os.homedir(), ".claude");
+          }
           if (!options.check) {
             await runApply(packId, options);
             return;
@@ -441,6 +471,9 @@ async function applyOne(
       profile: manifest.profile,
       projectRoot: options.project,
       generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
+      // Re-plan with the scope the install recorded (sync S3) so a user-scope
+      // install reconciles against ~/.claude-layout paths, not project paths.
+      ...(manifest.scope === "user" ? { scope: "user" as const } : {}),
     });
     newPlan.lockfile.source = {
       kind: "github",

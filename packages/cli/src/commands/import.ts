@@ -1,13 +1,17 @@
 import * as fs from "node:fs/promises";
+import { createPatch } from "diff";
 import type { Command } from "commander";
 import ora from "ora";
 import pc from "picocolors";
 import {
+  foldImportInto,
   importChatgptGptDir,
   importClaudeCodeDir,
   importClaudeMd,
   importCodexDir,
+  loadManifest,
   writeImport,
+  type FoldChange,
   type ImportResult,
 } from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
@@ -44,10 +48,27 @@ export function registerImport(program: Command): void {
     .option("--out <dir>", "output directory for the imported pack", "agentpack-imported")
     .option("--id <publisher.slug>", "pack id (required) — e.g. `acme.team-defaults`")
     .option("--name <name>", "human-readable pack name")
+    .option(
+      "--into <pack-dir>",
+      "fold the import into an EXISTING pack directory (sync S3): atoms/permissions/security are regenerated from the live config; metadata, profiles, exports, and adapters are preserved. Reads the pack id from <pack-dir>/AGENTPACK.yaml.",
+    )
+    .option(
+      "--diff",
+      "with --into: preview only — print what would change and exit 2 when the pack is out of sync (zero writes)",
+      false,
+    )
     .action(
       async (
         srcPath: string,
-        options: { from: string; out: string; id?: string; name?: string },
+        options: {
+          from: string;
+          out: string;
+          id?: string;
+          name?: string;
+          into?: string;
+          diff: boolean;
+        },
+        command: Command,
       ) => {
         // Validate `--from` and `--id` BEFORE touching core, so bad usage fails
         // as a usage error (exit 2) rather than a runtime/schema error.
@@ -59,6 +80,28 @@ export function registerImport(program: Command): void {
             ),
           );
           process.exit(2);
+        }
+        if (options.diff && !options.into) {
+          console.error(pc.red("✗ --diff requires --into <pack-dir>."));
+          process.exit(2);
+        }
+        if (options.into && options.id) {
+          console.error(
+            pc.red(
+              "✗ --id conflicts with --into — the pack id is read from the existing pack's AGENTPACK.yaml.",
+            ),
+          );
+          process.exit(2);
+        }
+        if (options.into && command.getOptionValueSource("out") === "cli") {
+          console.error(
+            pc.red("✗ --out conflicts with --into — the fold writes into <pack-dir>."),
+          );
+          process.exit(2);
+        }
+        if (options.into) {
+          await runFoldInto(srcPath, from, options.into, options.diff);
+          return;
         }
         const id = options.id;
         if (!id) {
@@ -81,17 +124,7 @@ export function registerImport(program: Command): void {
           isEnabled: !process.env["NO_COLOR"],
         }).start();
         try {
-          let result: ImportResult;
-          if (from === "claude-code") {
-            result = await importClaudeCodeDir(srcPath, { id, name: options.name });
-          } else if (from === "codex") {
-            result = await importCodexDir(srcPath, { id, name: options.name });
-          } else if (from === "chatgpt-gpt") {
-            result = await importChatgptGptDir(srcPath, { id, name: options.name });
-          } else {
-            const text = await readSource(srcPath);
-            result = importClaudeMd(text, { id, name: options.name });
-          }
+          const result = await runImporter(srcPath, from, { id, name: options.name });
           await writeImport(result, options.out);
           spinner.succeed(
             `Imported ${result.manifest.atoms.length} atom(s) → ${options.out}`,
@@ -134,4 +167,104 @@ export function registerImport(program: Command): void {
         }
       },
     );
+}
+
+async function runImporter(
+  srcPath: string,
+  from: Source,
+  opts: { id: string; name?: string | undefined; version?: string | undefined },
+): Promise<ImportResult> {
+  if (from === "claude-code") return importClaudeCodeDir(srcPath, opts);
+  if (from === "codex") return importCodexDir(srcPath, opts);
+  if (from === "chatgpt-gpt") return importChatgptGptDir(srcPath, opts);
+  const text = await readSource(srcPath);
+  return importClaudeMd(text, opts);
+}
+
+/**
+ * `import --into <pack-dir> [--diff]` (sync S3, #112): re-run the importer
+ * against the live config and fold the result into an existing pack. `--diff`
+ * is a zero-write preview (exit 0 = in sync, 2 = out of sync); without it the
+ * pack is updated in place — the user reviews and commits, so git stays the
+ * consent point for content that propagates to every machine.
+ */
+async function runFoldInto(
+  srcPath: string,
+  from: Source,
+  packDir: string,
+  diffOnly: boolean,
+): Promise<never> {
+  try {
+    const { manifest: existing } = await loadManifest(packDir);
+    const result = await runImporter(srcPath, from, {
+      id: existing.metadata.id,
+      name: existing.metadata.name,
+      version: existing.metadata.version,
+    });
+    const { changes, removalFailures } = await foldImportInto({
+      result,
+      existing,
+      packDir,
+      apply: !diffOnly,
+    });
+    for (const w of result.warnings) {
+      const where = w.line > 0 ? `line ${w.line}: ` : "";
+      console.log(pc.yellow(`! ${where}${w.message}`));
+    }
+    if (changes.length === 0) {
+      console.log(pc.green(`✓ ${existing.metadata.id} is in sync with the live config.`));
+      process.exit(0);
+    }
+    if (diffOnly) {
+      console.log(
+        pc.bold(`${changes.length} file(s) differ between the live config and ${packDir}:`),
+      );
+      printFoldChanges(changes, { withDiffs: true });
+      console.log(
+        pc.dim(
+          `\n(--diff) Nothing was written. Apply with \`agentpack import ${srcPath} --from ${from} --into ${packDir}\`, then review and commit.`,
+        ),
+      );
+      process.exit(2);
+    }
+    // A failed stale-file deletion means the pack still ships that file —
+    // report per-file and exit nonzero instead of claiming a clean fold (#122).
+    if (removalFailures.length > 0) {
+      printFoldChanges(
+        changes.filter((c) => !removalFailures.some((f) => f.path === c.path)),
+        { withDiffs: false },
+      );
+      console.error(
+        pc.red(
+          `\n✗ ${removalFailures.length} stale file(s) could not be removed — the pack still contains them:`,
+        ),
+      );
+      for (const f of removalFailures) {
+        console.error(pc.red(`  ! ${f.path} — ${f.error}`));
+      }
+      console.error(
+        pc.dim("  Fix the file permissions (or remove them manually), then re-run."),
+      );
+      process.exit(1);
+    }
+    console.log(pc.green(`✓ Folded live config into ${packDir}:`));
+    printFoldChanges(changes, { withDiffs: false });
+    console.log(pc.bold(`\nNext: review the changes (git diff), then commit and push.`));
+    process.exit(0);
+  } catch (err) {
+    failCleanly(err);
+  }
+  throw new Error("unreachable");
+}
+
+function printFoldChanges(changes: FoldChange[], opts: { withDiffs: boolean }): void {
+  for (const c of changes) {
+    if (c.kind === "added") console.log(pc.green(`  + ${c.path}`));
+    else if (c.kind === "removed") console.log(pc.yellow(`  - ${c.path}`));
+    else console.log(pc.cyan(`  ~ ${c.path}`));
+    if (opts.withDiffs && c.kind === "changed") {
+      const patch = createPatch(c.path, c.before ?? "", c.after ?? "", "pack", "live");
+      console.log(pc.dim(patch.replace(/^/gm, "    ")));
+    }
+  }
 }

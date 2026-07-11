@@ -106,6 +106,158 @@ export function importClaudeMd(text: string, opts: ImportOptions): ImportResult 
 }
 
 /**
+ * One file-level difference between a fresh import and an existing pack dir
+ * (sync S3, `agentpack import --into`).
+ */
+export interface FoldChange {
+  /** Pack-relative path (e.g. `atoms/skills/deploy/SKILL.md`). */
+  path: string;
+  kind: "added" | "changed" | "removed";
+  /** On-disk content before the fold (absent for `added`). */
+  before?: string;
+  /** Content the fold writes (absent for `removed`). */
+  after?: string;
+}
+
+/**
+ * Fold a fresh import into an EXISTING pack directory (sync S3, #112):
+ * `agentpack import --into`. The live config is the source for CONTENT —
+ * atoms, permissions, security are regenerated — while the pack author's
+ * packaging stays theirs: `metadata`, `compatibility`, `profiles`, `exports`,
+ * and `adapters` are preserved verbatim from the existing manifest. Stale
+ * files under `atoms/` (their live counterpart disappeared) are removed.
+ *
+ * With `apply: false` this is a pure preview — zero writes — so the CLI's
+ * `--diff` can promise a mutation-free report. Review-then-commit stays the
+ * consent point: git is the sync channel, this is the differ/compiler.
+ */
+export async function foldImportInto(params: {
+  result: ImportResult;
+  /** Parsed manifest of the existing pack (from `loadManifest(packDir)`). */
+  existing: AgentPackManifest;
+  packDir: string;
+  apply: boolean;
+}): Promise<{
+  changes: FoldChange[];
+  /**
+   * Stale-atom deletions that failed on apply (#122). Never silently
+   * swallowed: the pack still contains these files, so the caller must
+   * surface them instead of reporting the fold as clean.
+   */
+  removalFailures: Array<{ path: string; error: string }>;
+}> {
+  const { result, existing, packDir } = params;
+  const merged: AgentPackManifest = {
+    ...result.manifest,
+    metadata: existing.metadata,
+    compatibility: existing.compatibility,
+    profiles: existing.profiles,
+    ...(existing.exports !== undefined ? { exports: existing.exports } : {}),
+    ...(existing.adapters !== undefined ? { adapters: existing.adapters } : {}),
+  };
+  const mergedYaml = stringify(merged, { lineWidth: 0 });
+  const files: ImportFile[] = result.files.map((f) =>
+    f.relativePath === "AGENTPACK.yaml" ? { ...f, content: mergedYaml } : f,
+  );
+
+  const root = path.resolve(packDir);
+  const changes: FoldChange[] = [];
+  const generatedPaths = new Set(
+    files.map((f) => f.relativePath.split(/[\\/]+/).join("/")),
+  );
+
+  for (const f of files) {
+    const rel = f.relativePath;
+    if (path.isAbsolute(rel) || rel.split(/[\\/]+/).includes("..") || /^[\\/]/.test(rel)) {
+      throw new Error(`Refusing to touch a path outside the pack directory: ${rel}`);
+    }
+    const existingContent = await fs
+      .readFile(path.join(root, rel), "utf8")
+      .catch(() => null);
+    if (existingContent === null) {
+      changes.push({ path: rel, kind: "added", after: f.content });
+    } else if (existingContent !== f.content) {
+      changes.push({
+        path: rel,
+        kind: "changed",
+        before: existingContent,
+        after: f.content,
+      });
+    }
+  }
+
+  // Stale atom files: anything under atoms/ the fresh import no longer emits.
+  // Confined to atoms/ so a pack repo's own files (README, .github/, tests)
+  // are never candidates for deletion.
+  const atomsDir = path.join(root, "atoms");
+  const stale: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(abs);
+      else {
+        const rel = path.relative(root, abs).split(path.sep).join("/");
+        if (!generatedPaths.has(rel)) stale.push(rel);
+      }
+    }
+  }
+  await walk(atomsDir);
+  for (const rel of stale) {
+    const before = await fs.readFile(path.join(root, rel), "utf8").catch(() => undefined);
+    changes.push({
+      path: rel,
+      kind: "removed",
+      ...(before !== undefined ? { before } : {}),
+    });
+  }
+
+  const removalFailures: Array<{ path: string; error: string }> = [];
+  if (params.apply && changes.length > 0) {
+    const toWrite = changes
+      .filter((c) => c.kind !== "removed")
+      .map((c) => ({ relativePath: c.path, content: c.after ?? "" }));
+    await writeImport({ ...result, files: toWrite }, root);
+    for (const c of changes) {
+      if (c.kind !== "removed") continue;
+      try {
+        await fs.unlink(path.join(root, c.path));
+      } catch (err) {
+        // ENOENT = the desired end-state already holds (the file vanished
+        // between the stale walk and the unlink) — not a failure. Any OTHER
+        // failed deletion means the pack STILL SHIPS the stale atom file —
+        // collect it for the caller to surface (#122); silence there would
+        // let import report success over a dirty pack.
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          removalFailures.push({
+            path: c.path,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          continue;
+        }
+      }
+      // Best-effort prune of now-empty dirs up to atoms/ (cosmetic only:
+      // an empty dir left behind carries no content, unlike a failed unlink).
+      let dir = path.dirname(path.join(root, c.path));
+      while (dir.startsWith(atomsDir)) {
+        try {
+          await fs.rmdir(dir);
+        } catch {
+          break;
+        }
+        dir = path.dirname(dir);
+      }
+    }
+  }
+  return { changes, removalFailures };
+}
+
+/**
  * Write an import result to `outDir`. Rejects any file whose relative path
  * escapes the output directory (absolute, `..`, or leading separator).
  */

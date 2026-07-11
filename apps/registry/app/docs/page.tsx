@@ -23,7 +23,7 @@ const SECTIONS = [
   },
   {
     title: "Install / update / verify",
-    body: "`agentpack install` takes a local path, a git source (github:owner/repo@ref#subpath — no registry or account needed), or a registry id: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups, unmerge shared files). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift (--all iterates every installed pack). `agentpack update` keeps installs current from their recorded source: --check re-resolves and exits 10 when an update is available; the apply path runs a BASE/LOCAL/NEW three-way reconcile (your edits are retained or conflict loudly — never silently clobbered), removes upstream-deleted files surgically, and re-runs every install gate on the delta (an unsigned exec-bearing update still requires --allow-exec). `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident.",
+    body: "`agentpack install` takes a local path, a git source (github:owner/repo@ref#subpath — no registry or account needed), or a registry id: diff against project root → permission summary → confirm → backup → write → install manifest at `.agentpack/installed/<pack>.json` → AGENTPACK.lock → history append. `agentpack uninstall` reverses it (delete created, restore backups, unmerge shared files). `agentpack verify` computes on-disk SHA-256 against the lockfile and reports drift (--all iterates every installed pack). `agentpack update` keeps installs current from their recorded source: --check re-resolves and exits 10 when an update is available; the apply path runs a BASE/LOCAL/NEW three-way reconcile (your edits are retained or conflict loudly — never silently clobbered), removes upstream-deleted files surgically, and re-runs every install gate on the delta (an unsigned exec-bearing update still requires --allow-exec). `agentpack rollback` undoes the most recent install (or all installs after a given history id with --to). The hash chain in `history.jsonl` makes the audit log tamper-evident. Personal config: install/update take --scope user to target ~/.claude (state at ~/.claude/.agentpack/), and `import --into <pack> --diff` folds live-config edits back into the pack repo.",
     link: "/docs#install",
   },
 ];
@@ -164,6 +164,8 @@ atoms:
         <pre className="codeblock overflow-x-auto whitespace-pre text-xs">{`agentpack init                  # scaffold a starter AGENTPACK.yaml
 agentpack import --from <src>   # compile an existing setup into a pack
                                 #   (claude | claude-code | codex | chatgpt-gpt)
+                                #   --into <pack> --diff: fold live edits back
+                                #   into an existing pack (preview, then apply)
 agentpack validate [path]       # validate a manifest
 agentpack inspect [path]        # metadata, atoms, profiles, risk, portability
 agentpack plan [path] \\
@@ -173,6 +175,7 @@ agentpack pack export [path] \\
 agentpack pack plugin|mcpb|chat # Claude Code plugin / .mcpb / Chat bundle
 agentpack install <src>         # local path · github:owner/repo@ref#subpath
                                 #   · registry id
+                                #   --scope user: install into ~/.claude
 agentpack verify <packId>|--all # drift detection against the lockfile
 agentpack update [--check]      # three-way-reconcile update from the recorded
                                 #   source (--check: exit 10 = update available)

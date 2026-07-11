@@ -93,6 +93,7 @@ export const installManifestSchema = z.object({
   updatedAt: z.string().min(1).optional(),
   previousPackVersion: z.string().min(1).optional(),
   riskLevel: z.enum(["low", "medium", "high", "critical"]).optional(),
+  scope: z.literal("user").optional(),
 });
 
 export function serializeInstallManifest(m: InstallManifestV1): string {

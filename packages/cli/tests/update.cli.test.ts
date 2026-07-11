@@ -294,7 +294,6 @@ describe("sync S1 — provenance + update --check (e2e gate for #110)", () => {
     expect(r.code, r.stderr + r.stdout).toBe(10);
     expect(r.stdout).toContain(SHA_V1.slice(0, 12));
     expect(r.stdout).toContain(SHA_V2.slice(0, 12));
-
   });
 
   it("update --check is read-only — zero filesystem writes in the project", async () => {
@@ -519,6 +518,512 @@ describe("update --check hardening (tampered install manifest)", () => {
     expect(r.code).toBe(1);
     expect(r.stderr + r.stdout).toMatch(/https/i);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Sync S3 (#112): `--scope user` — install/update a personal pack into
+// ~/.claude on a throwaway HOME. The gate: two-throwaway-HOME round trip
+// (import → install --scope user → verify clean → pack edit → update; hook
+// change REFUSED without --allow-exec) and a HOME diff across --dry-run
+// showing ZERO mutations.
+// ---------------------------------------------------------------------------
+
+/** Load every file under `dir` into the mock-GitHub fixture map. */
+async function loadFixtureFromDir(dir: string): Promise<void> {
+  fixture.files.clear();
+  async function walk(sub: string): Promise<void> {
+    for (const e of await fs.readdir(path.join(dir, sub), { withFileTypes: true })) {
+      const rel = sub ? `${sub}/${e.name}` : e.name;
+      if (e.isDirectory()) await walk(rel);
+      else fixture.files.set(rel, await fs.readFile(path.join(dir, rel), "utf8"));
+    }
+  }
+  await walk("");
+}
+
+/**
+ * Seed a fixture "live" Claude Code user config under `<home>/.claude`:
+ * instructions, one skill, and one hook whose script lives in
+ * `~/.claude/hooks/` (so the importer bundles the script body).
+ */
+async function seedLiveClaudeConfig(home: string): Promise<string> {
+  const claudeDir = path.join(home, ".claude");
+  await fs.mkdir(path.join(claudeDir, "skills/greeting"), { recursive: true });
+  await fs.mkdir(path.join(claudeDir, "hooks"), { recursive: true });
+  await fs.writeFile(
+    path.join(claudeDir, "CLAUDE.md"),
+    "# My Dotfiles\n\n## Notes\n\nAlways leave a note.\n",
+  );
+  await fs.writeFile(
+    path.join(claudeDir, "skills/greeting/SKILL.md"),
+    "---\nname: greeting\ndescription: Greets politely.\n---\n\n# Greeting\n\nSay hello.\n",
+  );
+  await fs.writeFile(
+    path.join(claudeDir, "hooks/fmt.sh"),
+    "#!/usr/bin/env bash\necho fmt-v1\n",
+  );
+  await fs.writeFile(
+    path.join(claudeDir, "settings.json"),
+    JSON.stringify({
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Edit|Write",
+            hooks: [{ type: "command", command: "bash $HOME/.claude/hooks/fmt.sh" }],
+          },
+        ],
+      },
+    }),
+  );
+  return claudeDir;
+}
+
+/** Import the live config at `<homeA>/.claude` into a pack dir and serve it. */
+async function importAndServePack(homeA: string): Promise<string> {
+  const packDir = path.join(
+    TMP_ROOT,
+    `user-pack-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
+  const imp = await run(
+    [
+      "import",
+      path.join(homeA, ".claude"),
+      "--from",
+      "claude-code",
+      "--id",
+      "me.dotfiles",
+      "--out",
+      packDir,
+    ],
+    { HOME: homeA },
+  );
+  expect(imp.code, imp.stderr).toBe(0);
+  await loadFixtureFromDir(packDir);
+  return packDir;
+}
+
+describe("sync S3 — install/update --scope user (e2e gate for #112)", () => {
+  it("round trip: import → install --scope user → verify clean → pack edit → update; hook change refused without --allow-exec", async () => {
+    // Throwaway HOME A: the "source" machine whose live config gets imported.
+    const homeA = await freshProject("home-a");
+    await seedLiveClaudeConfig(homeA);
+    await importAndServePack(homeA);
+
+    // Throwaway HOME B: the "second machine". Empty — install must create ~/.claude.
+    const homeB = await freshProject("home-b");
+    const inst = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(inst.code, inst.stderr + inst.stdout).toBe(0);
+
+    // User-scope layout: paths land under ~/.claude WITHOUT a .claude/ prefix.
+    const claudeB = path.join(homeB, ".claude");
+    const claudeMd = await fs.readFile(path.join(claudeB, "CLAUDE.md"), "utf8");
+    expect(claudeMd).toContain("Always leave a note.");
+    const skill = await fs.readFile(path.join(claudeB, "skills/greeting/SKILL.md"), "utf8");
+    expect(skill).toContain("Say hello.");
+    const settings = await fs.readFile(path.join(claudeB, "settings.json"), "utf8");
+    // The hook command must reference the USER-scope script location — a
+    // $CLAUDE_PROJECT_DIR path would resolve into whatever project the agent
+    // happens to be in, not ~/.claude.
+    expect(settings).toContain("$HOME/.claude/hooks/");
+    expect(settings).not.toContain("CLAUDE_PROJECT_DIR");
+    const hookScripts = await fs.readdir(path.join(claudeB, "hooks"));
+    expect(hookScripts.length).toBe(1);
+    // Install state lives at ~/.claude/.agentpack/, not in any project.
+    const manifestRaw = await fs.readFile(
+      path.join(claudeB, ".agentpack/installed/me.dotfiles.json"),
+      "utf8",
+    );
+    expect(JSON.parse(manifestRaw).scope).toBe("user");
+
+    // Verify clean against ~/.claude.
+    const v1 = await run(["verify", "--all", "--project", claudeB], { HOME: homeB });
+    expect(v1.code, v1.stderr + v1.stdout).toBe(0);
+
+    // Pack edit #1: instruction-only change → updates under --yes alone.
+    fixture.sha = SHA_V2;
+    const instrPath = [...fixture.files.keys()].find((p) =>
+      p.startsWith("atoms/instructions/"),
+    )!;
+    fixture.files.set(
+      instrPath,
+      fixture.files.get(instrPath)! + "\nAlso water the plants.\n",
+    );
+    const up1 = await run(["update", "--scope", "user", "--yes"], { HOME: homeB });
+    expect(up1.code, up1.stderr + up1.stdout).toBe(0);
+    expect(await fs.readFile(path.join(claudeB, "CLAUDE.md"), "utf8")).toContain(
+      "Also water the plants.",
+    );
+    const v2 = await run(["verify", "--all", "--project", claudeB], { HOME: homeB });
+    expect(v2.code, v2.stderr + v2.stdout).toBe(0);
+
+    // Pack edit #2: hook SCRIPT change → exec-bearing delta. Refused without
+    // --allow-exec even with --yes; applies with it.
+    fixture.sha = "3333333333333333333333333333333333333333";
+    const scriptPath = [...fixture.files.keys()].find((p) =>
+      p.startsWith("atoms/hooks/scripts/"),
+    )!;
+    fixture.files.set(scriptPath, "#!/usr/bin/env bash\necho fmt-v2\n");
+    const refused = await run(["update", "--scope", "user", "--yes"], { HOME: homeB });
+    expect(refused.code, refused.stderr + refused.stdout).toBe(6);
+    expect(refused.stderr).toMatch(/allow-exec/i);
+    // Refusal wrote nothing: the installed script still says v1.
+    const scriptName = hookScripts[0]!;
+    expect(await fs.readFile(path.join(claudeB, "hooks", scriptName), "utf8")).toContain(
+      "fmt-v1",
+    );
+
+    const applied = await run(["update", "--scope", "user", "--yes", "--allow-exec"], {
+      HOME: homeB,
+    });
+    expect(applied.code, applied.stderr + applied.stdout).toBe(0);
+    expect(await fs.readFile(path.join(claudeB, "hooks", scriptName), "utf8")).toContain(
+      "fmt-v2",
+    );
+    const v3 = await run(["verify", "--all", "--project", claudeB], { HOME: homeB });
+    expect(v3.code, v3.stderr + v3.stdout).toBe(0);
+  }, 120_000);
+
+  it("update --scope user --dry-run mutates NOTHING under HOME (tree diff is empty)", async () => {
+    const homeA = await freshProject("home-dry-a");
+    await seedLiveClaudeConfig(homeA);
+    await importAndServePack(homeA);
+
+    const homeB = await freshProject("home-dry-b");
+    const inst = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(inst.code, inst.stderr + inst.stdout).toBe(0);
+
+    // Advance the pack (exec-bearing change, worst case for the guard).
+    fixture.sha = SHA_V2;
+    const scriptPath = [...fixture.files.keys()].find((p) =>
+      p.startsWith("atoms/hooks/scripts/"),
+    )!;
+    fixture.files.set(scriptPath, "#!/usr/bin/env bash\necho fmt-v2\n");
+
+    const before = await snapshotTree(homeB);
+    const dry = await run(
+      ["update", "--scope", "user", "--dry-run", "--yes", "--allow-exec"],
+      { HOME: homeB },
+    );
+    expect(dry.stdout).toContain("(--dry-run)");
+    const after = await snapshotTree(homeB);
+    expect([...after.entries()].sort()).toEqual([...before.entries()].sort());
+  }, 120_000);
+
+  it("install --scope user --dry-run mutates NOTHING under an existing ~/.claude", async () => {
+    const homeA = await freshProject("home-idry-a");
+    await seedLiveClaudeConfig(homeA);
+    await importAndServePack(homeA);
+
+    const homeB = await freshProject("home-idry-b");
+    // Pre-existing user config that a careless dry-run could clobber.
+    await fs.mkdir(path.join(homeB, ".claude"), { recursive: true });
+    await fs.writeFile(
+      path.join(homeB, ".claude/settings.json"),
+      JSON.stringify({ model: "opus" }),
+    );
+    const before = await snapshotTree(homeB);
+    const dry = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--dry-run",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(dry.code, dry.stderr + dry.stdout).toBe(0);
+    const after = await snapshotTree(homeB);
+    expect([...after.entries()].sort()).toEqual([...before.entries()].sort());
+  }, 120_000);
+
+  it("install --scope user JSON-merges into an existing ~/.claude/settings.json (user keys survive)", async () => {
+    const homeA = await freshProject("home-merge-a");
+    await seedLiveClaudeConfig(homeA);
+    await importAndServePack(homeA);
+
+    const homeB = await freshProject("home-merge-b");
+    await fs.mkdir(path.join(homeB, ".claude"), { recursive: true });
+    await fs.writeFile(
+      path.join(homeB, ".claude/settings.json"),
+      JSON.stringify({ model: "opus" }),
+    );
+    const inst = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(inst.code, inst.stderr + inst.stdout).toBe(0);
+    const merged = JSON.parse(
+      await fs.readFile(path.join(homeB, ".claude/settings.json"), "utf8"),
+    );
+    expect(merged.model).toBe("opus");
+    expect(merged.hooks).toBeDefined();
+  }, 120_000);
+
+  it("install --scope user refuses a non-claude-code target (usage error)", async () => {
+    const homeB = await freshProject("home-badtarget");
+    const r = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "codex",
+        "--scope",
+        "user",
+        "--yes",
+      ],
+      { HOME: homeB },
+    );
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/scope user/i);
+  });
+
+  it("install --scope user --dry-run with no ~/.claude fails cleanly and creates nothing", async () => {
+    const homeB = await freshProject("home-nodir");
+    const r = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--dry-run",
+        "--yes",
+      ],
+      { HOME: homeB },
+    );
+    expect(r.code).not.toBe(0);
+    await expect(fs.stat(path.join(homeB, ".claude"))).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #121 review round: --force interactions with the consent gates. Both
+// pre-existing on master, but --scope user makes them reachable enough to fix
+// here (and the fixes cover project scope too).
+// ---------------------------------------------------------------------------
+
+/** Live config whose ONLY exec surface is a bang-bash slash command. */
+async function seedLiveCommandConfig(home: string): Promise<void> {
+  const claudeDir = path.join(home, ".claude");
+  await fs.mkdir(path.join(claudeDir, "commands"), { recursive: true });
+  await fs.writeFile(
+    path.join(claudeDir, "CLAUDE.md"),
+    "# Cmd Pack\n\n## Notes\n\nJust a note.\n",
+  );
+  await fs.writeFile(
+    path.join(claudeDir, "commands/ship.md"),
+    "---\ndescription: Ship it\n---\n\nRun !`git push` and report the result.\n",
+  );
+}
+
+/** Live config whose settings.json declares one MCP server. */
+async function seedLiveMcpConfig(home: string): Promise<void> {
+  const claudeDir = path.join(home, ".claude");
+  await fs.mkdir(claudeDir, { recursive: true });
+  await fs.writeFile(
+    path.join(claudeDir, "CLAUDE.md"),
+    "# MCP Pack\n\n## Notes\n\nJust a note.\n",
+  );
+  await fs.writeFile(
+    path.join(claudeDir, "settings.json"),
+    JSON.stringify({
+      mcpServers: { shared: { command: "node", args: ["server-v1.js"] } },
+    }),
+  );
+}
+
+describe("--force never bypasses exec consent (#121 review HIGH)", () => {
+  // The bang-bash scan is the ONLY consent gate for command/subagent atoms
+  // (they are not hook/mcp_server execAtoms). --force writes conflict files
+  // to disk, so conflicts MUST be in the scan — otherwise a pre-existing user
+  // file at the command's path turns --force -y into silent exec consent.
+  it("user scope: forced conflict on a bang-bash command file is refused without --allow-exec", async () => {
+    const homeA = await freshProject("force-exec-a");
+    await seedLiveCommandConfig(homeA);
+    await importAndServePack(homeA);
+
+    const homeB = await freshProject("force-exec-b");
+    const userFile = path.join(homeB, ".claude/commands/ship.md");
+    await fs.mkdir(path.dirname(userFile), { recursive: true });
+    await fs.writeFile(userFile, "# my own ship notes\n");
+
+    const refused = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--force",
+        "--yes",
+      ],
+      { HOME: homeB },
+    );
+    expect(refused.code, refused.stderr + refused.stdout).toBe(6);
+    expect(refused.stderr).toContain("commands/ship.md");
+    // The refusal wrote nothing: the user's file is untouched.
+    expect(await fs.readFile(userFile, "utf8")).toBe("# my own ship notes\n");
+
+    const allowed = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--force",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(allowed.code, allowed.stderr + allowed.stdout).toBe(0);
+    expect(await fs.readFile(userFile, "utf8")).toContain("!`git push`");
+  }, 120_000);
+
+  it("project scope: forced conflict on a bang-bash command file is refused without --allow-exec", async () => {
+    const homeA = await freshProject("force-exec-proj-a");
+    await seedLiveCommandConfig(homeA);
+    await importAndServePack(homeA);
+
+    const dir = await freshProject("force-exec-proj");
+    const userFile = path.join(dir, ".claude/commands/ship.md");
+    await fs.mkdir(path.dirname(userFile), { recursive: true });
+    await fs.writeFile(userFile, "# my own ship notes\n");
+
+    const refused = await run([
+      "install",
+      `github:${OWNER}/${REPO}@main`,
+      "--target",
+      "claude-code",
+      "--project",
+      dir,
+      "--force",
+      "--yes",
+    ]);
+    expect(refused.code, refused.stderr + refused.stdout).toBe(6);
+    expect(refused.stderr).toContain(".claude/commands/ship.md");
+    expect(await fs.readFile(userFile, "utf8")).toBe("# my own ship notes\n");
+
+    const allowed = await run([
+      "install",
+      `github:${OWNER}/${REPO}@main`,
+      "--target",
+      "claude-code",
+      "--project",
+      dir,
+      "--force",
+      "--yes",
+      "--allow-exec",
+    ]);
+    expect(allowed.code, allowed.stderr + allowed.stdout).toBe(0);
+    expect(await fs.readFile(userFile, "utf8")).toContain("!`git push`");
+  }, 120_000);
+});
+
+describe("--force on a JSON collision deep-merges, never replaces the file (#121 review MEDIUM)", () => {
+  it("user's non-colliding MCP servers survive a forced .mcp.json collision", async () => {
+    const homeA = await freshProject("force-json-a");
+    await seedLiveMcpConfig(homeA);
+    await importAndServePack(homeA);
+
+    const homeB = await freshProject("force-json-b");
+    const mcpPath = path.join(homeB, ".claude/.mcp.json");
+    await fs.mkdir(path.dirname(mcpPath), { recursive: true });
+    const userMcp = {
+      mcpServers: {
+        mine: { type: "stdio", command: "node", args: ["mine.js"], env: {} },
+        shared: { type: "stdio", command: "node", args: ["different.js"], env: {} },
+      },
+    };
+    await fs.writeFile(mcpPath, JSON.stringify(userMcp, null, 2) + "\n");
+
+    // Without --force the collision still refuses (classification unchanged).
+    const refused = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--yes",
+        "--allow-exec",
+      ],
+      { HOME: homeB },
+    );
+    expect(refused.code, refused.stderr + refused.stdout).toBe(2);
+    expect(JSON.parse(await fs.readFile(mcpPath, "utf8"))).toEqual(userMcp);
+
+    // With --force: deep-merge — the pack wins ONLY the collided key; the
+    // user's other servers survive (previously the bare fragment replaced
+    // the whole file).
+    const forced = await run(
+      [
+        "install",
+        `github:${OWNER}/${REPO}@main`,
+        "--target",
+        "claude-code",
+        "--scope",
+        "user",
+        "--yes",
+        "--allow-exec",
+        "--force",
+      ],
+      { HOME: homeB },
+    );
+    expect(forced.code, forced.stderr + forced.stdout).toBe(0);
+    const merged = JSON.parse(await fs.readFile(mcpPath, "utf8"));
+    expect(merged.mcpServers.mine).toEqual(userMcp.mcpServers.mine);
+    expect(merged.mcpServers.shared.args).toEqual(["server-v1.js"]);
+
+    // The forced merge is recorded as a json merge, so verify stays clean.
+    const v = await run(["verify", "--all", "--project", path.join(homeB, ".claude")], {
+      HOME: homeB,
+    });
+    expect(v.code, v.stderr + v.stdout).toBe(0);
+  }, 120_000);
 });
 
 describe("verify in a multi-pack project (single-pack lockfile)", () => {

@@ -403,6 +403,9 @@ async function applyInstallLocked(
       ...(plan.lockfile.source ? { source: plan.lockfile.source } : {}),
       // Baseline for the policy `update.maxRiskEscalation` gate (sync S2).
       riskLevel: plan.riskLevel,
+      // Scope travels with the manifest (sync S3) so update re-plans with the
+      // same ~/.claude path mapping.
+      ...(plan.scope === "user" ? { scope: "user" as const } : {}),
       ...(um
         ? {
             updatedAt: new Date().toISOString(),
