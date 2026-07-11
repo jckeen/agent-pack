@@ -56,7 +56,7 @@ describe("parseClaudeCode", () => {
         "settings.json": JSON.stringify({
           hooks: {
             PostToolUse: [
-              { matcher: "Edit", hooks: [{ type: "command", command: "fmt.sh" }] },
+              { matcher: "Edit|Write", hooks: [{ type: "command", command: "fmt.sh" }] },
             ],
           },
           mcpServers: {
@@ -156,6 +156,27 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
       expect(result.warnings.some((warning) => /matcher.*Bash/.test(warning.message))).toBe(
         true,
       );
+      expect(result.manifest.atoms.some((atom) => atom.type === "hook")).toBe(false);
+      expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("downgrades Claude Code when local settings are ignored", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-local-settings-"));
+    try {
+      await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(dir, "settings.local.json"),
+        JSON.stringify({ permissions: { deny: ["Bash(rm:*)"] } }),
+      );
+      const result = await importClaudeCodeDir(dir, { id: "acme.local-settings" });
+      expect(
+        result.warnings.some((warning) =>
+          /settings\.local\.json.*not portable/i.test(warning.message),
+        ),
+      ).toBe(true);
       expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -180,6 +201,62 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
       ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to export other Claude agent restrictions to Codex", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-restricted-agent-"));
+    try {
+      await fs.mkdir(path.join(dir, "agents"), { recursive: true });
+      await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(dir, "agents/reviewer.md"),
+        [
+          "---",
+          "name: reviewer",
+          "description: Restricted reviewer.",
+          "permissionMode: plan",
+          "---",
+          "Review carefully.",
+        ].join("\n"),
+      );
+      const result = await importClaudeCodeDir(dir, { id: "acme.restricted-agent" });
+      const tmp = path.join(dir, "roundtrip");
+      await writeImport(result, path.join(tmp, "pack"));
+      const exported = await exportPack({
+        source: path.join(tmp, "pack"),
+        target: "codex",
+        outDir: path.join(tmp, "out"),
+      });
+      expect(exported.plan.unsupportedAtoms).toContain("subagent:reviewer");
+      await expect(
+        fs.stat(path.join(tmp, "out/.codex/agents/reviewer.toml")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses malformed Claude agent frontmatter when exporting to Codex", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-malformed-agent-"));
+    try {
+      await fs.mkdir(path.join(dir, "agents"), { recursive: true });
+      await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(dir, "agents/reviewer.md"),
+        "---\ndescription: [unterminated\n---\nReview carefully.\n",
+      );
+      const result = await importClaudeCodeDir(dir, { id: "acme.malformed-agent" });
+      const tmp = path.join(dir, "roundtrip");
+      await writeImport(result, path.join(tmp, "pack"));
+      const exported = await exportPack({
+        source: path.join(tmp, "pack"),
+        target: "codex",
+        outDir: path.join(tmp, "out"),
+      });
+      expect(exported.plan.unsupportedAtoms).toContain("subagent:reviewer");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
     }
   });
 

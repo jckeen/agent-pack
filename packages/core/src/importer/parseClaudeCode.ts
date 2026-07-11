@@ -148,6 +148,7 @@ function parseHooks(
           source,
           message: `Hook matcher \`${String(matcher)}\` is not portable and was skipped.`,
         });
+        continue;
       }
       const inner = groupRecord["hooks"];
       const entries = Array.isArray(inner) ? inner : [];
@@ -236,6 +237,13 @@ export function parseClaudeCode(files: Map<string, string>): ParsedClaudeCode {
       });
     }
     break; // first match wins (.claude/ then root)
+  }
+  for (const localSettingsPath of [".claude/settings.local.json", "settings.local.json"]) {
+    if (!tree.has(localSettingsPath)) continue;
+    warnings.push({
+      source: localSettingsPath,
+      message: `${localSettingsPath} is machine-local and not portable; its settings were skipped.`,
+    });
   }
   // Also accept a standalone .mcp.json (`{ mcpServers: {...} }`).
   const mcpJsonPath = tree.has(".mcp.json") ? ".mcp.json" : null;

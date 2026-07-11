@@ -171,6 +171,7 @@ export const codexAdapter = defineAdapter({
       const a = atom as {
         transport?: string;
         command?: string;
+        url?: string;
         args?: string[];
         env?: Record<string, unknown>;
       };
@@ -185,7 +186,14 @@ export const codexAdapter = defineAdapter({
         unsupported.push(atom.id);
         continue;
       }
-      if (!a.command || isShellEscape(a.command, a.args ?? [])) {
+      if (a.url && a.command) {
+        warnings.push(
+          `MCP server \`${atom.id}\` declares both a URL and command. Refusing to emit an ambiguous transport.`,
+        );
+        unsupported.push(atom.id);
+        continue;
+      }
+      if (!a.url && (!a.command || isShellEscape(a.command, a.args ?? []))) {
         warnings.push(
           `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it.`,
         );
@@ -193,14 +201,15 @@ export const codexAdapter = defineAdapter({
         continue;
       }
       const envKeys = Object.keys(a.env ?? {});
-      tomlBlocks.push(
-        renderTomlTable(`mcp_servers.${slug}`, {
-          transport: a.transport ?? "stdio",
-          command: a.command ?? "",
-          args: a.args ?? [],
-          env_vars: envKeys,
-        }),
-      );
+      const serverConfig = a.url
+        ? { url: a.url }
+        : {
+            transport: a.transport ?? "stdio",
+            command: a.command ?? "",
+            args: a.args ?? [],
+            env_vars: envKeys,
+          };
+      tomlBlocks.push(renderTomlTable(`mcp_servers.${slug}`, serverConfig));
       warnings.push(
         `MCP server \`${atom.id}\` configured in project .codex/config.toml. Required env: ${envKeys.join(", ") || "(none)"}.`,
       );
@@ -368,6 +377,7 @@ export const codexAdapter = defineAdapter({
         ? rawOmittedConfig.filter((key): key is string => typeof key === "string")
         : [];
       const unsafeKeys = [...new Set([...omittedKeys, ...importedOmittedKeys])].sort();
+      const unsupportedRestrictions = body.unsupportedRestrictions ?? [];
       if (hasMalformedCodexConfig) {
         warnings.push(
           `Subagent \`${atom.id}\` was not exported because codex_config is malformed; expected a mapping.`,
@@ -382,9 +392,9 @@ export const codexAdapter = defineAdapter({
         unsupported.push(atom.id);
         continue;
       }
-      if (body.tools) {
+      if (unsupportedRestrictions.length > 0) {
         warnings.push(
-          `Subagent \`${atom.id}\` was not exported because its Claude tools restriction cannot be represented safely in Codex.`,
+          `Subagent \`${atom.id}\` was not exported because its Claude restrictions cannot be represented safely in Codex: ${unsupportedRestrictions.join(", ")}.`,
         );
         unsupported.push(atom.id);
         continue;

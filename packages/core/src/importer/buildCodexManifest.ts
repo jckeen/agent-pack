@@ -85,7 +85,7 @@ export function buildCodexManifest(
     const dir = `atoms/skills/${skillSlug}`;
     let description = `Codex skill: ${skill.name}`;
     for (const f of skill.files) {
-      const isSkillMd = f.relPath === "SKILL.md" || f.relPath === "skill.md";
+      const isSkillMd = f.relPath.toLowerCase() === "skill.md";
       // Emit SKILL.md under the canonical name; carry bundled resources as-is.
       const outRel = isSkillMd ? "SKILL.md" : f.relPath;
       files.push({ relativePath: `${dir}/${outRel}`, content: f.content });
@@ -120,9 +120,10 @@ export function buildCodexManifest(
     const atomObj: Record<string, unknown> = {
       id: mcpSlug,
       name: mcp.name,
-      transport: mcp.transport ?? "stdio",
+      transport: mcp.transport ?? (mcp.url ? "http" : "stdio"),
     };
     if (mcp.command !== undefined) atomObj["command"] = mcp.command;
+    if (mcp.url !== undefined) atomObj["url"] = mcp.url;
     if (mcp.args !== undefined) atomObj["args"] = mcp.args;
     if (Object.keys(envObj).length > 0) atomObj["env"] = envObj;
     if (mcp.cwd !== undefined) atomObj["cwd"] = mcp.cwd;
@@ -139,9 +140,10 @@ export function buildCodexManifest(
       path: relativePath,
       risk_level: "high",
       permissions: ["network.access", "external_api.access"],
-      transport: mcp.transport ?? "stdio",
+      transport: mcp.transport ?? (mcp.url ? "http" : "stdio"),
     };
     if (mcp.command !== undefined) mcpAtom["command"] = mcp.command;
+    if (mcp.url !== undefined) mcpAtom["url"] = mcp.url;
     if (mcp.args !== undefined) mcpAtom["args"] = mcp.args;
     if (Object.keys(envObj).length > 0) {
       mcpAtom["env"] = envObj;

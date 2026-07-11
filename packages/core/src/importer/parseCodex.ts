@@ -24,6 +24,7 @@ export interface CodexMcpServer {
   name: string;
   transport?: string;
   command?: string;
+  url?: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
@@ -97,8 +98,13 @@ function parseMcpServers(
     servers.push({
       name,
       transport:
-        typeof d["transport"] === "string" ? (d["transport"] as string) : undefined,
+        typeof d["transport"] === "string"
+          ? (d["transport"] as string)
+          : typeof d["url"] === "string"
+            ? "http"
+            : undefined,
       command: typeof d["command"] === "string" ? (d["command"] as string) : undefined,
+      url: typeof d["url"] === "string" ? (d["url"] as string) : undefined,
       args: asStringArray(d["args"]),
       env: asStringRecord(d["env"]),
       cwd: typeof d["cwd"] === "string" ? (d["cwd"] as string) : undefined,
@@ -172,8 +178,8 @@ function parseSubagent(
       : table;
   const configSource = agent === table ? agent : { ...table, ...agent };
   const name =
-    (typeof agent["name"] === "string" && (agent["name"] as string)) ||
-    (typeof agent["id"] === "string" && (agent["id"] as string)) ||
+    (typeof agent["name"] === "string" && (agent["name"] as string).trim()) ||
+    (typeof agent["id"] === "string" && (agent["id"] as string).trim()) ||
     "";
   if (!name) return null;
   const rawConfig = Object.fromEntries(
@@ -199,7 +205,10 @@ function parseSubagent(
   }
   let instructions: string | undefined;
   if (Object.prototype.hasOwnProperty.call(agent, "developer_instructions")) {
-    if (typeof agent["developer_instructions"] === "string") {
+    if (
+      typeof agent["developer_instructions"] === "string" &&
+      (agent["developer_instructions"] as string).trim() !== ""
+    ) {
       instructions = agent["developer_instructions"] as string;
     } else {
       warnings.push({
@@ -207,13 +216,19 @@ function parseSubagent(
         message: "Custom agent developer_instructions must be a string; omitted.",
       });
     }
-  } else if (typeof agent["instructions"] === "string") {
+  } else if (
+    typeof agent["instructions"] === "string" &&
+    (agent["instructions"] as string).trim() !== ""
+  ) {
     instructions = agent["instructions"] as string;
     warnings.push({
       source,
       message: "Legacy custom-agent instructions key imported; use developer_instructions.",
     });
-  } else if (typeof agent["prompt"] === "string") {
+  } else if (
+    typeof agent["prompt"] === "string" &&
+    (agent["prompt"] as string).trim() !== ""
+  ) {
     instructions = agent["prompt"] as string;
     warnings.push({
       source,
@@ -225,12 +240,18 @@ function parseSubagent(
       message: "Custom agent is missing required developer_instructions.",
     });
   }
+  const description =
+    typeof agent["description"] === "string" ? (agent["description"] as string).trim() : "";
+  if (!description) {
+    warnings.push({
+      source,
+      message: "Custom agent is missing required description.",
+    });
+  }
+  if (!instructions || !description) return null;
   return {
     name,
-    description:
-      typeof agent["description"] === "string"
-        ? (agent["description"] as string)
-        : undefined,
+    description,
     instructions,
     config,
     omittedConfigKeys: omittedKeys,
@@ -334,7 +355,7 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
       }
       const manifestNames = s.files
         .map((file) => file.relPath)
-        .filter((relPath) => relPath === "SKILL.md" || relPath === "skill.md");
+        .filter((relPath) => relPath.toLowerCase() === "skill.md");
       if (manifestNames.length > 1) {
         warnings.push({
           source: `skills/${s.name}`,
@@ -342,9 +363,7 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
         });
         return false;
       }
-      const hasSkillMd = s.files.some(
-        (f) => f.relPath === "SKILL.md" || f.relPath === "skill.md",
-      );
+      const hasSkillMd = s.files.some((f) => f.relPath.toLowerCase() === "skill.md");
       if (!hasSkillMd) {
         warnings.push({
           source: `skills/${s.name}`,

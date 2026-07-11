@@ -41,4 +41,22 @@ describe("sanitizeCodexAgentConfig", () => {
       omittedKeys: [],
     });
   });
+
+  it("accepts current Codex reasoning effort names", () => {
+    for (const effort of ["none", "max", "ultra"]) {
+      expect(sanitizeCodexAgentConfig({ model_reasoning_effort: effort })).toEqual({
+        config: { model_reasoning_effort: effort },
+        omittedKeys: [],
+      });
+    }
+  });
+
+  it("rejects duplicate nickname candidates", () => {
+    expect(
+      sanitizeCodexAgentConfig({ nickname_candidates: ["Reviewer", "Reviewer"] }),
+    ).toEqual({
+      config: {},
+      omittedKeys: ["nickname_candidates"],
+    });
+  });
 });

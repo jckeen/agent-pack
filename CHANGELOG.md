@@ -16,6 +16,11 @@
   make an imported agent ineligible for the shared atom graph, while authored
   pack agents carrying unsafe or malformed Codex config are refused at export;
   inherited parent settings therefore cannot silently widen permissions.
+- Cross-runtime import now omits Claude hooks whose matchers cannot be
+  preserved, reports skipped `settings.local.json` policy, refuses malformed or
+  restricted custom agents, preserves Codex remote MCP URLs, and marks
+  truncated prose rules as partial. Case-colliding skill manifests and
+  duplicate nickname candidates are rejected before export.
 - The standard and personal-config sync guide document the distinction between
   native-source fidelity and compiled target output.
 

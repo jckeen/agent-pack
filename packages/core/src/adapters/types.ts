@@ -313,6 +313,8 @@ export interface ResolvedSubagent {
   tools?: string;
   /** `model` from a markdown agent's frontmatter (Claude Code agent loader key). */
   model?: string;
+  /** Frontmatter keys whose restrictions cannot be preserved across runtimes. */
+  unsupportedRestrictions?: string[];
   /**
    * True when `instructions` is a markdown agent's own body: it must be emitted
    * verbatim — synthesizing a heading over it would alter the agent's system
@@ -348,13 +350,19 @@ export async function resolveSubagentBody(
     let description: string | undefined;
     let tools: string | undefined;
     let model: string | undefined;
+    let unsupportedRestrictions: string[] | undefined;
     if (raw.startsWith("---")) {
+      unsupportedRestrictions = ["malformed frontmatter"];
       const end = raw.indexOf("\n---", 3);
       if (end !== -1) {
         const fmText = raw.slice(3, end).replace(/^\r?\n/, "");
         body = raw.slice(end + 4).replace(/^\r?\n/, "");
         try {
-          const fm = parseYaml(fmText) as Record<string, unknown> | null;
+          const parsed = parseYaml(fmText) as unknown;
+          const fm =
+            parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? (parsed as Record<string, unknown>)
+              : null;
           const fmStr = (k: string): string | undefined =>
             fm && typeof fm[k] === "string"
               ? (fm[k] as string).trim() || undefined
@@ -362,6 +370,11 @@ export async function resolveSubagentBody(
           description = fmStr("description");
           tools = fmStr("tools");
           model = fmStr("model");
+          if (fm) {
+            unsupportedRestrictions = Object.keys(fm)
+              .filter((key) => !["name", "description", "model"].includes(key))
+              .sort();
+          }
         } catch {
           /* malformed frontmatter — fall through with the raw body */
         }
@@ -373,6 +386,7 @@ export async function resolveSubagentBody(
       description,
       tools,
       model,
+      unsupportedRestrictions,
       verbatim: trimmed !== "",
     };
   }

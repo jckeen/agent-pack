@@ -167,10 +167,12 @@ export async function importCodexDir(
   rootDir: string,
   opts: ImportCodexOptions,
 ): Promise<ImportResult> {
+  const requestedRoot = path.resolve(rootDir);
+  const homeStyle = path.basename(requestedRoot) === ".codex";
   const resolvedRoot = await fs.realpath(rootDir);
-  const { tree, warnings: readWarnings } = await readTree(resolvedRoot);
-  if (path.basename(resolvedRoot) === ".codex") {
-    const companionSkills = path.join(path.dirname(resolvedRoot), ".agents", "skills");
+  const { tree, warnings: readWarnings } = await readTree(resolvedRoot, { homeStyle });
+  if (homeStyle) {
+    const companionSkills = path.join(path.dirname(requestedRoot), ".agents", "skills");
     const companionStat = await fs.lstat(companionSkills).catch(() => null);
     if (companionStat?.isSymbolicLink()) {
       readWarnings.push({

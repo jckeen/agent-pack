@@ -120,7 +120,18 @@ function deriveDescription(heading: string, body: string): string {
 }
 
 function hasUnstructuredRuleContent(body: string): boolean {
-  return body.split("\n").some((line) => line.trim() !== "" && !/^\s*[-*]\s+/.test(line));
+  const bulletRe = /^\s*(?:[-*+]|\d+[.)])\s+.*\S\s*$/;
+  let inBullet = false;
+  for (const line of body.split("\n")) {
+    if (bulletRe.test(line)) {
+      inBullet = true;
+    } else if (line.trim() === "") {
+      inBullet = false;
+    } else if (!inBullet) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function buildManifest(
@@ -166,6 +177,12 @@ export function buildManifest(
         warnings.push({
           line: section.lineStart,
           message: `Rule section \`${section.heading}\` contains prose outside list items; structured rule output is lossy.`,
+        });
+      }
+      if (bullets === null && section.body.replace(/\s+/g, " ").trim().length > PROSE_CAP) {
+        warnings.push({
+          line: section.lineStart,
+          message: `Rule section \`${section.heading}\` exceeds ${PROSE_CAP} characters; prose rule output was truncated.`,
         });
       }
       const behavior =

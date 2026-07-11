@@ -11,6 +11,8 @@ import {
   agentPackManifestSchema,
   getAdapter,
   resolveAtoms,
+  writeImport,
+  exportPack,
 } from "../src/index.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { parse as parseToml } from "smol-toml";
@@ -73,7 +75,7 @@ describe("parseCodex", () => {
       tree({
         ".agents/skills/review/SKILL.md":
           "---\nname: review\ndescription: Upper copy.\n---\n",
-        ".agents/skills/review/skill.md":
+        ".agents/skills/review/Skill.md":
           "---\nname: review\ndescription: Lower copy.\n---\n",
       }),
     );
@@ -104,6 +106,24 @@ describe("parseCodex", () => {
     expect(Object.keys(m.env ?? {})).toEqual(["GITHUB_TOKEN"]);
     expect(m.enabledTools).toEqual(["a"]);
     expect(m.disabledTools).toEqual(["b"]);
+  });
+
+  it("parses remote MCP servers without inventing a stdio command", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'url = "https://example.com/mcp"',
+        ].join("\n"),
+      }),
+    );
+    expect(parsed.mcpServers).toEqual([
+      expect.objectContaining({
+        name: "docs",
+        url: "https://example.com/mcp",
+        command: undefined,
+      }),
+    ]);
   });
 
   it("parses [hooks] tables with Claude-compatible event names", () => {
@@ -139,7 +159,8 @@ describe("parseCodex", () => {
   it("parses subagent .toml definitions", () => {
     const parsed = parseCodex(
       tree({
-        ".codex/agents/sec.toml": '[agent]\nid = "sec"\nname = "Sec"\ndescription = "d"\n',
+        ".codex/agents/sec.toml":
+          '[agent]\nid = "sec"\nname = "Sec"\ndescription = "d"\ndeveloper_instructions = "Review."\n',
       }),
     );
     expect(parsed.subagents).toHaveLength(1);
@@ -154,6 +175,7 @@ describe("parseCodex", () => {
           'sandbox_mode = "danger-full-access"',
           "[agent]",
           'name = "Legacy"',
+          'description = "Legacy reviewer"',
           'developer_instructions = "Review carefully."',
         ].join("\n"),
       }),
@@ -164,20 +186,33 @@ describe("parseCodex", () => {
     );
   });
 
-  it("warns when required custom-agent instructions are malformed", () => {
+  it("skips custom agents whose required instructions are malformed", () => {
     const parsed = parseCodex(
       tree({
         ".codex/agents/malformed.toml": 'name = "Malformed"\ndeveloper_instructions = 42\n',
       }),
     );
-    expect(parsed.subagents[0]?.instructions).toBeUndefined();
+    expect(parsed.subagents).toEqual([]);
     expect(
       parsed.warnings.some((warning) =>
         /developer_instructions must be a string/.test(warning.message),
       ),
     ).toBe(true);
-    const result = buildCodexManifest(parsed, { id: "acme.malformed" });
-    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+  });
+
+  it("skips custom agents whose required description is missing", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/agents/malformed.toml":
+          'name = "Malformed"\ndeveloper_instructions = "Review carefully."\n',
+      }),
+    );
+    expect(parsed.subagents).toEqual([]);
+    expect(
+      parsed.warnings.some((warning) =>
+        /missing required description/.test(warning.message),
+      ),
+    ).toBe(true);
   });
 
   it("warns and skips malformed TOML rather than throwing", () => {
@@ -456,6 +491,59 @@ describe("importCodexDir (I/O + round-trip)", () => {
       expect(result.manifest.compatibility.targets.codex?.status).toBe("supported");
     } finally {
       await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves home-style layout when the requested .codex root is a symlink", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "codex-symlinked-home-"));
+    const target = await fs.mkdtemp(path.join(os.tmpdir(), "codex-config-target-"));
+    try {
+      await fs.mkdir(path.join(home, ".agents/skills/demo"), { recursive: true });
+      await fs.writeFile(path.join(target, "AGENTS.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(home, ".agents/skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+      );
+      await fs.symlink(target, path.join(home, ".codex"));
+
+      const result = await importCodexDir(path.join(home, ".codex"), {
+        id: "acme.symlinked-home",
+      });
+      expect(result.manifest.atoms.some((atom) => atom.type === "instruction")).toBe(true);
+      expect(
+        result.files.some((file) => file.relativePath === "atoms/skills/demo/SKILL.md"),
+      ).toBe(true);
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+      await fs.rm(target, { recursive: true, force: true });
+    }
+  });
+
+  it("round-trips remote MCP URLs through the Codex adapter", async () => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-remote-mcp-"));
+    const pack = path.join(source, "pack");
+    const outDir = path.join(source, "out");
+    try {
+      await fs.mkdir(path.join(source, ".codex"), { recursive: true });
+      await fs.writeFile(
+        path.join(source, ".codex/config.toml"),
+        '[mcp_servers.docs]\nurl = "https://example.com/mcp"\n',
+      );
+      const result = await importCodexDir(source, { id: "acme.remote-mcp" });
+      await writeImport(result, pack);
+      const exported = await exportPack({
+        source: pack,
+        target: "codex",
+        outDir,
+      });
+      const config = parseToml(
+        await fs.readFile(path.join(outDir, ".codex/config.toml"), "utf8"),
+      ) as { mcp_servers?: Record<string, { url?: string; command?: string }> };
+      expect(config.mcp_servers?.docs?.url).toBe("https://example.com/mcp");
+      expect(config.mcp_servers?.docs?.command).toBeUndefined();
+      expect(exported.plan.unsupportedAtoms).not.toContain("mcp_server:docs");
+    } finally {
+      await fs.rm(source, { recursive: true, force: true });
     }
   });
 
