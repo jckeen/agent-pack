@@ -1019,6 +1019,17 @@ describe("importCodexDir (I/O + round-trip)", () => {
       }
 
       delete mcp["args"];
+      mcp["transport"] = { toString: 1 };
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      for (const target of ["codex", "claude-code"] as const) {
+        const malformed = await exportPack({
+          source: pack,
+          target,
+          outDir: path.join(source, `${target}-transport-type-out`),
+        });
+        expect(malformed.plan.unsupportedAtoms).toContain("mcp_server:docs");
+      }
+
       mcp["transport"] = "stdio";
       await fs.writeFile(manifestPath, stringifyYaml(manifest));
       const mixedTransport = await exportPack({

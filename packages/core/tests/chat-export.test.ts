@@ -169,6 +169,50 @@ describe("exportChat", () => {
     await fs.rm(out, { recursive: true, force: true });
   });
 
+  it("preserves the descriptor tool catalogue in connector recipes", async () => {
+    const source = await tmp();
+    const out = await tmp();
+    await fs.cp(FIXTURE, source, { recursive: true });
+    const descriptorPath = path.join(source, "atoms/mcp/tickets.yaml");
+    const descriptor = await fs.readFile(descriptorPath, "utf8");
+    await fs.writeFile(
+      descriptorPath,
+      `${descriptor}\ntools:\n  - name: tickets.search\n    description: Search tickets.\n`,
+    );
+
+    const result = await exportChat({ source, profile: "full", outDir: out });
+    expect(result.connectors[0]?.tools).toEqual([
+      { name: "tickets.search", description: "Search tickets." },
+    ]);
+
+    await fs.rm(source, { recursive: true, force: true });
+    await fs.rm(out, { recursive: true, force: true });
+  });
+
+  it("refuses unknown auth semantics and unparseable MCP descriptors", async () => {
+    for (const mutation of [
+      (descriptor: string) =>
+        descriptor.replace("  scheme: oauth2", "  scheme: oauth2\n  audience: tickets-api"),
+      (descriptor: string) => `${descriptor}\ninvalid: [\n`,
+    ]) {
+      const source = await tmp();
+      const out = await tmp();
+      await fs.cp(FIXTURE, source, { recursive: true });
+      const descriptorPath = path.join(source, "atoms/mcp/tickets.yaml");
+      const descriptor = await fs.readFile(descriptorPath, "utf8");
+      await fs.writeFile(descriptorPath, mutation(descriptor));
+
+      const result = await exportChat({ source, profile: "full", outDir: out });
+      expect(result.connectors).toEqual([]);
+      expect(result.report.find((entry) => entry.atomId === "mcp_server:tickets")).toEqual(
+        expect.objectContaining({ portable: false }),
+      );
+
+      await fs.rm(source, { recursive: true, force: true });
+      await fs.rm(out, { recursive: true, force: true });
+    }
+  });
+
   it("emits project-instructions.md from instruction/rule atoms", async () => {
     const out = await tmp();
     await exportChat({ source: FIXTURE, profile: "full", outDir: out });

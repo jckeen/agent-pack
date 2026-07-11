@@ -32,6 +32,10 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("LD_PRELOAD=./payload.so /bin/true", [])).toBe(true);
     expect(isShellEscape("${SHELL} -c ./payload.sh", [])).toBe(true);
     expect(isShellEscape("PATH=./payload:$PATH git status", [])).toBe(true);
+    expect(isShellEscape("e'n'v BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("git difftool --extcmd=./payload.sh", [])).toBe(true);
+    expect(isShellEscape("git config core.pager '!./payload.sh'", [])).toBe(true);
+    expect(isShellEscape("git -ccore.editor=./payload status", [])).toBe(true);
     expect(isShellEscape("", [])).toBe(true);
   });
 
@@ -106,6 +110,8 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("powershell", ["-NoProfile", "-f", "script.ps1"])).toBe(false);
     expect(isShellEscape("echo", ["cmd"])).toBe(false);
     expect(isShellEscape("printf", ["pwsh", "is a literal argument"])).toBe(false);
+    expect(isShellEscape("printf 'safe; literal'", [])).toBe(false);
+    expect(isShellEscape("git diff -c", [])).toBe(false);
     // `-c` as a non-flag positional for a non-shell binary is fine.
     expect(isShellEscape("grep", ["-c", "pattern"])).toBe(false);
   });
@@ -128,6 +134,9 @@ describe("isCredentialFreeHttpUrl", () => {
       "https://example.com/mcp;access_token=fixture-secret",
       "https://example.com/s/sk-live-1234567890/mcp",
       "https://example.com/session/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig",
+      "https://example.com/password/fixture-secret/mcp",
+      "https://example.com/access_token/fixture-secret/mcp",
+      "https://example.com/api-key/fixture-secret/mcp",
       "file:///tmp/mcp",
       "not a URL",
     ]) {

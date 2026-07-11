@@ -60,6 +60,8 @@ export interface ChatConnector {
   transport: "http" | "sse";
   url: string;
   auth: { scheme: string; scopes: string[] };
+  /** Optional tool catalogue retained from imported connector descriptors. */
+  tools?: Array<Record<string, unknown>>;
   /** Secrets the user must supply when adding the connector. */
   required_secrets: Array<{ name: string; description?: string }>;
   /** Copy-paste / QR install recipe text. */
@@ -361,6 +363,7 @@ async function buildConnectors(
     const a = r.atom as McpAtom;
     if (hasCodexOnlyMcpConfig(a)) continue;
     const body = await parseAtomYaml(packRoot, a);
+    if (!body) continue;
     const combined = { ...(body ?? {}), ...a } as Record<string, unknown>;
     if (invalidChatMcpFields(combined).length > 0) continue;
     const transport = a.transport ?? "stdio";
@@ -377,6 +380,9 @@ async function buildConnectors(
     }
 
     const auth = connectorAuth(a, body);
+    const tools = Array.isArray(body["tools"])
+      ? (body["tools"] as Array<Record<string, unknown>>)
+      : undefined;
     connectors.push({
       atom: a.id,
       name: a.name,
@@ -384,6 +390,7 @@ async function buildConnectors(
       transport,
       url: a.url,
       auth,
+      ...(tools ? { tools } : {}),
       required_secrets: requiredSecrets,
       install_recipe: installRecipe(a, auth, requiredSecrets),
     });

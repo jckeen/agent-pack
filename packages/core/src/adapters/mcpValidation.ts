@@ -35,7 +35,8 @@ function isToolConfig(value: unknown): boolean {
       isRecord(tool) &&
       Object.keys(tool).every((key) => key === "approval_mode") &&
       (tool["approval_mode"] === undefined ||
-        ["auto", "prompt", "writes", "approve"].includes(String(tool["approval_mode"]))),
+        (typeof tool["approval_mode"] === "string" &&
+          ["auto", "prompt", "writes", "approve"].includes(tool["approval_mode"]))),
   );
 }
 
@@ -91,7 +92,9 @@ export function validMcpConfigValue(key: string, value: unknown): boolean {
   }
   if (key === "auth") return value === "oauth" || value === "chatgpt";
   if (key === "default_tools_approval_mode") {
-    return ["auto", "prompt", "writes", "approve"].includes(String(value));
+    return (
+      typeof value === "string" && ["auto", "prompt", "writes", "approve"].includes(value)
+    );
   }
   if (key === "env_http_headers") return isStringRecord(value);
   if (key === "env_vars") return isEnvVarList(value);
@@ -136,7 +139,8 @@ function commonInvalidFields(record: Record<string, unknown>): string[] {
   const invalid: string[] = [];
   if (
     record["transport"] !== undefined &&
-    !["stdio", "http", "sse"].includes(String(record["transport"]))
+    (typeof record["transport"] !== "string" ||
+      !["stdio", "http", "sse"].includes(record["transport"]))
   ) {
     invalid.push("transport");
   }
@@ -210,12 +214,18 @@ export function invalidChatMcpFields(record: Record<string, unknown>): string[] 
     if (!allowed.has(key)) invalid.push(key);
   }
   if (record["url"] !== undefined && typeof record["url"] !== "string") invalid.push("url");
-  if (record["tools"] !== undefined && !Array.isArray(record["tools"]))
+  if (
+    record["tools"] !== undefined &&
+    (!Array.isArray(record["tools"]) ||
+      !record["tools"].every((tool) => isRecord(tool) && typeof tool["name"] === "string"))
+  ) {
     invalid.push("tools");
+  }
   if (record["auth"] !== undefined) {
     const auth = record["auth"];
     if (
       !isRecord(auth) ||
+      !Object.keys(auth).every((key) => key === "scheme" || key === "scopes") ||
       typeof auth["scheme"] !== "string" ||
       (auth["scopes"] !== undefined && !isStringArray(auth["scopes"]))
     ) {

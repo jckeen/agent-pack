@@ -86,6 +86,7 @@ const INTERPRETER_EVAL_FLAGS: Record<string, RegExp> = {
 // arbitrary execution. An awk MCP server is not a real shape, so any awk
 // invocation with a program arg is treated as a shell escape.
 const AWK_BASENAMES = new Set(["awk", "gawk", "mawk", "nawk", "busybox"]);
+const SAFE_GIT_SUBCOMMANDS = new Set(["status", "diff", "log", "show", "rev-parse"]);
 
 function basename(command: string): string {
   const parts = command.split(/[\\/]+/);
@@ -99,6 +100,35 @@ function tokenizeCommand(command: string): string[] {
       .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)
       ?.map((token) => token.replace(/^["']|["']$/g, "")) ?? []
   );
+}
+
+function containsShellComposition(command: string): boolean {
+  let singleQuoted = false;
+  let doubleQuoted = false;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index] ?? "";
+    if (char === "\\" && !singleQuoted) {
+      index += 1;
+      continue;
+    }
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted;
+      continue;
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted;
+      continue;
+    }
+    if (
+      char === "^" ||
+      (!singleQuoted && (char === "`" || char === "\r" || char === "\n"))
+    ) {
+      return true;
+    }
+    if (!singleQuoted && char === "$" && command[index + 1] === "(") return true;
+    if (!singleQuoted && !doubleQuoted && ";&|<>".includes(char)) return true;
+  }
+  return false;
 }
 
 function normalizePowerShellFlag(arg: string): string {
@@ -143,7 +173,9 @@ function containsWindowsShellEval(command: string, args: readonly string[]): boo
  */
 export function isShellEscape(command: string, args: readonly string[]): boolean {
   if (!command) return true;
-  if (/[;&|`^<>]|\$\(|[\r\n]/.test(command)) return true;
+  if (containsShellComposition(command)) return true;
+  const firstRawWord = command.match(/^\S+/)?.[0] ?? command;
+  if (!/^["']/.test(command) && /["']/.test(firstRawWord)) return true;
   const commandTokens = tokenizeCommand(command);
   const firstToken = commandTokens[0] ?? command;
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(firstToken)) return true;
@@ -159,14 +191,18 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   // code is what an MCP server IS. That risk is surfaced for install-time
   // consent by the risk engine, not blocked by this gate.
   if (REJECTED_WRAPPER_BASENAMES.has(base)) return true;
-  if (
-    base === "git" &&
-    effectiveArgs.some(
-      (arg) =>
-        arg === "-c" || arg.startsWith("--config-env") || /(?:pager|alias)\s*=/.test(arg),
-    )
-  ) {
-    return true;
+  if (base === "git") {
+    const subcommand = effectiveArgs[0] ?? "";
+    return (
+      !SAFE_GIT_SUBCOMMANDS.has(subcommand) ||
+      effectiveArgs.some(
+        (arg) =>
+          arg.startsWith("--config-env") ||
+          arg === "--ext-diff" ||
+          arg === "--textconv" ||
+          /(?:pager|alias)\s*=/.test(arg),
+      )
+    );
   }
   if (SHELL_BASENAMES.has(base)) {
     return effectiveArgs.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
@@ -203,7 +239,9 @@ export function isCredentialFreeHttpUrl(value: unknown): value is string {
           segment,
         ) ||
         /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(segment) ||
-        (/^(?:s|session|token|secret|credential|key|auth)$/i.test(segment) &&
+        (/^(?:s|session|token|access[-_]?token|secret|credential|password|api[-_]?key|key|auth)$/i.test(
+          segment,
+        ) &&
           segments[index + 1] !== undefined &&
           !/^(?:mcp|sse|events)$/i.test(segments[index + 1] ?? "")),
     );
