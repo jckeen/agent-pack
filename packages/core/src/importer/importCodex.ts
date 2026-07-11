@@ -43,6 +43,13 @@ function isCodexArtifactPath(rel: string): boolean {
     rel === ".codex/config.toml" ||
     rel === "hooks.json" ||
     rel === ".codex/hooks.json" ||
+    rel === ".agents" ||
+    rel === ".agents/skills" ||
+    rel === ".codex" ||
+    rel === ".codex/skills" ||
+    rel === ".codex/agents" ||
+    rel === "skills" ||
+    rel === "agents" ||
     /^(?:\.agents\/skills|\.codex\/skills|skills)\//.test(rel) ||
     /^(?:\.codex\/agents|agents)\/[^/]+\.toml$/.test(rel)
   );

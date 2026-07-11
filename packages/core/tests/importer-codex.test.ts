@@ -349,6 +349,29 @@ describe("importCodexDir (I/O + round-trip)", () => {
     }
   });
 
+  it("warns and downgrades when an artifact-root symlink escapes", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-artifact-root-"));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "codex-outside-skills-"));
+    try {
+      await fs.writeFile(path.join(dir, "AGENTS.md"), "## Working Style\n\nbody\n");
+      await fs.mkdir(path.join(dir, ".agents"), { recursive: true });
+      await fs.symlink(outside, path.join(dir, ".agents/skills"));
+
+      const result = await importCodexDir(dir, { id: "acme.root-symlink" });
+      expect(
+        result.warnings.some(
+          (warning) =>
+            warning.message.includes(".agents/skills") &&
+            warning.message.includes("escapes the import root"),
+        ),
+      ).toBe(true);
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("warns and downgrades when an oversized skill resource is skipped", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-oversized-skill-"));
     try {

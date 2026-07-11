@@ -292,7 +292,12 @@ export function buildClaudeCodeManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: importedCompatibility("claude-code") },
+    compatibility: {
+      targets: importedCompatibility(
+        "claude-code",
+        warnings.length > 0 ? "partial" : "supported",
+      ),
+    },
     permissions,
     security: { risk_level: riskLevel },
     profiles: {

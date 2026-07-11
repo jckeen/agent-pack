@@ -208,7 +208,12 @@ export function buildManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: importedCompatibility(opts.source ?? "generic") },
+    compatibility: {
+      targets: importedCompatibility(
+        opts.source ?? "generic",
+        parsed.warnings.length > 0 ? "partial" : "supported",
+      ),
+    },
     permissions: {},
     security: { risk_level: "low" },
     profiles: {

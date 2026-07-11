@@ -107,6 +107,19 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     expect(result.manifest.compatibility.targets.codex?.notes).toMatch(/compiled.*verify/i);
   });
 
+  it("downgrades Claude Code when malformed source artifacts are skipped", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-code-warning-"));
+    try {
+      await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(path.join(dir, "settings.json"), "{ malformed");
+      const result = await importClaudeCodeDir(dir, { id: "acme.warning" });
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("surfaces the stdio MCP secret but NEVER ships the token value", async () => {
     const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
     // The env KEY is surfaced as a required secret slot…

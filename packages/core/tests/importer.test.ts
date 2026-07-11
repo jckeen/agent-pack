@@ -140,6 +140,15 @@ describe("buildManifest", () => {
     expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
   });
 
+  it("downgrades a standalone source when imports are dropped", () => {
+    const parsed = parseClaudeMd(
+      "## Working Style\n\nBefore.\n@~/dev/private/CLAUDE.md\nAfter.\n",
+    );
+    const { manifest } = buildManifest(parsed, { ...OPTS, source: "claude-code" });
+    expect(parsed.warnings).toHaveLength(1);
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
   it("promotes governance/security headings to rules", () => {
     for (const h of [
       "Security",
