@@ -68,6 +68,21 @@ describe("parseCodex", () => {
     });
   });
 
+  it("rejects case-variant manifests that canonicalize to one output", () => {
+    const parsed = parseCodex(
+      tree({
+        ".agents/skills/review/SKILL.md":
+          "---\nname: review\ndescription: Upper copy.\n---\n",
+        ".agents/skills/review/skill.md":
+          "---\nname: review\ndescription: Lower copy.\n---\n",
+      }),
+    );
+    expect(parsed.skills).toEqual([]);
+    expect(
+      parsed.warnings.some((warning) => /conflicting manifest names/.test(warning.message)),
+    ).toBe(true);
+  });
+
   it("parses [mcp_servers.*] from config.toml", () => {
     const parsed = parseCodex(
       tree({
@@ -444,6 +459,37 @@ describe("importCodexDir (I/O + round-trip)", () => {
     }
   });
 
+  it("keeps sibling-skill symlinks contained to the Agent Skills root", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "codex-home-secret-"));
+    try {
+      await fs.mkdir(path.join(home, ".codex"), { recursive: true });
+      await fs.mkdir(path.join(home, ".agents/skills/demo"), { recursive: true });
+      await fs.mkdir(path.join(home, ".ssh"), { recursive: true });
+      await fs.writeFile(path.join(home, ".ssh/id_test"), "fixture-secret");
+      await fs.writeFile(
+        path.join(home, ".agents/skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+      );
+      await fs.symlink(
+        path.join(home, ".ssh/id_test"),
+        path.join(home, ".agents/skills/demo/secret.txt"),
+      );
+
+      const result = await importCodexDir(path.join(home, ".codex"), {
+        id: "acme.secret",
+      });
+      expect(result.files.some((file) => file.content.includes("fixture-secret"))).toBe(
+        false,
+      );
+      expect(
+        result.warnings.some((warning) => /escapes the import root/.test(warning.message)),
+      ).toBe(true);
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("warns and downgrades when an oversized skill resource is skipped", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-oversized-skill-"));
     try {
@@ -468,6 +514,7 @@ describe("importCodexDir (I/O + round-trip)", () => {
   it("omits secret-bearing and executable custom-agent config", () => {
     const parsed = parseCodex(
       tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
         ".codex/agents/risky.toml": [
           'name = "Risky"',
           'description = "Risky agent"',
@@ -482,15 +529,10 @@ describe("importCodexDir (I/O + round-trip)", () => {
     );
     const result = buildCodexManifest(parsed, { id: "acme.risky" });
     expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
-    const descriptor = result.files.find((file) =>
-      file.relativePath.includes("subagents"),
-    )!;
-    expect(descriptor.content).toContain("model: gpt-5");
-    expect(descriptor.content).not.toContain("danger-full-access");
-    expect(descriptor.content).not.toContain("run-private-server");
-    expect(descriptor.content).not.toContain("fixture-private-value");
-    expect(descriptor.content).toContain("codex_omitted_config:");
-    expect(descriptor.content).toContain("sandbox_mode");
+    expect(result.manifest.atoms.some((atom) => atom.type === "subagent")).toBe(false);
+    expect(result.files.some((file) => file.relativePath.includes("subagents"))).toBe(
+      false,
+    );
     expect(
       result.warnings.some((warning) => /mcp_servers.*sandbox_mode/.test(warning.message)),
     ).toBe(true);
@@ -571,8 +613,9 @@ describe("importCodexDir (I/O + round-trip)", () => {
         target: "codex",
       });
       expect(
-        malformedOut.warnings.some((warning) => /malformed codex_config/.test(warning)),
+        malformedOut.warnings.some((warning) => /codex_config is malformed/.test(warning)),
       ).toBe(true);
+      expect(malformedOut.unsupportedAtoms).toContain(subagent.id);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

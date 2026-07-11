@@ -177,6 +177,7 @@ export function buildCodexManifest(
 
   // ---------- subagents ----------
   for (const sub of parsed.subagents) {
+    if (sub.omittedConfigKeys.length > 0) continue;
     const subSlug = allocSlug(slugify(sub.name));
     const atomObj: Record<string, unknown> = {
       id: subSlug,
@@ -184,9 +185,6 @@ export function buildCodexManifest(
     };
     if (sub.instructions !== undefined) atomObj["instructions"] = sub.instructions;
     if (Object.keys(sub.config).length > 0) atomObj["codex_config"] = sub.config;
-    if (sub.omittedConfigKeys.length > 0) {
-      atomObj["codex_omitted_config"] = sub.omittedConfigKeys;
-    }
     const relativePath = `atoms/subagents/${subSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
     atoms.push({

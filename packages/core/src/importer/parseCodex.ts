@@ -332,6 +332,16 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
         });
         return false;
       }
+      const manifestNames = s.files
+        .map((file) => file.relPath)
+        .filter((relPath) => relPath === "SKILL.md" || relPath === "skill.md");
+      if (manifestNames.length > 1) {
+        warnings.push({
+          source: `skills/${s.name}`,
+          message: `Skill contains conflicting manifest names (${manifestNames.sort().join(", ")}); skipped to avoid canonical-path overwrite.`,
+        });
+        return false;
+      }
       const hasSkillMd = s.files.some(
         (f) => f.relPath === "SKILL.md" || f.relPath === "skill.md",
       );

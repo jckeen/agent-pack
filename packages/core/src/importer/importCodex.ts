@@ -76,12 +76,16 @@ function shouldTraverseCodexDirectory(rel: string, homeStyle: boolean): boolean 
 }
 
 /** Recursively read a Codex dir into a forward-slash relative path map. */
-async function readTree(root: string): Promise<{
+async function readTree(
+  root: string,
+  options: { pathPrefix?: string; homeStyle?: boolean } = {},
+): Promise<{
   tree: Map<string, string>;
   warnings: Array<{ source: string; message: string }>;
 }> {
   const realRoot = await fs.realpath(root);
-  const homeStyle = path.basename(realRoot) === ".codex";
+  const homeStyle = options.homeStyle ?? path.basename(realRoot) === ".codex";
+  const pathPrefix = options.pathPrefix?.replace(/\/$/, "") ?? "";
   const tree = new Map<string, string>();
   const warnings: Array<{ source: string; message: string }> = [];
   let count = 0;
@@ -91,7 +95,8 @@ async function readTree(root: string): Promise<{
     for (const entry of entries) {
       if (IGNORE.has(entry.name)) continue;
       const abs = path.join(absDir, entry.name);
-      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      const localRel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      const rel = pathPrefix ? `${pathPrefix}/${localRel}` : localRel;
       if (entry.isSymbolicLink()) {
         // Refuse symlinks that escape the root (traversal defense).
         const target = await fs.realpath(abs).catch(() => null);
@@ -107,12 +112,12 @@ async function readTree(root: string): Promise<{
         }
         const stat = await fs.stat(abs).catch(() => null);
         if (stat?.isDirectory()) {
-          if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, rel);
+          if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, localRel);
           continue;
         }
         if (!stat?.isFile()) continue;
       } else if (entry.isDirectory()) {
-        if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, rel);
+        if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, localRel);
         continue;
       } else if (!entry.isFile()) {
         continue;
@@ -163,9 +168,24 @@ export async function importCodexDir(
   opts: ImportCodexOptions,
 ): Promise<ImportResult> {
   const resolvedRoot = await fs.realpath(rootDir);
-  const importRoot =
-    path.basename(resolvedRoot) === ".codex" ? path.dirname(resolvedRoot) : resolvedRoot;
-  const { tree, warnings: readWarnings } = await readTree(importRoot);
+  const { tree, warnings: readWarnings } = await readTree(resolvedRoot);
+  if (path.basename(resolvedRoot) === ".codex") {
+    const companionSkills = path.join(path.dirname(resolvedRoot), ".agents", "skills");
+    const companionStat = await fs.lstat(companionSkills).catch(() => null);
+    if (companionStat?.isSymbolicLink()) {
+      readWarnings.push({
+        source: ".agents/skills",
+        message: "Symlinked companion Agent Skills root was skipped.",
+      });
+    } else if (companionStat?.isDirectory()) {
+      const companion = await readTree(companionSkills, {
+        pathPrefix: ".agents/skills",
+        homeStyle: false,
+      });
+      for (const [rel, content] of companion.tree) tree.set(rel, content);
+      readWarnings.push(...companion.warnings);
+    }
+  }
   const parsed = parseCodex(tree);
   parsed.warnings.unshift(...readWarnings);
   const { manifest, files, warnings } = buildCodexManifest(parsed, opts);

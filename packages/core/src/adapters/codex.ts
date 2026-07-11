@@ -359,16 +359,35 @@ export const codexAdapter = defineAdapter({
           : {};
       const { config: codexConfig, omittedKeys } =
         sanitizeCodexAgentConfig(unsafeCodexConfig);
-      const importedOmittedKeys = Array.isArray(descriptor?.["codex_omitted_config"])
-        ? (descriptor?.["codex_omitted_config"] as unknown[]).filter(
-            (key): key is string => typeof key === "string",
-          )
+      const rawOmittedConfig = descriptor?.["codex_omitted_config"];
+      const hasMalformedOmittedConfig =
+        rawOmittedConfig !== undefined &&
+        (!Array.isArray(rawOmittedConfig) ||
+          rawOmittedConfig.some((key) => typeof key !== "string"));
+      const importedOmittedKeys = Array.isArray(rawOmittedConfig)
+        ? rawOmittedConfig.filter((key): key is string => typeof key === "string")
         : [];
       const unsafeKeys = [...new Set([...omittedKeys, ...importedOmittedKeys])].sort();
       if (hasMalformedCodexConfig) {
         warnings.push(
-          `Subagent \`${atom.id}\` has malformed codex_config; expected a mapping and omitted it.`,
+          `Subagent \`${atom.id}\` was not exported because codex_config is malformed; expected a mapping.`,
         );
+        unsupported.push(atom.id);
+        continue;
+      }
+      if (hasMalformedOmittedConfig) {
+        warnings.push(
+          `Subagent \`${atom.id}\` was not exported because codex_omitted_config is malformed; expected a string array.`,
+        );
+        unsupported.push(atom.id);
+        continue;
+      }
+      if (body.tools) {
+        warnings.push(
+          `Subagent \`${atom.id}\` was not exported because its Claude tools restriction cannot be represented safely in Codex.`,
+        );
+        unsupported.push(atom.id);
+        continue;
       }
       if (unsafeKeys.length > 0) {
         warnings.push(
@@ -379,6 +398,7 @@ export const codexAdapter = defineAdapter({
       }
       const tomlTable = {
         ...codexConfig,
+        ...(body.model && codexConfig["model"] === undefined ? { model: body.model } : {}),
         name: atom.name,
         description: body.description ?? atom.description,
         developer_instructions: body.instructions,

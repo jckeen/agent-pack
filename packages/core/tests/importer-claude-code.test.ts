@@ -138,6 +138,51 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     }
   });
 
+  it("downgrades Claude Code when hook matchers cannot be preserved", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-hook-matcher-"));
+    try {
+      await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(dir, "settings.json"),
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              { matcher: "Bash", hooks: [{ type: "command", command: "audit.sh" }] },
+            ],
+          },
+        }),
+      );
+      const result = await importClaudeCodeDir(dir, { id: "acme.matcher" });
+      expect(result.warnings.some((warning) => /matcher.*Bash/.test(warning.message))).toBe(
+        true,
+      );
+      expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to export Claude tool-restricted agents to Codex", async () => {
+    const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "claude-agent-to-codex-"));
+    try {
+      await writeImport(result, path.join(tmp, "pack"));
+      const exported = await exportPack({
+        source: path.join(tmp, "pack"),
+        target: "codex",
+        outDir: path.join(tmp, "out"),
+      });
+      expect(
+        exported.plan.unsupportedAtoms.some((atomId) => atomId.startsWith("subagent:")),
+      ).toBe(true);
+      await expect(
+        fs.stat(path.join(tmp, "out/.codex/agents/security-reviewer.toml")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("surfaces the stdio MCP secret but NEVER ships the token value", async () => {
     const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
     // The env KEY is surfaced as a required secret slot…

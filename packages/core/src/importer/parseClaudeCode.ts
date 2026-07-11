@@ -130,14 +130,26 @@ function fmString(fm: Record<string, unknown> | null, key: string): string | und
 }
 
 /** Claude Code `hooks: { <Event>: [{ matcher?, hooks: [{ type, command }] }] }`. */
-function parseHooks(value: unknown): ClaudeCodeHook[] {
+function parseHooks(
+  value: unknown,
+  warnings: ClaudeCodeWarning[],
+  source: string,
+): ClaudeCodeHook[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
   const hooks: ClaudeCodeHook[] = [];
   for (const [event, groups] of Object.entries(value as Record<string, unknown>)) {
     const groupList = Array.isArray(groups) ? groups : [groups];
     for (const group of groupList) {
       if (!group || typeof group !== "object") continue;
-      const inner = (group as Record<string, unknown>)["hooks"];
+      const groupRecord = group as Record<string, unknown>;
+      const matcher = groupRecord["matcher"];
+      if (matcher !== undefined && matcher !== "Edit|Write") {
+        warnings.push({
+          source,
+          message: `Hook matcher \`${String(matcher)}\` is not portable and was skipped.`,
+        });
+      }
+      const inner = groupRecord["hooks"];
       const entries = Array.isArray(inner) ? inner : [];
       for (const entry of entries) {
         if (!entry || typeof entry !== "object") continue;
@@ -203,7 +215,7 @@ export function parseClaudeCode(files: Map<string, string>): ParsedClaudeCode {
     if (!raw) continue;
     try {
       const obj = JSON.parse(raw) as Record<string, unknown>;
-      hooks = [...hooks, ...parseHooks(obj["hooks"])];
+      hooks = [...hooks, ...parseHooks(obj["hooks"], warnings, settingsPath)];
       mcpServers = [
         ...mcpServers,
         ...parseMcpServers(obj["mcpServers"], warnings, settingsPath),

@@ -60,10 +60,12 @@ configuration stays scoped to that repository.
 
 Imported custom agents preserve exact instructions and inert model/nickname
 preferences. Sandbox, MCP, skills, provider, and unknown custom-agent settings
-are removed with a value-free refusal marker because they can carry executable
-configuration or credentials. An affected agent is reported as unsupported and
-is not exported, preventing inherited parent settings from silently widening
-its permissions.
+can carry executable configuration or credentials, so an imported agent using
+them is omitted from the shared atom graph. Authored pack agents with unsafe or
+malformed Codex config are reported as unsupported and not exported, preventing
+inherited parent settings from silently widening permissions. Importing a
+home-style `.codex` directory also reads sibling `.agents/skills` under a
+separate containment root.
 
 ## Cursor
 

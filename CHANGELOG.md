@@ -13,8 +13,9 @@
   ambiguous current/legacy skill copies are rejected instead of overwritten,
   and Codex custom-agent instructions plus inert model/nickname settings
   survive the round trip. Sandbox, MCP, skills, provider, and unknown settings
-  are removed with a value-free refusal marker; affected agents are not
-  exported, so inherited parent settings cannot silently widen permissions.
+  make an imported agent ineligible for the shared atom graph, while authored
+  pack agents carrying unsafe or malformed Codex config are refused at export;
+  inherited parent settings therefore cannot silently widen permissions.
 - The standard and personal-config sync guide document the distinction between
   native-source fidelity and compiled target output.
 
