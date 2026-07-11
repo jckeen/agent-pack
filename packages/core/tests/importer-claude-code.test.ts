@@ -100,6 +100,13 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     expect(result.manifest.atoms.filter((a) => a.type === "mcp_server")).toHaveLength(2);
   });
 
+  it("marks only Claude Code as natively supported", async () => {
+    const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
+    expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe("supported");
+    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+    expect(result.manifest.compatibility.targets.codex?.notes).toMatch(/compiled.*verify/i);
+  });
+
   it("surfaces the stdio MCP secret but NEVER ships the token value", async () => {
     const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
     // The env KEY is surfaced as a required secret slot…

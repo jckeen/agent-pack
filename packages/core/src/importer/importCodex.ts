@@ -3,6 +3,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { isUtf8 } from "node:buffer";
 import { stringify } from "yaml";
 import { parseCodex } from "./parseCodex.js";
 import {
@@ -35,9 +36,13 @@ const MAX_FILES = 5000;
 const MAX_BYTES = 5 * 1024 * 1024;
 
 /** Recursively read a Codex dir into a forward-slash relative path map. */
-async function readTree(root: string): Promise<Map<string, string>> {
+async function readTree(root: string): Promise<{
+  tree: Map<string, string>;
+  warnings: Array<{ source: string; message: string }>;
+}> {
   const realRoot = await fs.realpath(root);
   const tree = new Map<string, string>();
+  const warnings: Array<{ source: string; message: string }> = [];
   let count = 0;
 
   async function walk(absDir: string, relDir: string): Promise<void> {
@@ -71,12 +76,20 @@ async function readTree(root: string): Promise<Map<string, string>> {
       }
       const stat = await fs.stat(abs);
       if (stat.size > MAX_BYTES) continue; // skip oversized blobs
-      tree.set(rel, await fs.readFile(abs, "utf8"));
+      const content = await fs.readFile(abs);
+      if (!isUtf8(content)) {
+        warnings.push({
+          source: rel,
+          message: "Non-UTF-8 resource skipped; binary skill assets are not supported yet.",
+        });
+        continue;
+      }
+      tree.set(rel, content.toString("utf8"));
     }
   }
 
   await walk(realRoot, "");
-  return tree;
+  return { tree, warnings };
 }
 
 /**
@@ -89,8 +102,9 @@ export async function importCodexDir(
   rootDir: string,
   opts: ImportCodexOptions,
 ): Promise<ImportResult> {
-  const tree = await readTree(rootDir);
+  const { tree, warnings: readWarnings } = await readTree(rootDir);
   const parsed = parseCodex(tree);
+  parsed.warnings.unshift(...readWarnings);
   const { manifest, files, warnings } = buildCodexManifest(parsed, opts);
   const manifestYaml = stringify(manifest, { lineWidth: 0 });
   return {

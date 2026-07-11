@@ -37,12 +37,12 @@ describe("parseCodex", () => {
     expect(parsed.agents?.sections.map((s) => s.heading)).toEqual(["Working Style", "Git"]);
   });
 
-  it("parses skills from .codex/skills/<name>/SKILL.md", () => {
+  it("parses skills from .agents/skills/<name>/SKILL.md", () => {
     const parsed = parseCodex(
       tree({
-        ".codex/skills/code-review/SKILL.md":
+        ".agents/skills/code-review/SKILL.md":
           "---\nname: code-review\ndescription: Review a PR.\n---\n\n# CR\n\nbody\n",
-        ".codex/skills/code-review/checklist.md": "- a\n",
+        ".agents/skills/code-review/checklist.md": "- a\n",
       }),
     );
     expect(parsed.skills).toHaveLength(1);
@@ -159,6 +159,16 @@ describe("buildCodexManifest", () => {
     expect(validation.errors).toEqual([]);
   });
 
+  it("marks only the imported runtime as natively supported", async () => {
+    const parsed = await readFixture();
+    const { manifest } = buildCodexManifest(parsed, OPTS);
+    expect(manifest.compatibility.targets.codex?.status).toBe("supported");
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+    expect(manifest.compatibility.targets["claude-code"]?.notes).toMatch(
+      /compiled.*verify/i,
+    );
+  });
+
   it("maps each Codex primitive to the right atom type", async () => {
     const parsed = await readFixture();
     const { manifest } = buildCodexManifest(parsed, OPTS);
@@ -213,6 +223,37 @@ describe("importCodexDir (I/O + round-trip)", () => {
     const paths = result.files.map((f) => f.relativePath);
     expect(paths).toContain("atoms/skills/code-review/SKILL.md");
     expect(paths).toContain("atoms/skills/code-review/checklist.md");
+    expect(paths).toContain("atoms/skills/code-review/references/runtime.md");
+    expect(paths).toContain("atoms/skills/code-review/agents/openai.yaml");
+  });
+
+  it("warns and skips binary skill resources instead of corrupting them", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-binary-skill-"));
+    try {
+      const skillDir = path.join(dir, ".agents/skills/demo");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(skillDir, "asset.bin"),
+        Uint8Array.from([255, 0, 128, 65]),
+      );
+
+      const result = await importCodexDir(dir, { id: "acme.binary" });
+      expect(result.files.some((file) => file.relativePath.endsWith("asset.bin"))).toBe(
+        false,
+      );
+      expect(result.warnings).toContainEqual({
+        line: 0,
+        message:
+          ".agents/skills/demo/asset.bin: Non-UTF-8 resource skipped; binary skill assets are not supported yet.",
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("round-trips back out through the codex adapter with no semantic loss", async () => {
@@ -236,13 +277,58 @@ describe("importCodexDir (I/O + round-trip)", () => {
       });
       const outPaths = out.files.map((f) => f.path);
       // Skill survives the round trip.
-      expect(outPaths).toContain(".codex/skills/code-review/SKILL.md");
+      expect(outPaths).toContain(".agents/skills/code-review/SKILL.md");
+      expect(outPaths).toContain(".agents/skills/code-review/references/runtime.md");
+      expect(outPaths).toContain(".agents/skills/code-review/agents/openai.yaml");
       // MCP server survives into config.toml.
       const configToml = out.files.find((f) => f.path === ".codex/config.toml")!;
       const reparsed = parseToml(configToml.content) as {
         mcp_servers?: Record<string, unknown>;
       };
       expect(Object.keys(reparsed.mcp_servers ?? {})).toContain("github");
+      // Subagent instructions survive, not only their display metadata.
+      const subagentToml = out.files.find(
+        (f) => f.path === ".codex/agents/security-reviewer.toml",
+      )!;
+      const reparsedSubagent = parseToml(subagentToml.content) as {
+        developer_instructions?: string;
+      };
+      expect(reparsedSubagent.developer_instructions).toContain(
+        "You are a security-focused code reviewer.",
+      );
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("moves nested UTF-8 Codex skill resources to Claude Code unchanged", async () => {
+    const result = await importCodexDir(FIXTURE_DIR, OPTS);
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-to-claude-"));
+    try {
+      for (const file of result.files) {
+        const target = path.join(dir, file.relativePath);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, file.content, "utf8");
+      }
+      const adapter = getAdapter("claude-code")!;
+      const resolved = resolveAtoms({ manifest: result.manifest, profile: "all" });
+      const out = await adapter.export({
+        manifest: result.manifest,
+        packRoot: dir,
+        resolvedAtoms: resolved,
+        profile: "all",
+        target: "claude-code",
+      });
+      const runtime = out.files.find(
+        (f) => f.path === ".claude/skills/code-review/references/runtime.md",
+      );
+      const metadata = out.files.find(
+        (f) => f.path === ".claude/skills/code-review/agents/openai.yaml",
+      );
+      expect(runtime?.content).toBe(
+        "# Runtime Notes\n\nPreserve this nested reference across agent formats.\n",
+      );
+      expect(metadata?.content).toContain("display_name: Code Review");
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

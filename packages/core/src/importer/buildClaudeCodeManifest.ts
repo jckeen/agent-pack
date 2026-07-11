@@ -9,13 +9,11 @@ import { stringify } from "yaml";
 import type {
   AgentPackManifest,
   Atom,
-  CompatibilityMap,
   PermissionsBlock,
   RiskLevel,
-  TargetPlatform,
 } from "../schema/types.js";
-import { TARGET_PLATFORMS } from "../schema/types.js";
 import { buildManifest, slugify, type ImportFile } from "./buildManifest.js";
+import { importedCompatibility } from "./importCompatibility.js";
 import { normalizeSkillSlug } from "../skills/agentskills.js";
 import type { ParsedClaudeCode } from "./parseClaudeCode.js";
 import type { ParseWarning } from "./parseClaudeMd.js";
@@ -31,14 +29,6 @@ export interface BuildClaudeCodeManifestResult {
   manifest: AgentPackManifest;
   files: ImportFile[];
   warnings: ParseWarning[];
-}
-
-function defaultTargets(): CompatibilityMap {
-  const targets: CompatibilityMap = {};
-  for (const t of TARGET_PLATFORMS) {
-    targets[t as TargetPlatform] = { status: "supported" };
-  }
-  return targets;
 }
 
 /** Unique-slug allocator shared across every atom kind. */
@@ -302,7 +292,7 @@ export function buildClaudeCodeManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: defaultTargets() },
+    compatibility: { targets: importedCompatibility("claude-code") },
     permissions,
     security: { risk_level: riskLevel },
     profiles: {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0-dev — 2026-07-10 (honest cross-runtime import portability)
+
+- Imported Claude Code, Codex, and generic Agent Skills configurations now mark
+  only their source runtime `supported`. Other compile targets start `partial`
+  with an explicit target-verification note; lossy ChatGPT imports remain
+  `experimental`.
+- Codex import/export coverage now carries nested UTF-8 Agent Skills resources,
+  including `references/` and `agents/openai.yaml`, through the current
+  `.agents/skills/` surface and across to Claude Code without changing text.
+  Non-UTF-8 resources are skipped with a warning instead of being corrupted,
+  and Codex `developer_instructions` survive the native subagent round trip.
+- The standard and personal-config sync guide document the distinction between
+  native-source fidelity and compiled target output.
+
 ## 0.7.0-dev — 2026-07-10 (sync S3: user scope + the personal-config loop — #112)
 
 Phase S3 of the continuous-sync design — one person's `~/.claude` on every machine, gated like any install (TDD throughout):

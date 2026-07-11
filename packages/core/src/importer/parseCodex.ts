@@ -4,7 +4,7 @@
 // Codex (June 2026) shares Claude Code's primitives, so the mapping is
 // near-lossless:
 //   - `AGENTS.md`                       → instruction / rule sections
-//   - `.codex/skills/<name>/SKILL.md`   → skill (same Agent Skills format)
+//   - `.agents/skills/<name>/SKILL.md`  → skill (same Agent Skills format)
 //   - `config.toml [mcp_servers.*]`     → mcp_server
 //   - `config.toml [hooks]` / hooks.json→ hook (event names map 1:1 to Claude)
 //   - `.codex/agents/*.toml`            → subagent
@@ -13,7 +13,7 @@ import { parse as parseToml } from "smol-toml";
 import { parseClaudeMd, type ParsedClaudeMd } from "./parseClaudeMd.js";
 
 export interface CodexSkill {
-  /** Directory name under `.codex/skills/` (also the skill `name`). */
+  /** Directory name under `.agents/skills/` (also the skill `name`). */
   name: string;
   /** Every file in the skill directory, relative to the skill root. */
   files: Array<{ relPath: string; content: string }>;
@@ -175,20 +175,22 @@ function parseSubagent(content: string): CodexSubagent | null {
         ? (agent["description"] as string)
         : undefined,
     instructions:
-      typeof agent["instructions"] === "string"
-        ? (agent["instructions"] as string)
-        : typeof agent["prompt"] === "string"
-          ? (agent["prompt"] as string)
-          : undefined,
+      typeof agent["developer_instructions"] === "string"
+        ? (agent["developer_instructions"] as string)
+        : typeof agent["instructions"] === "string"
+          ? (agent["instructions"] as string)
+          : typeof agent["prompt"] === "string"
+            ? (agent["prompt"] as string)
+            : undefined,
   };
 }
 
 /**
  * Parse a Codex setup tree (relative-path → file content) into structured
- * primitives. `AGENTS.md` is matched at the tree root; `.codex/` artifacts are
- * matched both at the root (`.codex/…`, the project layout) and one level up
- * for a home-style tree where the map root IS `~/.codex` (`config.toml`,
- * `skills/…`). Unknown or malformed files surface as warnings, never throws.
+ * primitives. `AGENTS.md` is matched at the tree root. Skills accept the
+ * current `.agents/skills/` project layout plus legacy `.codex/skills/` and
+ * home-style `skills/` layouts. Unknown or malformed files surface as
+ * warnings, never throws.
  */
 export function parseCodex(files: Map<string, string>): ParsedCodex {
   const tree = new Map<string, string>();
@@ -240,7 +242,7 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
   }
 
   // ---------- skills ----------
-  const skillRe = /^(?:\.codex\/)?skills\/([^/]+)\/(.+)$/;
+  const skillRe = /^(?:(?:\.agents|\.codex)\/)?skills\/([^/]+)\/(.+)$/;
   const skillMap = new Map<string, CodexSkill>();
   for (const [p, content] of tree) {
     const m = p.match(skillRe);

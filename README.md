@@ -119,7 +119,7 @@ The manifest is `AGENTPACK.yaml`. Each pack is composed of **atoms** — the sma
 | -------------- | ---------------------------------------------------------------------------------- |
 | `instruction`  | `CLAUDE.md`, `AGENTS.md`, `project-instructions.md`, generic instruction docs      |
 | `rule`         | `.cursor/rules/*.mdc`, scoped sections in `CLAUDE.md` / `AGENTS.md`                |
-| `skill`        | `.claude/skills/<name>/`, `.codex/skills/<name>/`, `skills/<name>/` (Agent Skills) |
+| `skill`        | `.claude/skills/<name>/`, `.agents/skills/<name>/`, `skills/<name>/` (Agent Skills) |
 | `hook`         | `.claude/settings.json` hooks, `.codex/hooks.json` (high risk by policy)           |
 | `command`      | `.claude/commands/*.md` slash commands, skill folders, MCP tool stubs              |
 | `subagent`     | `.claude/agents/*.md`, `.codex/agents/*.toml`                                      |
@@ -249,7 +249,7 @@ Full reference: [`docs/cli.md`](./docs/cli.md).
 | Target          | Output surface                                                                                                                        |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | **claude-code** | `CLAUDE.md`, `.claude/skills/*`, `.claude/commands/*`, `.claude/agents/*`, `.claude/settings.json` (hooks), `.mcp.json` (MCP servers) |
-| **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/*`, `.codex/agents/*.toml`                                     |
+| **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.agents/skills/*`, `.codex/agents/*.toml`                                     |
 | **cursor**      | `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json`                                                                                |
 | **chatgpt**     | `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only)                                                  |
 | **generic**     | `AGENTS.md`, `skills/*`, `README-agent.md`, `agentpack.json`                                                                          |

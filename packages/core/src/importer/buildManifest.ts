@@ -2,13 +2,8 @@
 // No I/O — `writeImport` (in ./index.ts) handles the filesystem.
 
 import { stringify } from "yaml";
-import type {
-  AgentPackManifest,
-  Atom,
-  CompatibilityMap,
-  TargetPlatform,
-} from "../schema/types.js";
-import { TARGET_PLATFORMS } from "../schema/types.js";
+import type { AgentPackManifest, Atom } from "../schema/types.js";
+import { importedCompatibility } from "./importCompatibility.js";
 import type { ParsedClaudeMd, ParseWarning } from "./parseClaudeMd.js";
 
 export interface BuildManifestOptions {
@@ -122,14 +117,6 @@ function deriveDescription(heading: string, body: string): string {
   return desc.length > PROSE_CAP ? `${desc.slice(0, PROSE_CAP).trimEnd()}…` : desc;
 }
 
-function defaultTargets(): CompatibilityMap {
-  const targets: CompatibilityMap = {};
-  for (const t of TARGET_PLATFORMS) {
-    targets[t as TargetPlatform] = { status: "supported" };
-  }
-  return targets;
-}
-
 export function buildManifest(
   parsed: ParsedClaudeMd,
   opts: BuildManifestOptions,
@@ -219,7 +206,7 @@ export function buildManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: defaultTargets() },
+    compatibility: { targets: importedCompatibility("claude-code") },
     permissions: {},
     security: { risk_level: "low" },
     profiles: {

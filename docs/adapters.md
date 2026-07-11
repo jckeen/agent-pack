@@ -45,21 +45,19 @@ Fidelity notes (these mirror what Claude Code actually reads):
 | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `instruction` | `AGENTS.md` section                                                                                                       |
 | `rule`        | `AGENTS.md` rules section (full body)                                                                                     |
-| `skill`       | `.codex/skills/<slug>/` + an index entry in `AGENTS.md`                                                                   |
-| `command`     | `.codex/skills/<slug>/SKILL.md` + `AGENTS.md` index entry                                                                 |
-| `subagent`    | `.codex/agents/<slug>.toml` (reference output)                                                                            |
+| `skill`       | `.agents/skills/<slug>/` + an index entry in `AGENTS.md`                                                                  |
+| `command`     | `.agents/skills/<slug>/SKILL.md` + `AGENTS.md` index entry                                                                |
+| `subagent`    | `.codex/agents/<slug>.toml` with `developer_instructions`                                                                 |
 | `hook`        | `.codex/hooks.json` (reference output)                                                                                    |
 | `mcp_server`  | `.codex/config.toml` `[mcp_servers.<slug>]` table (reference output; same declaration + shell-escape gate as claude-code) |
 | `workflow`    | `AGENTS.md` workflow section                                                                                              |
 
-**Honesty note (verified against Codex CLI 0.128.0):** Codex reads the
-repo-root `AGENTS.md` and `~/.codex/config.toml` — it does **not** read
-project-level `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/`, or
-`.codex/agents/`. The adapter therefore (a) surfaces every skill in
-`AGENTS.md` with a pointer to its SKILL.md so the agent can actually find it,
-and (b) labels the `.codex/` files as reference outputs (the generated
-`config.toml` header says to copy `mcp_servers` tables into
-`~/.codex/config.toml` to activate them).
+**Honesty note:** Codex discovers repository skills under `.agents/skills/`
+and custom agents under `.codex/agents/`. The adapter also indexes skills in
+`AGENTS.md` for inspection. Project-level `.codex/config.toml` and
+`.codex/hooks.json` remain reference outputs; the generated `config.toml`
+header says to copy `mcp_servers` tables into `~/.codex/config.toml` to
+activate them.
 
 ## Cursor
 

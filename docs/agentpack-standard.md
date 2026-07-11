@@ -104,7 +104,9 @@ adapters:
 ## Compatibility statuses
 
 - `supported` — adapter produces a complete, conservative output.
-- `partial` — adapter maps a subset of atoms; the rest surface as warnings.
+- `partial` — adapter maps a subset of atoms, or compiled output still needs
+  target-specific semantic verification; limitations surface in notes or
+  warnings.
 - `experimental` — adapter output should be reviewed before use (e.g., ChatGPT).
 - `unsupported` — adapter will refuse most atom types for this target.
 

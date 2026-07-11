@@ -7,6 +7,7 @@ import {
   readAtomDirectory,
   readAtomFile,
   readPackRelativeFile,
+  resolveSubagentBody,
   stableJsonStringify,
   wrapInstructionBlock,
 } from "./types.js";
@@ -58,6 +59,16 @@ function renderTomlTable(name: string, table: Record<string, unknown>): string {
   return lines.join("\n") + "\n";
 }
 
+function renderTomlDocument(table: Record<string, unknown>): string {
+  return (
+    Object.keys(table)
+      .sort()
+      .filter((key) => table[key] !== undefined)
+      .map((key) => `${key} = ${renderTomlValue(table[key])}`)
+      .join("\n") + "\n"
+  );
+}
+
 function slugFor(atom: Atom): string {
   const raw = atom.id.split(":")[1] ?? atom.name;
   return raw.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -103,9 +114,8 @@ export const codexAdapter = defineAdapter({
         sections.push(`### ${atom.name}\n\n${atom.description}\n`);
       }
     }
-    // Codex (verified against 0.128.0) reads repo-root AGENTS.md but does NOT
-    // read project-level `.codex/skills/` — so the skills must be reachable
-    // FROM AGENTS.md or the agent never sees them.
+    // Keep an AGENTS.md index in addition to the native `.agents/skills/`
+    // output so users can inspect the pack's reusable procedures in one place.
     //
     // Slugs are computed ONCE here — Agent Skills spec-normalized, with
     // command/skill collisions resolved — and reused by both this index and
@@ -132,12 +142,12 @@ export const codexAdapter = defineAdapter({
     if (skillAtomsAll.length + commandAtomsAll.length > 0) {
       sections.push(`## Skills\n`);
       sections.push(
-        `The following reusable procedures ship with this pack under \`.codex/skills/\`. Read the referenced SKILL.md when a task matches.\n`,
+        `The following reusable procedures ship with this pack under \`.agents/skills/\`. Read the referenced SKILL.md when a task matches.\n`,
       );
       for (const atom of [...skillAtomsAll, ...commandAtomsAll]) {
         const slug = emittedSkillSlug.get(atom.id) ?? normalizeSkillSlug(slugFor(atom));
         sections.push(
-          `- **${atom.name}** (\`.codex/skills/${slug}/SKILL.md\`) — ${atom.description}`,
+          `- **${atom.name}** (\`.agents/skills/${slug}/SKILL.md\`) — ${atom.description}`,
         );
       }
       sections.push("");
@@ -264,7 +274,7 @@ export const codexAdapter = defineAdapter({
       }
     }
 
-    // ---------- .codex/skills ----------
+    // ---------- .agents/skills ----------
     // Emitted skill folders conform to the Agent Skills spec (agentskills.io).
     for (const atom of skillAtomsAll) {
       const slug = emittedSkillSlug.get(atom.id) ?? normalizeSkillSlug(slugFor(atom));
@@ -274,7 +284,7 @@ export const codexAdapter = defineAdapter({
           `Skill \`${atom.id}\` directory not found at \`${atom.path}\`; emitting minimal SKILL.md.`,
         );
         files.push({
-          path: `.codex/skills/${slug}/SKILL.md`,
+          path: `.agents/skills/${slug}/SKILL.md`,
           content: renderSkillMd(
             { name: slug, description: atom.description },
             `# ${atom.name}\n\n${atom.description}`,
@@ -297,13 +307,13 @@ export const codexAdapter = defineAdapter({
             });
             warnings.push(...conformed.warnings.map((w) => `Skill \`${atom.id}\`: ${w}`));
             files.push({
-              path: `.codex/skills/${slug}/SKILL.md`,
+              path: `.agents/skills/${slug}/SKILL.md`,
               content: conformed.content,
               action: "create",
             });
           } else {
             files.push({
-              path: `.codex/skills/${slug}/${entry.relPath}`,
+              path: `.agents/skills/${slug}/${entry.relPath}`,
               content: entry.content,
               action: "create",
             });
@@ -312,7 +322,7 @@ export const codexAdapter = defineAdapter({
       }
     }
 
-    // ---------- .codex/skills (commands) ----------
+    // ---------- .agents/skills (commands) ----------
     for (const atom of commandAtomsAll) {
       // A command whose slug collides with a skill would emit the same
       // SKILL.md path twice — applyInstall's create-only (`wx`) write then
@@ -322,7 +332,7 @@ export const codexAdapter = defineAdapter({
       const slug = emittedSkillSlug.get(atom.id) ?? normalizeSkillSlug(slugFor(atom));
       if (collidedCommands.has(atom.id)) {
         warnings.push(
-          `Command \`${atom.id}\` slug collides with a skill of the same name; emitting it as \`.codex/skills/${slug}/\`.`,
+          `Command \`${atom.id}\` slug collides with a skill of the same name; emitting it as \`.agents/skills/${slug}/\`.`,
         );
       }
       const parsed = await parseAtomYaml(packRoot, atom);
@@ -332,7 +342,7 @@ export const codexAdapter = defineAdapter({
         body = await readSafeRelative(packRoot, promptPath);
       }
       files.push({
-        path: `.codex/skills/${slug}/SKILL.md`,
+        path: `.agents/skills/${slug}/SKILL.md`,
         content: renderSkillMd(
           { name: slug, description: atom.description },
           `# ${atom.name}\n\n${body ?? atom.description}`,
@@ -344,18 +354,17 @@ export const codexAdapter = defineAdapter({
     // ---------- .codex/agents (subagents) ----------
     for (const atom of byType.get("subagent") ?? []) {
       const slug = slugFor(atom);
+      const body = await resolveSubagentBody(packRoot, atom);
       const tomlTable = {
-        id: slug,
         name: atom.name,
-        description: atom.description,
-        risk_level: atom.risk_level,
-        source_atom: atom.id,
+        description: body.description ?? atom.description,
+        developer_instructions: body.instructions,
       };
       files.push({
         path: `.codex/agents/${slug}.toml`,
         content:
           `# Conservative Codex subagent definition — verify against your Codex version.\n` +
-          renderTomlTable("agent", tomlTable),
+          renderTomlDocument(tomlTable),
         action: "create",
       });
     }
