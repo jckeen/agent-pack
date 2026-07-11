@@ -277,6 +277,29 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     }
   });
 
+  it("refuses schema-invalid values in otherwise allowed agent frontmatter", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-invalid-agent-value-"));
+    try {
+      await fs.mkdir(path.join(dir, "agents"), { recursive: true });
+      await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(dir, "agents/reviewer.md"),
+        "---\ndescription: {bad: value}\nmodel: [invalid]\n---\nReview carefully.\n",
+      );
+      const result = await importClaudeCodeDir(dir, { id: "acme.invalid-agent-value" });
+      const tmp = path.join(dir, "roundtrip");
+      await writeImport(result, path.join(tmp, "pack"));
+      const exported = await exportPack({
+        source: path.join(tmp, "pack"),
+        target: "codex",
+        outDir: path.join(tmp, "out"),
+      });
+      expect(exported.plan.unsupportedAtoms).toContain("subagent:reviewer");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("surfaces the stdio MCP secret but NEVER ships the token value", async () => {
     const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
     // The env KEY is surfaced as a required secret slot…

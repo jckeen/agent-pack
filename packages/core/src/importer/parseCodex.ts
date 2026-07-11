@@ -43,6 +43,10 @@ export interface CodexHook {
   event: string;
   command: string;
   matcher?: string;
+  async?: boolean;
+  timeout?: number;
+  commandWindows?: string;
+  statusMessage?: string;
 }
 
 export interface CodexSubagent {
@@ -156,6 +160,22 @@ function validMcpConfigValue(key: string, value: unknown): boolean {
   return false;
 }
 
+function isPortableMcpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
 function parseMcpServers(
   table: Record<string, unknown>,
   warnings: CodexWarning[],
@@ -202,6 +222,10 @@ function parseMcpServers(
       .filter(([key, value]) => safeConfigKeys.has(key) && !validMcpConfigValue(key, value))
       .map(([key]) => key)
       .sort();
+    const unsafeUrl =
+      Object.prototype.hasOwnProperty.call(d, "url") && !isPortableMcpUrl(d["url"]);
+    if (unsafeUrl && !malformedKeys.includes("url")) malformedKeys.push("url");
+    malformedKeys.sort();
     const env = d["env"];
     const malformedEnvKeys = isStringRecord(env)
       ? Object.entries(env)
@@ -213,7 +237,10 @@ function parseMcpServers(
         : ["env"];
     const config = Object.fromEntries(
       Object.entries(d).filter(
-        ([key, value]) => safeConfigKeys.has(key) && validMcpConfigValue(key, value),
+        ([key, value]) =>
+          safeConfigKeys.has(key) &&
+          validMcpConfigValue(key, value) &&
+          !(key === "url" && unsafeUrl),
       ),
     );
     const omittedConfigKeys = [
@@ -233,6 +260,12 @@ function parseMcpServers(
         message: `Malformed MCP settings for ${name}; server skipped: ${malformedKeys.join(", ")}.`,
       });
     }
+    if (unsafeUrl) {
+      warnings.push({
+        source,
+        message: `MCP URL for ${name} must be credential-free HTTP(S); server skipped.`,
+      });
+    }
     if (malformedEnvKeys.length > 0) {
       warnings.push({
         source,
@@ -244,11 +277,11 @@ function parseMcpServers(
       transport:
         typeof d["transport"] === "string"
           ? (d["transport"] as string)
-          : typeof d["url"] === "string"
+          : isPortableMcpUrl(d["url"])
             ? "http"
             : undefined,
       command: typeof d["command"] === "string" ? (d["command"] as string) : undefined,
-      url: typeof d["url"] === "string" ? (d["url"] as string) : undefined,
+      url: isPortableMcpUrl(d["url"]) ? d["url"] : undefined,
       args: isStringArray(d["args"]) ? d["args"] : undefined,
       env: isStringRecord(env) && malformedEnvKeys.length === 0 ? env : undefined,
       cwd: typeof d["cwd"] === "string" ? (d["cwd"] as string) : undefined,
@@ -329,20 +362,83 @@ function collectHookEntries(
       if (handlers.length > 0) {
         for (const handler of handlers) {
           if (!handler || typeof handler !== "object" || Array.isArray(handler)) continue;
-          const command = (handler as Record<string, unknown>)["command"];
-          if (typeof command === "string" && command.trim()) {
-            hooks.push({ event, command: command.trim(), matcher });
-          }
+          const parsed = parseCommandHook(
+            handler as Record<string, unknown>,
+            event,
+            matcher,
+            warnings,
+            source,
+            false,
+          );
+          if (parsed) hooks.push(parsed);
         }
         continue;
       }
-      const command = group["command"];
-      if (typeof command === "string" && command.trim()) {
-        hooks.push({ event, command: command.trim(), matcher });
-      }
+      const parsed = parseCommandHook(group, event, matcher, warnings, source, true);
+      if (parsed) hooks.push(parsed);
     }
   }
   return hooks;
+}
+
+function parseCommandHook(
+  handler: Record<string, unknown>,
+  event: string,
+  matcher: string | undefined,
+  warnings: CodexWarning[],
+  source: string,
+  allowMatcherKey: boolean,
+): CodexHook | null {
+  if (handler["type"] !== undefined && handler["type"] !== "command") {
+    warnings.push({
+      source,
+      message: `Non-command hook handler for ${event} was skipped.`,
+    });
+    return null;
+  }
+  const command = handler["command"];
+  if (typeof command !== "string" || !command.trim()) return null;
+  const optionTypesValid =
+    (handler["async"] === undefined || typeof handler["async"] === "boolean") &&
+    (handler["timeout"] === undefined ||
+      (Number.isInteger(handler["timeout"]) && Number(handler["timeout"]) >= 0)) &&
+    (handler["commandWindows"] === undefined ||
+      typeof handler["commandWindows"] === "string") &&
+    (handler["statusMessage"] === undefined ||
+      typeof handler["statusMessage"] === "string");
+  const supportedKeys = new Set([
+    "type",
+    "command",
+    "async",
+    "timeout",
+    "commandWindows",
+    "statusMessage",
+  ]);
+  if (
+    !optionTypesValid ||
+    Object.keys(handler).some(
+      (key) => !supportedKeys.has(key) && !(allowMatcherKey && key === "matcher"),
+    )
+  ) {
+    warnings.push({
+      source,
+      message: `Malformed or unsupported command hook options for ${event}; handler skipped.`,
+    });
+    return null;
+  }
+  return {
+    event,
+    command: command.trim(),
+    matcher,
+    ...(typeof handler["async"] === "boolean" ? { async: handler["async"] } : {}),
+    ...(typeof handler["timeout"] === "number" ? { timeout: handler["timeout"] } : {}),
+    ...(typeof handler["commandWindows"] === "string"
+      ? { commandWindows: handler["commandWindows"] }
+      : {}),
+    ...(typeof handler["statusMessage"] === "string"
+      ? { statusMessage: handler["statusMessage"] }
+      : {}),
+  };
 }
 
 function parseSubagent(

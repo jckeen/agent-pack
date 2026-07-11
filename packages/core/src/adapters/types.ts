@@ -371,9 +371,17 @@ export async function resolveSubagentBody(
           tools = fmStr("tools");
           model = fmStr("model");
           if (fm) {
-            unsupportedRestrictions = Object.keys(fm)
-              .filter((key) => !["name", "description", "model"].includes(key))
-              .sort();
+            const allowed = new Set(["name", "description", "model"]);
+            unsupportedRestrictions = [
+              ...Object.keys(fm).filter((key) => !allowed.has(key)),
+              ...[...allowed]
+                .filter(
+                  (key) =>
+                    Object.prototype.hasOwnProperty.call(fm, key) &&
+                    (typeof fm[key] !== "string" || !fm[key].trim()),
+                )
+                .map((key) => `malformed ${key}`),
+            ].sort();
           }
         } catch {
           /* malformed frontmatter — fall through with the raw body */

@@ -114,12 +114,12 @@ export function buildCodexManifest(
     if (mcp.omittedConfigKeys.length > 0) continue;
     const mcpSlug = allocSlug(slugify(mcp.name));
     const envObj: Record<string, { required: boolean }> = {};
+    const requiredSecretNames = new Set<string>();
     for (const key of Object.keys(mcp.env ?? {})) {
       envObj[key] = { required: true };
-      secretsRequired.push({ name: key, required_for: [`mcp_server:${mcpSlug}`] });
+      requiredSecretNames.add(key);
     }
-    const additionalSecretNames = new Set<string>();
-    if (mcp.bearerTokenEnvVar) additionalSecretNames.add(mcp.bearerTokenEnvVar);
+    if (mcp.bearerTokenEnvVar) requiredSecretNames.add(mcp.bearerTokenEnvVar);
     const envHttpHeaders = mcp.config["env_http_headers"];
     if (
       envHttpHeaders &&
@@ -127,11 +127,24 @@ export function buildCodexManifest(
       !Array.isArray(envHttpHeaders)
     ) {
       for (const envName of Object.values(envHttpHeaders as Record<string, unknown>)) {
-        if (typeof envName === "string" && envName.trim())
-          additionalSecretNames.add(envName);
+        if (typeof envName === "string" && envName.trim()) requiredSecretNames.add(envName);
       }
     }
-    for (const secretName of additionalSecretNames) {
+    const envVars = mcp.config["env_vars"];
+    if (Array.isArray(envVars)) {
+      for (const entry of envVars) {
+        const envName =
+          typeof entry === "string"
+            ? entry
+            : entry && typeof entry === "object" && !Array.isArray(entry)
+              ? (entry as Record<string, unknown>)["name"]
+              : undefined;
+        if (typeof envName === "string" && envName.trim()) {
+          requiredSecretNames.add(envName);
+        }
+      }
+    }
+    for (const secretName of requiredSecretNames) {
       secretsRequired.push({
         name: secretName,
         required_for: [`mcp_server:${mcpSlug}`],
@@ -165,8 +178,10 @@ export function buildCodexManifest(
     if (mcp.command !== undefined) mcpAtom["command"] = mcp.command;
     if (mcp.url !== undefined) mcpAtom["url"] = mcp.url;
     if (mcp.args !== undefined) mcpAtom["args"] = mcp.args;
-    if (Object.keys(envObj).length > 0 || additionalSecretNames.size > 0) {
+    if (Object.keys(envObj).length > 0) {
       mcpAtom["env"] = envObj;
+    }
+    if (requiredSecretNames.size > 0) {
       (mcpAtom["permissions"] as string[]).push("secrets.env");
     }
     const codexOnlyConfig = Object.keys(mcp.config)
@@ -193,6 +208,11 @@ export function buildCodexManifest(
     };
     if (hook.matcher !== undefined) {
       (atomObj.handler as Record<string, unknown>)["matcher"] = hook.matcher;
+    }
+    for (const key of ["async", "timeout", "commandWindows", "statusMessage"] as const) {
+      if (hook[key] !== undefined) {
+        (atomObj.handler as Record<string, unknown>)[key] = hook[key];
+      }
     }
     const relativePath = `atoms/hooks/${hookSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });

@@ -22,8 +22,10 @@
   environment names, enablement, and tool restrictions round-trip natively;
   secret-bearing, malformed, or literal environment settings omit the server,
   while targets that cannot represent Codex-only restrictions refuse it.
-  Case-colliding skill manifests and duplicate nickname candidates are rejected
-  before export.
+  Command-hook matchers and supported handler options round-trip without turning
+  prompt or agent handlers into shell execution. Nested skill symlinks,
+  case-colliding manifests, and invalid nickname candidates are rejected before
+  export.
 - The standard and personal-config sync guide document the distinction between
   native-source fidelity and compiled target output.
 

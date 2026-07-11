@@ -153,6 +153,49 @@ describe("parseCodex", () => {
     expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
   });
 
+  it("omits MCP servers whose URL can carry inline credentials", () => {
+    for (const url of [
+      "https://user:fixture-secret@example.com/mcp",
+      "https://example.com/mcp?token=fixture-secret",
+    ]) {
+      const parsed = parseCodex(
+        tree({
+          "AGENTS.md": "## Working Style\n\nbody\n",
+          ".codex/config.toml": `[mcp_servers.docs]\nurl = "${url}"`,
+        }),
+      );
+      const result = buildCodexManifest(parsed, OPTS);
+      expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+      expect(result.files.some((file) => file.content.includes("fixture-secret"))).toBe(
+        false,
+      );
+      expect(
+        result.warnings.some((warning) => /MCP URL.*skipped/i.test(warning.message)),
+      ).toBe(true);
+    }
+  });
+
+  it("declares native env_vars as required MCP secrets", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'command = "docs-server"',
+          'env_vars = ["DOCS_TOKEN", { name = "REMOTE_TOKEN", source = "vault" }]',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.permissions?.secrets?.required).toEqual(
+      expect.arrayContaining([
+        { name: "DOCS_TOKEN", required_for: ["mcp_server:docs"] },
+        { name: "REMOTE_TOKEN", required_for: ["mcp_server:docs"] },
+      ]),
+    );
+    const atom = result.manifest.atoms.find((entry) => entry.id === "mcp_server:docs");
+    expect(atom?.permissions).toContain("secrets.env");
+  });
+
   it("omits MCP servers with malformed recognized settings", () => {
     const parsed = parseCodex(
       tree({
@@ -236,6 +279,62 @@ describe("parseCodex", () => {
     expect(
       parsed.warnings.some((warning) => /matcher.*skipped/i.test(warning.message)),
     ).toBe(true);
+  });
+
+  it("skips non-command hook handlers instead of turning them into shell execution", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/hooks.json": JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              { hooks: [{ type: "prompt", command: "echo widened" }] },
+              { hooks: [{ type: "agent", command: "echo widened again" }] },
+            ],
+          },
+        }),
+      }),
+    );
+    expect(parsed.hooks).toEqual([]);
+    expect(
+      parsed.warnings.filter((warning) => /non-command.*skipped/i.test(warning.message)),
+    ).toHaveLength(2);
+  });
+
+  it("preserves supported command-hook options", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/hooks.json": JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              {
+                matcher: "Edit|Write",
+                hooks: [
+                  {
+                    type: "command",
+                    command: "npm run format",
+                    async: true,
+                    timeout: 30,
+                    commandWindows: "npm.cmd run format",
+                    statusMessage: "Formatting",
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    expect(parsed.hooks).toEqual([
+      {
+        event: "PostToolUse",
+        matcher: "Edit|Write",
+        command: "npm run format",
+        async: true,
+        timeout: 30,
+        commandWindows: "npm.cmd run format",
+        statusMessage: "Formatting",
+      },
+    ]);
   });
 
   it("parses subagent .toml definitions", () => {
@@ -531,6 +630,53 @@ describe("importCodexDir (I/O + round-trip)", () => {
     }
   });
 
+  it("does not follow a project skill symlink to unrelated files in the project", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-project-skill-secret-"));
+    try {
+      const skillDir = path.join(dir, ".agents/skills/demo");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+      );
+      await fs.writeFile(path.join(dir, ".env"), "PROJECT_SECRET=fixture-secret\n");
+      await fs.symlink("../../../.env", path.join(skillDir, "local.env"));
+
+      const result = await importCodexDir(dir, { id: "acme.project-secret" });
+      expect(result.files.some((file) => file.content.includes("fixture-secret"))).toBe(
+        false,
+      );
+      expect(
+        result.warnings.some((warning) => /symlinked.*skipped/i.test(warning.message)),
+      ).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips recursive skill symlink loops without throwing", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-skill-loop-"));
+    try {
+      const skillDir = path.join(dir, ".agents/skills/demo");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+      );
+      await fs.symlink(".", path.join(skillDir, "loop"));
+
+      const result = await importCodexDir(dir, { id: "acme.skill-loop" });
+      expect(result.files.some((file) => file.relativePath.endsWith("SKILL.md"))).toBe(
+        true,
+      );
+      expect(
+        result.warnings.some((warning) => /symlinked.*skipped/i.test(warning.message)),
+      ).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("warns and downgrades when an artifact-root symlink escapes", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-artifact-root-"));
     const outside = await fs.mkdtemp(path.join(os.tmpdir(), "codex-outside-skills-"));
@@ -657,6 +803,96 @@ describe("importCodexDir (I/O + round-trip)", () => {
         outDir: path.join(source, "claude-out"),
       });
       expect(claudeExported.plan.unsupportedAtoms).toContain("mcp_server:docs");
+    } finally {
+      await fs.rm(source, { recursive: true, force: true });
+    }
+  });
+
+  it("round-trips native env_vars without duplicating object-form entries", async () => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-env-vars-"));
+    const pack = path.join(source, "pack");
+    const outDir = path.join(source, "out");
+    try {
+      await fs.mkdir(path.join(source, ".codex"), { recursive: true });
+      await fs.writeFile(
+        path.join(source, ".codex/config.toml"),
+        [
+          "[mcp_servers.docs]",
+          'command = "docs-server"',
+          'env = { DOCS_TOKEN = "${DOCS_TOKEN}" }',
+          'env_vars = [{ name = "DOCS_TOKEN", source = "local" }]',
+        ].join("\n"),
+      );
+      const result = await importCodexDir(source, { id: "acme.env-vars" });
+      await writeImport(result, pack);
+      await exportPack({ source: pack, target: "codex", outDir });
+
+      const config = parseToml(
+        await fs.readFile(path.join(outDir, ".codex/config.toml"), "utf8"),
+      ) as {
+        mcp_servers?: Record<string, { env_vars?: unknown[] }>;
+      };
+      expect(config.mcp_servers?.docs?.env_vars).toEqual([
+        { name: "DOCS_TOKEN", source: "local" },
+      ]);
+      expect(
+        result.manifest.permissions?.secrets?.required?.filter(
+          (secret) => secret.name === "DOCS_TOKEN",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await fs.rm(source, { recursive: true, force: true });
+    }
+  });
+
+  it("round-trips supported Codex command-hook options", async () => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-hook-options-"));
+    const pack = path.join(source, "pack");
+    const outDir = path.join(source, "out");
+    try {
+      await fs.mkdir(path.join(source, ".codex"), { recursive: true });
+      await fs.writeFile(
+        path.join(source, ".codex/hooks.json"),
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              {
+                matcher: "Edit|Write",
+                hooks: [
+                  {
+                    type: "command",
+                    command: "npm run format",
+                    async: true,
+                    timeout: 30,
+                    commandWindows: "npm.cmd run format",
+                    statusMessage: "Formatting",
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+      const result = await importCodexDir(source, { id: "acme.hook-options" });
+      await writeImport(result, pack);
+      await exportPack({ source: pack, target: "codex", outDir });
+
+      const emitted = JSON.parse(
+        await fs.readFile(path.join(outDir, ".codex/hooks.json"), "utf8"),
+      ) as {
+        hooks: Record<string, Array<{ hooks: Array<Record<string, unknown>> }>>;
+      };
+      expect(emitted.hooks.PostToolUse?.[0]?.hooks[0]).toEqual({
+        type: "command",
+        command: "npm run format",
+        async: true,
+        timeout: 30,
+        commandWindows: "npm.cmd run format",
+        statusMessage: "Formatting",
+      });
+      expect(emitted.hooks.PostToolUse?.[0]).toEqual(
+        expect.objectContaining({ matcher: "Edit|Write" }),
+      );
     } finally {
       await fs.rm(source, { recursive: true, force: true });
     }

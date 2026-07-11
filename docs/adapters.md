@@ -67,12 +67,19 @@ inherited parent settings from silently widening permissions. Importing a
 home-style `.codex` directory also reads sibling `.agents/skills` under a
 separate containment root.
 
+Nested skill symlinks are skipped rather than dereferenced, preventing a skill
+from absorbing unrelated project files or recursive directory cycles. Codex
+command hooks preserve matcher, async, timeout, Windows-command, and status
+options; non-command and malformed handlers are skipped rather than converted
+to shell execution.
+
 Imported Codex MCP servers preserve native authentication environment names,
 enablement, and tool allow/deny policy when compiling back to Codex. Static
 headers, malformed fields, and literal environment values can contain
 credentials or restrictions, so those servers are omitted instead of weakened;
 adapters, including Chat export, that cannot represent Codex-only policy report
-the atom as unsupported.
+the atom as unsupported. Remote URLs must be credential-free HTTP(S) endpoints;
+userinfo, query strings, and fragments are not copied into generated packs.
 
 ## Cursor
 

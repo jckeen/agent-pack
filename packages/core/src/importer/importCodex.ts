@@ -98,7 +98,9 @@ async function readTree(
       const localRel = relDir ? `${relDir}/${entry.name}` : entry.name;
       const rel = pathPrefix ? `${pathPrefix}/${localRel}` : localRel;
       if (entry.isSymbolicLink()) {
-        // Refuse symlinks that escape the root (traversal defense).
+        // Source-local links are not portable and can smuggle unrelated files
+        // or directory cycles into a skill bundle. The explicitly selected
+        // import root may itself be a symlink; nested entries may not.
         const target = await fs.realpath(abs).catch(() => null);
         if (!target || (target !== realRoot && !target.startsWith(realRoot + path.sep))) {
           if (isCodexArtifactPath(rel, homeStyle)) {
@@ -108,14 +110,13 @@ async function readTree(
                 "Symlinked Codex resource escapes the import root or is broken; skipped.",
             });
           }
-          continue;
+        } else if (isCodexArtifactPath(rel, homeStyle)) {
+          warnings.push({
+            source: rel,
+            message: "Symlinked Codex resource is not portable; skipped.",
+          });
         }
-        const stat = await fs.stat(abs).catch(() => null);
-        if (stat?.isDirectory()) {
-          if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, localRel);
-          continue;
-        }
-        if (!stat?.isFile()) continue;
+        continue;
       } else if (entry.isDirectory()) {
         if (shouldTraverseCodexDirectory(rel, homeStyle)) await walk(abs, localRel);
         continue;

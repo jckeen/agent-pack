@@ -1,10 +1,9 @@
 ---
 name: code-review
-description: Review a pull request for correctness, security, and style issues.
+description: Fixture skill used to verify portable nested resource handling.
 ---
 
-# Code Review
+# Portable Fixture Skill
 
-When asked to review a PR, walk the diff hunk by hunk and flag correctness,
-security, and style issues. Separate confirmed bugs from risks needing
-verification.
+This inert fixture body verifies that a skill and its nested resources survive
+cross-runtime import and export unchanged.

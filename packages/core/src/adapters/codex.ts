@@ -21,6 +21,16 @@ import {
   renderSkillMd,
 } from "../skills/agentskills.js";
 
+interface HookHandler {
+  command?: string;
+  matcher?: string;
+  script_path?: string;
+  async?: boolean;
+  timeout?: number;
+  commandWindows?: string;
+  statusMessage?: string;
+}
+
 function tomlEscape(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
@@ -235,13 +245,35 @@ export const codexAdapter = defineAdapter({
         const existingEnvVars = Array.isArray(serverConfig["env_vars"])
           ? (serverConfig["env_vars"] as unknown[])
           : [];
+        const existingEnvNames = new Set(
+          existingEnvVars.flatMap((entry) => {
+            if (typeof entry === "string") return [entry];
+            if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+              const name = (entry as Record<string, unknown>)["name"];
+              return typeof name === "string" ? [name] : [];
+            }
+            return [];
+          }),
+        );
         serverConfig["env_vars"] = [
           ...existingEnvVars,
-          ...envKeys.filter((key) => !existingEnvVars.includes(key)),
+          ...envKeys.filter((key) => !existingEnvNames.has(key)),
         ];
       }
       tomlBlocks.push(stringifyToml({ mcp_servers: { [slug]: serverConfig } }).trimEnd());
       const requiredEnv = new Set(envKeys);
+      const nativeEnvVars = serverConfig["env_vars"];
+      if (Array.isArray(nativeEnvVars)) {
+        for (const entry of nativeEnvVars) {
+          const envName =
+            typeof entry === "string"
+              ? entry
+              : entry && typeof entry === "object" && !Array.isArray(entry)
+                ? (entry as Record<string, unknown>)["name"]
+                : undefined;
+          if (typeof envName === "string") requiredEnv.add(envName);
+        }
+      }
       if (typeof a["bearer_token_env_var"] === "string") {
         requiredEnv.add(a["bearer_token_env_var"] as string);
       }
@@ -280,11 +312,10 @@ export const codexAdapter = defineAdapter({
             "after_edit",
           ]) as string[];
         const handler =
-          (parsed?.["handler"] as
-            { command?: string; matcher?: string; script_path?: string } | undefined) ??
+          (parsed?.["handler"] as HookHandler | undefined) ??
           (
             atom as {
-              handler?: { command?: string; matcher?: string; script_path?: string };
+              handler?: HookHandler;
             }
           ).handler;
         const command = handler?.command ?? "";
@@ -308,9 +339,16 @@ export const codexAdapter = defineAdapter({
         }
         for (const evt of events) {
           const list = hooks[evt] ?? [];
-          const group: Record<string, unknown> = {
-            hooks: [{ type: "command", command }],
-          };
+          const commandHook: Record<string, unknown> = { type: "command", command };
+          for (const key of [
+            "async",
+            "timeout",
+            "commandWindows",
+            "statusMessage",
+          ] as const) {
+            if (handler?.[key] !== undefined) commandHook[key] = handler[key];
+          }
+          const group: Record<string, unknown> = { hooks: [commandHook] };
           if (handler?.matcher) group["matcher"] = handler.matcher;
           list.push(group);
           hooks[evt] = list;
