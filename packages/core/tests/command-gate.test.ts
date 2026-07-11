@@ -40,6 +40,13 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("b\\ash -c ./payload.sh", [])).toBe(true);
     expect(isShellEscape("$'ignored; literal' && ./payload.sh", [])).toBe(true);
     expect(isShellEscape("printf $'safe\\nliteral'", [])).toBe(true);
+    expect(isShellEscape("bash -'c' ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("bash -\\c ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("e${ANY:+}nv BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("git diff --ext'-diff'", [])).toBe(true);
+    expect(
+      isShellEscape("..\\//../../../../../../../../../../bin/b\\ash -c ./payload.sh", []),
+    ).toBe(true);
     expect(isShellEscape("", [])).toBe(true);
   });
 
@@ -117,6 +124,10 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("printf 'safe; literal'", [])).toBe(false);
     expect(isShellEscape("git diff -c", [])).toBe(false);
     expect(isShellEscape('"C:\\Program Files\\tool.exe" --serve', [])).toBe(false);
+    expect(isShellEscape("bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/fmt.sh", [])).toBe(
+      false,
+    );
+    expect(isShellEscape("bash $HOME/.claude/hooks/fmt.sh", [])).toBe(false);
     // `-c` as a non-flag positional for a non-shell binary is fine.
     expect(isShellEscape("grep", ["-c", "pattern"])).toBe(false);
   });

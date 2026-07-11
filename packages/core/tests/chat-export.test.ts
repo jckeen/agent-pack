@@ -189,11 +189,37 @@ describe("exportChat", () => {
     await fs.rm(out, { recursive: true, force: true });
   });
 
+  it("emits the same merged tool catalogue that it validates", async () => {
+    const source = await tmp();
+    const out = await tmp();
+    await fs.cp(FIXTURE, source, { recursive: true });
+    const descriptorPath = path.join(source, "atoms/mcp/tickets.yaml");
+    const descriptor = await fs.readFile(descriptorPath, "utf8");
+    await fs.writeFile(descriptorPath, `${descriptor}\ntools: [null]\n`);
+    const manifestPath = path.join(source, "AGENTPACK.yaml");
+    const manifest = await fs.readFile(manifestPath, "utf8");
+    await fs.writeFile(
+      manifestPath,
+      manifest.replace(
+        '    url: "https://mcp.example.com/tickets"',
+        '    url: "https://mcp.example.com/tickets"\n    tools:\n      - name: tickets.safe',
+      ),
+    );
+
+    const result = await exportChat({ source, profile: "full", outDir: out });
+    expect(result.connectors[0]?.tools).toEqual([{ name: "tickets.safe" }]);
+
+    await fs.rm(source, { recursive: true, force: true });
+    await fs.rm(out, { recursive: true, force: true });
+  });
+
   it("refuses unknown auth semantics and unparseable MCP descriptors", async () => {
     for (const mutation of [
       (descriptor: string) =>
         descriptor.replace("  scheme: oauth2", "  scheme: oauth2\n  audience: tickets-api"),
       (descriptor: string) => `${descriptor}\ninvalid: [\n`,
+      (descriptor: string) =>
+        `${descriptor}\ntools:\n  - &tool\n    name: cyclic\n    self: *tool\n`,
     ]) {
       const source = await tmp();
       const out = await tmp();

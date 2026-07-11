@@ -364,7 +364,7 @@ async function buildConnectors(
     if (hasCodexOnlyMcpConfig(a)) continue;
     const body = await parseAtomYaml(packRoot, a);
     if (!body) continue;
-    const combined = { ...(body ?? {}), ...a } as Record<string, unknown>;
+    const combined = { ...body, ...a } as Record<string, unknown>;
     if (invalidChatMcpFields(combined).length > 0) continue;
     const transport = a.transport ?? "stdio";
     // Chat custom connectors are remote MCP only; stdio servers ship as .mcpb.
@@ -379,9 +379,9 @@ async function buildConnectors(
       requiredSecrets.push({ name: key, ...(description ? { description } : {}) });
     }
 
-    const auth = connectorAuth(a, body);
-    const tools = Array.isArray(body["tools"])
-      ? (body["tools"] as Array<Record<string, unknown>>)
+    const auth = connectorAuth(a, combined);
+    const tools = Array.isArray(combined["tools"])
+      ? (combined["tools"] as Array<Record<string, unknown>>)
       : undefined;
     connectors.push({
       atom: a.id,

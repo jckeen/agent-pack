@@ -40,6 +40,19 @@ function isToolConfig(value: unknown): boolean {
   );
 }
 
+function isJsonSafe(value: unknown, active = new WeakSet<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (!value || typeof value !== "object") return false;
+  if (active.has(value)) return false;
+  active.add(value);
+  const entries = Array.isArray(value) ? value : Object.values(value);
+  const safe = entries.every((entry) => isJsonSafe(entry, active));
+  active.delete(value);
+  return safe;
+}
+
 export const CODEX_MCP_CONFIG_KEYS = [
   "args",
   "auth",
@@ -217,7 +230,9 @@ export function invalidChatMcpFields(record: Record<string, unknown>): string[] 
   if (
     record["tools"] !== undefined &&
     (!Array.isArray(record["tools"]) ||
-      !record["tools"].every((tool) => isRecord(tool) && typeof tool["name"] === "string"))
+      !record["tools"].every(
+        (tool) => isRecord(tool) && typeof tool["name"] === "string" && isJsonSafe(tool),
+      ))
   ) {
     invalid.push("tools");
   }

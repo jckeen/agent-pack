@@ -93,43 +93,71 @@ function basename(command: string): string {
   return (parts[parts.length - 1] ?? command).toLowerCase().replace(/\.exe$/, "");
 }
 
-function tokenizeCommand(command: string): string[] {
-  return (
-    command
-      .trim()
-      .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)
-      ?.map((token) => token.replace(/^["']|["']$/g, "")) ?? []
-  );
-}
-
-function parseExecutableToken(command: string): string | null {
-  const trimmed = command.trimStart();
-  if (!trimmed) return null;
-  const quote = trimmed[0];
-  if (quote === '"' || quote === "'") {
-    let escaped = false;
-    for (let index = 1; index < trimmed.length; index += 1) {
-      const char = trimmed[index] ?? "";
-      if (quote === '"' && char === "\\" && !escaped) {
-        escaped = true;
-        continue;
-      }
-      if (char === quote && !escaped) {
-        if (trimmed[index + 1] !== undefined && !/\s/.test(trimmed[index + 1] ?? "")) {
-          return null;
-        }
-        return trimmed.slice(1, index);
-      }
-      escaped = false;
+function tokenizeCommand(command: string): string[] | null {
+  const tokens: string[] = [];
+  let current = "";
+  let started = false;
+  let quote: "single" | "double" | null = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index] ?? "";
+    if (quote === "single") {
+      if (char === "'") quote = null;
+      else current += char;
+      started = true;
+      continue;
     }
-    return null;
+    if (quote === "double") {
+      if (char === '"') {
+        quote = null;
+      } else if (char === "\\" && command[index + 1] !== undefined) {
+        const next = command[index + 1] ?? "";
+        if ('"\\$`\n'.includes(next)) {
+          current += next;
+          index += 1;
+        } else {
+          current += char;
+        }
+      } else {
+        current += char;
+      }
+      started = true;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (started) tokens.push(current);
+      current = "";
+      started = false;
+    } else if (char === "'") {
+      quote = "single";
+      started = true;
+    } else if (char === '"') {
+      quote = "double";
+      started = true;
+    } else if (char === "\\") {
+      if (command[index + 1] === undefined) return null;
+      if (
+        /^[A-Za-z]:/.test(current) ||
+        current === "." ||
+        current === ".." ||
+        current.startsWith("\\\\")
+      ) {
+        current += char;
+      } else if (current === "" && command[index + 1] === "\\") {
+        current += "\\\\";
+        index += 1;
+      } else {
+        current += command[index + 1] ?? "";
+        index += 1;
+      }
+      started = true;
+    } else {
+      current += char;
+      started = true;
+    }
   }
-  const token = trimmed.match(/^\S+/)?.[0] ?? "";
-  if (!token || /["']/.test(token)) return null;
-  if (/\\/.test(token) && !/^(?:[A-Za-z]:\\|\.{1,2}\\|\\\\)/.test(token)) {
-    return null;
-  }
-  return token;
+  if (quote) return null;
+  if (started) tokens.push(current);
+  return tokens;
 }
 
 function containsShellComposition(command: string): boolean {
@@ -177,8 +205,10 @@ function isPowerShellFileFlag(arg: string): boolean {
   return flag.length > 1 && "-file".startsWith(flag);
 }
 
-function containsWindowsShellEval(command: string, args: readonly string[]): boolean {
-  const commandTokens = tokenizeCommand(command);
+function containsWindowsShellEval(
+  commandTokens: readonly string[],
+  args: readonly string[],
+): boolean {
   const executable = basename(commandTokens[0] ?? "");
   const trailing = [...commandTokens.slice(1), ...args];
   if (
@@ -205,13 +235,15 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   if (!command) return true;
   if (command.includes("$'")) return true;
   if (containsShellComposition(command)) return true;
-  const executable = parseExecutableToken(command);
-  if (!executable) return true;
   const commandTokens = tokenizeCommand(command);
+  if (!commandTokens || commandTokens.length === 0) return true;
+  const executable = commandTokens[0] ?? "";
   const firstToken = commandTokens[0] ?? command;
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(firstToken)) return true;
-  if (/^\$\{?(?:SHELL|COMSPEC)\}?$/i.test(firstToken)) return true;
-  if (containsWindowsShellEval(command, args)) return true;
+  if (executable.includes("$") && !/^\$\{?CLAUDE_PROJECT_DIR\}?\//i.test(executable)) {
+    return true;
+  }
+  if (containsWindowsShellEval(commandTokens, args)) return true;
   const base = basename(executable);
   const effectiveArgs = [...commandTokens.slice(1), ...args];
   if (base === "eval") return true;
