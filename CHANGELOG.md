@@ -2,10 +2,10 @@
 
 ## 0.7.0-dev — 2026-07-10 (honest cross-runtime import portability)
 
-- Imported Claude Code, Codex, and generic Agent Skills configurations now mark
-  only their source runtime `supported`. Other compile targets start `partial`
+- Imported standalone instruction, Claude Code, and Codex configurations now
+  mark only their source runtime `supported`. Other compile targets start `partial`
   with an explicit target-verification note; lossy ChatGPT imports remain
-  `experimental`.
+  `experimental`, and warning-bearing Codex imports downgrade to `partial`.
 - Codex import/export coverage now carries nested UTF-8 Agent Skills resources,
   including `references/` and `agents/openai.yaml`, through the current
   `.agents/skills/` surface and across to Claude Code without changing text.

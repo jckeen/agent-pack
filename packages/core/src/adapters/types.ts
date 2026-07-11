@@ -382,7 +382,7 @@ export async function resolveSubagentBody(
     const parsed = parseYaml(raw) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const ins = (parsed as Record<string, unknown>)["instructions"];
-      if (typeof ins === "string" && ins.trim()) return { instructions: ins.trim() };
+      if (typeof ins === "string" && ins.trim()) return { instructions: ins };
     }
   } catch {
     /* not a YAML descriptor */

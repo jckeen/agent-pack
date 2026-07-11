@@ -198,8 +198,9 @@ export function buildCodexManifest(
   }
 
   if (atoms.length === 0) {
+    const warningDetails = warnings.map((warning) => warning.message).join("; ");
     throw new Error(
-      "No Codex artifacts found — nothing to import. Expected AGENTS.md, .agents/skills/, .codex/config.toml, or .codex/agents/.",
+      `No Codex artifacts found — nothing to import. Expected AGENTS.md, .agents/skills/, .codex/config.toml, or .codex/agents/.${warningDetails ? ` Import warnings: ${warningDetails}` : ""}`,
     );
   }
 
@@ -232,7 +233,12 @@ export function buildCodexManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: importedCompatibility("codex") },
+    compatibility: {
+      targets: importedCompatibility(
+        "codex",
+        warnings.length > 0 ? "partial" : "supported",
+      ),
+    },
     permissions,
     security: { risk_level: riskLevel },
     profiles: {

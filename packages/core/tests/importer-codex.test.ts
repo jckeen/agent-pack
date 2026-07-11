@@ -186,6 +186,18 @@ describe("buildCodexManifest", () => {
     );
   });
 
+  it("surfaces duplicate-root ambiguity when no importable atoms remain", () => {
+    const parsed = parseCodex(
+      tree({
+        ".agents/skills/review/SKILL.md":
+          "---\nname: review\ndescription: Current copy.\n---\n",
+        ".codex/skills/review/SKILL.md":
+          "---\nname: review\ndescription: Legacy copy.\n---\n",
+      }),
+    );
+    expect(() => buildCodexManifest(parsed, OPTS)).toThrow(/multiple Codex roots/i);
+  });
+
   it("maps each Codex primitive to the right atom type", async () => {
     const parsed = await readFixture();
     const { manifest } = buildCodexManifest(parsed, OPTS);
@@ -268,6 +280,7 @@ describe("importCodexDir (I/O + round-trip)", () => {
         message:
           ".agents/skills/demo/asset.bin: Non-UTF-8 resource skipped; binary skill assets are not supported yet.",
       });
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -316,8 +329,8 @@ describe("importCodexDir (I/O + round-trip)", () => {
         nickname_candidates?: string[];
         skills?: { config?: Record<string, boolean> };
       };
-      expect(reparsedSubagent.developer_instructions).toContain(
-        "You are a security-focused code reviewer.",
+      expect(reparsedSubagent.developer_instructions).toBe(
+        "\n  You are a security-focused code reviewer. Flag auth, injection, secrets, and SSRF risks.\n",
       );
       expect(reparsedSubagent.sandbox_mode).toBe("read-only");
       expect(reparsedSubagent.model).toBe("gpt-5");

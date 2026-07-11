@@ -1,7 +1,7 @@
 # Codex subagent definition
 name = "Security Reviewer"
 description = "Specialized security review agent for diffs."
-developer_instructions = "You are a security-focused code reviewer. Flag auth, injection, secrets, and SSRF risks."
+developer_instructions = "\n  You are a security-focused code reviewer. Flag auth, injection, secrets, and SSRF risks.\n"
 sandbox_mode = "read-only"
 model = "gpt-5"
 model_reasoning_effort = "high"
