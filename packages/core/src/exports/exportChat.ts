@@ -24,6 +24,7 @@ import {
   renderSkillMd,
   SKILL_DESCRIPTION_MAX_LENGTH,
 } from "../skills/agentskills.js";
+import { isCredentialFreeHttpUrl } from "../adapters/commandGate.js";
 
 export interface ExportChatOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -358,7 +359,7 @@ async function buildConnectors(
     const transport = a.transport ?? "stdio";
     // Chat custom connectors are remote MCP only; stdio servers ship as .mcpb.
     if (transport !== "http" && transport !== "sse") continue;
-    if (!a.url) continue;
+    if (!isCredentialFreeHttpUrl(a.url)) continue;
 
     const requiredSecrets: Array<{ name: string; description?: string }> = [];
     for (const [key, spec] of Object.entries(a.env ?? {})) {
@@ -532,6 +533,17 @@ function reportEntry(atom: Atom): ChatPortabilityEntry {
           type: atom.type,
           portable: false,
           note: "Codex-only MCP policy cannot be represented safely as a Chat connector.",
+        };
+      }
+      if (
+        (mcp.transport === "http" || mcp.transport === "sse") &&
+        !isCredentialFreeHttpUrl(mcp.url)
+      ) {
+        return {
+          atomId: atom.id,
+          type: atom.type,
+          portable: false,
+          note: "Remote MCP URL is not a credential-free HTTP(S) endpoint.",
         };
       }
       const transport = mcp.transport ?? "stdio";

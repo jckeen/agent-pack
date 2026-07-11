@@ -14,7 +14,7 @@ import {
   wrapInstructionBlock,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
-import { isShellEscape } from "./commandGate.js";
+import { isCredentialFreeHttpUrl, isShellEscape } from "./commandGate.js";
 import {
   conformSkillMd,
   normalizeSkillSlug,
@@ -22,13 +22,63 @@ import {
 } from "../skills/agentskills.js";
 
 interface HookHandler {
-  command?: string;
+  command: string;
   matcher?: string;
   script_path?: string;
   async?: boolean;
   timeout?: number;
   commandWindows?: string;
   statusMessage?: string;
+}
+
+function parseHookHandler(value: unknown): {
+  handler: HookHandler | null;
+  invalidFields: string[];
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { handler: null, invalidFields: ["handler"] };
+  }
+  const raw = value as Record<string, unknown>;
+  const allowedFields = new Set([
+    "kind",
+    "command",
+    "matcher",
+    "script_path",
+    "async",
+    "timeout",
+    "commandWindows",
+    "statusMessage",
+  ]);
+  const invalidFields = Object.keys(raw).filter((field) => !allowedFields.has(field));
+  if (
+    typeof raw["command"] !== "string" ||
+    (raw["command"] as string).trim().length === 0
+  ) {
+    invalidFields.push("command");
+  }
+  if (raw["kind"] !== undefined && raw["kind"] !== "shell") invalidFields.push("kind");
+  for (const field of ["matcher", "script_path", "commandWindows"]) {
+    if (
+      raw[field] !== undefined &&
+      (typeof raw[field] !== "string" || (raw[field] as string).trim().length === 0)
+    ) {
+      invalidFields.push(field);
+    }
+  }
+  if (raw["statusMessage"] !== undefined && typeof raw["statusMessage"] !== "string") {
+    invalidFields.push("statusMessage");
+  }
+  if (raw["async"] !== undefined && typeof raw["async"] !== "boolean") {
+    invalidFields.push("async");
+  }
+  if (
+    raw["timeout"] !== undefined &&
+    (!Number.isInteger(raw["timeout"]) || Number(raw["timeout"]) < 0)
+  ) {
+    invalidFields.push("timeout");
+  }
+  if (invalidFields.length > 0) return { handler: null, invalidFields };
+  return { handler: raw as unknown as HookHandler, invalidFields };
 }
 
 function tomlEscape(value: string): string {
@@ -185,6 +235,7 @@ export const codexAdapter = defineAdapter({
         url?: string;
         args?: string[];
         env?: Record<string, unknown>;
+        cwd?: string;
         [key: string]: unknown;
       };
       // Same gate as the claude-code adapter: MCP commands are arbitrary
@@ -198,9 +249,16 @@ export const codexAdapter = defineAdapter({
         unsupported.push(atom.id);
         continue;
       }
-      if (a.url && a.command) {
+      if (
+        a.url &&
+        (!isCredentialFreeHttpUrl(a.url) ||
+          Boolean(a.command) ||
+          (a.args?.length ?? 0) > 0 ||
+          Object.keys(a.env ?? {}).length > 0 ||
+          Boolean(a.cwd))
+      ) {
         warnings.push(
-          `MCP server \`${atom.id}\` declares both a URL and command. Refusing to emit an ambiguous transport.`,
+          `MCP server \`${atom.id}\` has unsafe or mixed remote settings. Refusing to emit an ambiguous transport.`,
         );
         unsupported.push(atom.id);
         continue;
@@ -311,15 +369,17 @@ export const codexAdapter = defineAdapter({
           (parsed?.["events"] as { generic?: string[] } | undefined)?.generic ?? [
             "after_edit",
           ]) as string[];
-        const handler =
-          (parsed?.["handler"] as HookHandler | undefined) ??
-          (
-            atom as {
-              handler?: HookHandler;
-            }
-          ).handler;
-        const command = handler?.command ?? "";
-        if (handler?.script_path) {
+        const rawHandler = parsed?.["handler"] ?? (atom as { handler?: unknown }).handler;
+        const { handler, invalidFields } = parseHookHandler(rawHandler);
+        if (!handler) {
+          warnings.push(
+            `Hook ${atom.id} has malformed or unsupported handler fields: ${invalidFields.join(", ")}. Refusing to emit it.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        const command = handler.command;
+        if (handler.script_path) {
           warnings.push(
             `Hook \`${atom.id}\` bundles a runtime-specific script that the Codex adapter cannot place safely. Refusing to emit it.`,
           );
@@ -338,7 +398,7 @@ export const codexAdapter = defineAdapter({
           continue;
         }
         if (
-          handler?.commandWindows !== undefined &&
+          handler.commandWindows !== undefined &&
           (!allowedShellCommands.includes(handler.commandWindows) ||
             isShellEscape(handler.commandWindows, []))
         ) {

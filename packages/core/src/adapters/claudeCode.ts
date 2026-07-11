@@ -13,7 +13,7 @@ import {
   yamlFrontmatter,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
-import { isShellEscape } from "./commandGate.js";
+import { isCredentialFreeHttpUrl, isShellEscape } from "./commandGate.js";
 import {
   conformSkillMd,
   normalizeSkillSlug,
@@ -46,13 +46,67 @@ interface ParsedYaml {
 }
 
 interface HookHandler {
-  command?: string;
+  command: string;
   matcher?: string;
   script_path?: string;
   async?: boolean;
   timeout?: number;
   commandWindows?: string;
   statusMessage?: string;
+}
+
+function parseHookHandler(value: unknown): {
+  handler: HookHandler | null;
+  invalidFields: string[];
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { handler: null, invalidFields: ["handler"] };
+  }
+  const raw = value as Record<string, unknown>;
+  const invalidFields: string[] = [];
+  const allowedFields = new Set([
+    "kind",
+    "command",
+    "matcher",
+    "script_path",
+    "async",
+    "timeout",
+    "commandWindows",
+    "statusMessage",
+  ]);
+  invalidFields.push(...Object.keys(raw).filter((field) => !allowedFields.has(field)));
+  if (
+    typeof raw["command"] !== "string" ||
+    (raw["command"] as string).trim().length === 0
+  ) {
+    invalidFields.push("command");
+  }
+  if (raw["kind"] !== undefined && raw["kind"] !== "shell") invalidFields.push("kind");
+  for (const field of ["matcher", "script_path", "commandWindows"]) {
+    if (
+      raw[field] !== undefined &&
+      (typeof raw[field] !== "string" || (raw[field] as string).trim().length === 0)
+    ) {
+      invalidFields.push(field);
+    }
+  }
+  if (raw["statusMessage"] !== undefined && typeof raw["statusMessage"] !== "string") {
+    invalidFields.push("statusMessage");
+  }
+  if (raw["async"] !== undefined && typeof raw["async"] !== "boolean") {
+    invalidFields.push("async");
+  }
+  if (
+    raw["timeout"] !== undefined &&
+    (typeof raw["timeout"] !== "number" ||
+      !Number.isInteger(raw["timeout"]) ||
+      raw["timeout"] < 0)
+  ) {
+    invalidFields.push("timeout");
+  }
+  if (invalidFields.length > 0) return { handler: null, invalidFields };
+
+  return { handler: raw as unknown as HookHandler, invalidFields };
 }
 
 async function parseAtomYaml(packRoot: string, atom: Atom): Promise<ParsedYaml | null> {
@@ -279,14 +333,16 @@ export const claudeCodeAdapter = defineAdapter({
           (parsed?.["events"] as { "claude-code"?: string[] } | undefined)?.[
             "claude-code"
           ] ?? ["PostToolUse"]) as string[];
-        const handler =
-          (parsed?.["handler"] as HookHandler | undefined) ??
-          (
-            atom as {
-              handler?: HookHandler;
-            }
-          ).handler;
-        const command = handler?.command ?? "";
+        const rawHandler = parsed?.["handler"] ?? (atom as { handler?: unknown }).handler;
+        const { handler, invalidFields } = parseHookHandler(rawHandler);
+        if (!handler) {
+          warnings.push(
+            `Hook \`${atom.id}\` has a malformed hook handler (${invalidFields.join(", ")}). Refusing to emit it into settings.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        const command = handler.command;
         if (!isHookCommandAllowed(command, allowedShellCommands)) {
           warnings.push(
             `Hook \`${atom.id}\` declares command \`${command || "(empty)"}\` which is NOT listed in \`permissions.shell.commands\`. Refusing to emit it into settings.json.`,
@@ -295,7 +351,7 @@ export const claudeCodeAdapter = defineAdapter({
           continue;
         }
         if (
-          handler?.commandWindows !== undefined &&
+          handler.commandWindows !== undefined &&
           !isHookCommandAllowed(handler.commandWindows, allowedShellCommands)
         ) {
           warnings.push(
@@ -307,7 +363,7 @@ export const claudeCodeAdapter = defineAdapter({
         // Bundled hook script (#90): write it to `.claude/hooks/<name>` so the
         // rewritten `$CLAUDE_PROJECT_DIR/.claude/hooks/<name>` command resolves.
         // The emitted file is path-contained + lockfile-hashed like any output.
-        if (handler?.script_path) {
+        if (handler.script_path) {
           const scriptBody = await readPackRelativeFile(packRoot, handler.script_path);
           if (scriptBody == null) {
             warnings.push(
@@ -332,7 +388,7 @@ export const claudeCodeAdapter = defineAdapter({
             "commandWindows",
             "statusMessage",
           ] as const) {
-            if (handler?.[key] !== undefined) commandHook[key] = handler[key];
+            if (handler[key] !== undefined) commandHook[key] = handler[key];
           }
           const entry: Record<string, unknown> = { hooks: [commandHook] };
           // Tool-event hooks need a tool matcher. A pack may pin its own via
@@ -340,7 +396,7 @@ export const claudeCodeAdapter = defineAdapter({
           // bare "*" would fire the command after EVERY tool call (Read,
           // Grep, Bash, ...), which is never what an after-edit hook means.
           if (evt === "PreToolUse" || evt === "PostToolUse") {
-            entry["matcher"] = handler?.matcher ?? "Edit|Write";
+            entry["matcher"] = handler.matcher ?? "Edit|Write";
           }
           list.push(entry);
           hooks[evt] = list;
@@ -376,6 +432,7 @@ export const claudeCodeAdapter = defineAdapter({
           args?: string[];
           env?: Record<string, unknown>;
           url?: string;
+          cwd?: string;
           codex_only_config?: string[];
         };
         if ((a.codex_only_config?.length ?? 0) > 0) {
@@ -418,11 +475,18 @@ export const claudeCodeAdapter = defineAdapter({
               Object.entries(a.env ?? {}).map(([k]) => [k, `\${${k}}`]),
             ),
           };
-        } else if ((transport === "http" || transport === "sse") && a.url && !a.command) {
+        } else if (
+          (transport === "http" || transport === "sse") &&
+          isCredentialFreeHttpUrl(a.url) &&
+          !a.command &&
+          (a.args?.length ?? 0) === 0 &&
+          Object.keys(a.env ?? {}).length === 0 &&
+          !a.cwd
+        ) {
           mcpServers[slug] = { type: transport, url: a.url };
         } else {
           warnings.push(
-            `MCP server ${atom.id} has an unsupported or ambiguous transport. Refusing to emit it into .mcp.json.`,
+            `MCP server ${atom.id} has an unsupported transport or unsafe remote URL. Refusing to emit it into .mcp.json.`,
           );
           unsupported.push(atom.id);
           continue;

@@ -123,6 +123,31 @@ describe("exportChat", () => {
     await fs.rm(out, { recursive: true, force: true });
   });
 
+  it("refuses credential-bearing remote MCP URLs", async () => {
+    const source = await tmp();
+    const out = await tmp();
+    await fs.cp(FIXTURE, source, { recursive: true });
+    const manifestPath = path.join(source, "AGENTPACK.yaml");
+    const manifest = await fs.readFile(manifestPath, "utf8");
+    await fs.writeFile(
+      manifestPath,
+      manifest.replace(
+        "https://mcp.example.com/tickets",
+        "https://user:fixture-secret@mcp.example.com/tickets?token=fixture-secret",
+      ),
+    );
+
+    const result = await exportChat({ source, profile: "full", outDir: out });
+    expect(result.connectors).toEqual([]);
+    expect(result.report.find((entry) => entry.atomId === "mcp_server:tickets")).toEqual(
+      expect.objectContaining({ portable: false }),
+    );
+    expect(JSON.stringify(result)).not.toContain("fixture-secret");
+
+    await fs.rm(source, { recursive: true, force: true });
+    await fs.rm(out, { recursive: true, force: true });
+  });
+
   it("emits project-instructions.md from instruction/rule atoms", async () => {
     const out = await tmp();
     await exportChat({ source: FIXTURE, profile: "full", outDir: out });

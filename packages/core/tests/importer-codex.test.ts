@@ -963,6 +963,35 @@ describe("importCodexDir (I/O + round-trip)", () => {
         url: "https://example.com/mcp",
       });
       expect(exported.plan.unsupportedAtoms).not.toContain("mcp_server:docs");
+
+      const manifestPath = path.join(pack, "AGENTPACK.yaml");
+      const manifest = parseYaml(await fs.readFile(manifestPath, "utf8")) as {
+        atoms: Array<Record<string, unknown>>;
+      };
+      const mcp = manifest.atoms.find((atom) => atom["id"] === "mcp_server:docs")!;
+      mcp["args"] = ["--stdio-only"];
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      const withArgs = await exportPack({
+        source: pack,
+        target: "claude-code",
+        outDir: path.join(source, "args-out"),
+      });
+      expect(withArgs.plan.unsupportedAtoms).toContain("mcp_server:docs");
+
+      delete mcp["args"];
+      mcp["url"] = "https://user:fixture-secret@example.com/mcp?token=fixture-secret";
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      const withSecret = await exportPack({
+        source: pack,
+        target: "claude-code",
+        outDir: path.join(source, "secret-out"),
+      });
+      expect(withSecret.plan.unsupportedAtoms).toContain("mcp_server:docs");
+      expect(
+        await fs
+          .readFile(path.join(source, "secret-out/.mcp.json"), "utf8")
+          .catch(() => ""),
+      ).not.toContain("fixture-secret");
     } finally {
       await fs.rm(source, { recursive: true, force: true });
     }
@@ -1077,6 +1106,43 @@ describe("importCodexDir (I/O + round-trip)", () => {
       expect(emitted.hooks.PostToolUse?.[0]).toEqual(
         expect.objectContaining({ matcher: "Edit|Write" }),
       );
+    } finally {
+      await fs.rm(source, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses malformed authored hook option types without crashing adapters", async () => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-hook-malformed-"));
+    const pack = path.join(source, "pack");
+    try {
+      await fs.mkdir(path.join(source, ".codex"), { recursive: true });
+      await fs.writeFile(
+        path.join(source, ".codex/hooks.json"),
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [{ hooks: [{ type: "command", command: "echo safe" }] }],
+          },
+        }),
+      );
+      const result = await importCodexDir(source, { id: "acme.hook-malformed" });
+      await writeImport(result, pack);
+      const hook = result.manifest.atoms.find((atom) => atom.type === "hook")!;
+      const descriptorPath = path.join(pack, hook.path);
+      const descriptor = parseYaml(await fs.readFile(descriptorPath, "utf8")) as {
+        handler: Record<string, unknown>;
+      };
+      descriptor.handler["commandWindows"] = { command: "not-a-string" };
+      descriptor.handler["async"] = "true";
+      await fs.writeFile(descriptorPath, stringifyYaml(descriptor));
+
+      for (const target of ["codex", "claude-code"] as const) {
+        const exported = await exportPack({
+          source: pack,
+          target,
+          outDir: path.join(source, `${target}-out`),
+        });
+        expect(exported.plan.unsupportedAtoms).toContain(hook.id);
+      }
     } finally {
       await fs.rm(source, { recursive: true, force: true });
     }

@@ -77,8 +77,6 @@ const INTERPRETER_EVAL_FLAGS: Record<string, RegExp> = {
   luajit: /^-e$/,
   rscript: /^-e$/, // Rscript -e '<code>' (basename lowercased)
   osascript: /^-e$/,
-  powershell: /^-(?:command|encodedcommand|c|e(?:ncodedcommand)?)$/i,
-  pwsh: /^-(?:command|encodedcommand|c|e(?:ncodedcommand)?)$/i,
   // GNU sed executes shell via the `e` command (`…e cmd`) or the `s///e` flag.
   sed: /(^|[;\n])\s*e(\s|$)|s[^\w\s][^\n]*[^\w\s][a-z]*e[a-z]*$/,
 };
@@ -91,7 +89,32 @@ const AWK_BASENAMES = new Set(["awk", "gawk", "mawk", "nawk", "busybox"]);
 
 function basename(command: string): string {
   const parts = command.split(/[\\/]+/);
-  return (parts[parts.length - 1] ?? command).toLowerCase();
+  return (parts[parts.length - 1] ?? command).toLowerCase().replace(/\.exe$/, "");
+}
+
+function isPowerShellEvalFlag(arg: string): boolean {
+  const flag = arg.toLowerCase();
+  return (
+    flag.length > 1 && ("-command".startsWith(flag) || "-encodedcommand".startsWith(flag))
+  );
+}
+
+function containsWindowsShellEval(command: string, args: readonly string[]): boolean {
+  const tokens = [command, ...args]
+    .join(" ")
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/^["']|["']$/g, ""));
+  for (let index = 0; index < tokens.length; index += 1) {
+    const executable = basename(tokens[index] ?? "");
+    const trailing = tokens.slice(index + 1);
+    if (executable === "powershell" || executable === "pwsh") {
+      if (trailing.some(isPowerShellEvalFlag)) return true;
+      if (!trailing.some((arg) => arg.toLowerCase() === "-file")) return true;
+    }
+    if (executable === "cmd") return true;
+  }
+  return false;
 }
 
 /**
@@ -103,6 +126,7 @@ function basename(command: string): string {
  */
 export function isShellEscape(command: string, args: readonly string[]): boolean {
   if (!command) return true;
+  if (containsWindowsShellEval(command, args)) return true;
   const base = basename(command);
   if (base === "eval") return true;
   // Indirection wrappers (env/find/xargs/git/make/…) run an arbitrary trailing
@@ -114,6 +138,12 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   if (REJECTED_WRAPPER_BASENAMES.has(base)) return true;
   if (SHELL_BASENAMES.has(base)) {
     return args.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
+  }
+  if (base === "powershell" || base === "pwsh") {
+    return args.some(isPowerShellEvalFlag);
+  }
+  if (base === "cmd") {
+    return args.some((a) => /^\/[ck]$/i.test(a));
   }
   if (AWK_BASENAMES.has(base)) {
     // busybox is only an awk shape when its applet is awk.
@@ -130,7 +160,23 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   // Fallback string check for commands that embed the whole invocation in
   // one string (hook commands): catches `sh -c`, `bash -lc`, `node -e`, ...
   const joined = [command, ...args].join(" ");
-  return /\b(?:sh|bash|zsh|ksh|dash|fish)\s+-[A-Za-z]*c\b|\bnode\s+(?:-e|--eval|-p)\b|\bpython3?\s+-[A-Za-z]*c\b|\bperl\s+-[A-Za-z]*[eE]\b|\bruby\s+-[A-Za-z]*e\b|\b(?:awk|gawk|mawk|nawk)\s+[^-]|\bphp\s+-[A-Za-z]*r\b|\b(?:lua|luajit|rscript|osascript)\s+-e\b|\b(?:powershell|pwsh)\s+-(?:command|encodedcommand|c|e(?:ncodedcommand)?)\b|\beval\b/i.test(
+  return /\b(?:sh|bash|zsh|ksh|dash|fish)\s+-[A-Za-z]*c\b|\bnode\s+(?:-e|--eval|-p)\b|\bpython3?\s+-[A-Za-z]*c\b|\bperl\s+-[A-Za-z]*[eE]\b|\bruby\s+-[A-Za-z]*e\b|\b(?:awk|gawk|mawk|nawk)\s+[^-]|\bphp\s+-[A-Za-z]*r\b|\b(?:lua|luajit|rscript|osascript)\s+-e\b|\b(?:powershell|pwsh)(?:\.exe)?\s+-(?:c(?:ommand)?|e(?:n(?:c(?:odedcommand)?)?)?)\b|\bcmd(?:\.exe)?\s+\/[ck]\b|\beval\b/i.test(
     joined,
   );
+}
+
+export function isCredentialFreeHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash
+    );
+  } catch {
+    return false;
+  }
 }

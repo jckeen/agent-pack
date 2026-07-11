@@ -12,7 +12,7 @@
 import { parse as parseToml } from "smol-toml";
 import { parseClaudeMd, type ParsedClaudeMd } from "./parseClaudeMd.js";
 import { sanitizeCodexAgentConfig } from "../codex/customAgentConfig.js";
-import { isShellEscape } from "../adapters/commandGate.js";
+import { isCredentialFreeHttpUrl, isShellEscape } from "../adapters/commandGate.js";
 
 export interface CodexSkill {
   /** Directory name under `.agents/skills/` (also the skill `name`). */
@@ -161,22 +161,6 @@ function validMcpConfigValue(key: string, value: unknown): boolean {
   return false;
 }
 
-function isPortableMcpUrl(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  try {
-    const parsed = new URL(value);
-    return (
-      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
-      !parsed.username &&
-      !parsed.password &&
-      !parsed.search &&
-      !parsed.hash
-    );
-  } catch {
-    return false;
-  }
-}
-
 function parseMcpServers(
   table: Record<string, unknown>,
   warnings: CodexWarning[],
@@ -228,7 +212,7 @@ function parseMcpServers(
       .map(([key]) => key)
       .sort();
     const unsafeUrl =
-      Object.prototype.hasOwnProperty.call(d, "url") && !isPortableMcpUrl(d["url"]);
+      Object.prototype.hasOwnProperty.call(d, "url") && !isCredentialFreeHttpUrl(d["url"]);
     if (unsafeUrl && !malformedKeys.includes("url")) malformedKeys.push("url");
     const legacyTransport = d["transport"];
     const malformedTransport =
@@ -238,7 +222,7 @@ function parseMcpServers(
           typeof d["command"] === "string" &&
           d["url"] === undefined) ||
         (legacyTransport === "http" &&
-          isPortableMcpUrl(d["url"]) &&
+          isCredentialFreeHttpUrl(d["url"]) &&
           d["command"] === undefined)
       );
     if (malformedTransport) malformedKeys.push("transport");
@@ -294,11 +278,11 @@ function parseMcpServers(
       transport:
         legacyTransport === "stdio" || legacyTransport === "http"
           ? legacyTransport
-          : isPortableMcpUrl(d["url"])
+          : isCredentialFreeHttpUrl(d["url"])
             ? "http"
             : undefined,
       command: typeof d["command"] === "string" ? (d["command"] as string) : undefined,
-      url: isPortableMcpUrl(d["url"]) ? d["url"] : undefined,
+      url: isCredentialFreeHttpUrl(d["url"]) ? d["url"] : undefined,
       args: isStringArray(d["args"]) ? d["args"] : undefined,
       env: isStringRecord(env) && malformedEnvKeys.length === 0 ? env : undefined,
       cwd: typeof d["cwd"] === "string" ? (d["cwd"] as string) : undefined,

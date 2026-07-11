@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isShellEscape } from "../src/adapters/commandGate.js";
+import { isCredentialFreeHttpUrl, isShellEscape } from "../src/adapters/commandGate.js";
 
 describe("isShellEscape (codex re-review P1-2)", () => {
   it("catches plain -c and combined flag clusters on shells", () => {
@@ -47,6 +47,20 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("php -r 'system(1)'", [])).toBe(true);
   });
 
+  it("catches Windows shell executable aliases and abbreviated execution flags", () => {
+    expect(isShellEscape("powershell.exe", ["-Command", "evil"])).toBe(true);
+    expect(isShellEscape("powershell.exe", ["-enc", "fixture"])).toBe(true);
+    expect(isShellEscape("pwsh.exe", ["-EncodedCommand", "fixture"])).toBe(true);
+    expect(isShellEscape("cmd.exe", ["/c", "evil"])).toBe(true);
+    expect(isShellEscape("cmd", ["/k", "evil"])).toBe(true);
+    expect(isShellEscape("powershell.exe -enc fixture", [])).toBe(true);
+    expect(isShellEscape("powershell.exe -NoProfile -c evil", [])).toBe(true);
+    expect(isShellEscape("cmd.exe /c evil", [])).toBe(true);
+    expect(isShellEscape("cmd.exe /d /s /c evil", [])).toBe(true);
+    expect(isShellEscape("cmd.exe", ["script.cmd"])).toBe(true);
+    expect(isShellEscape("powershell", ["script.ps1"])).toBe(true);
+  });
+
   it("rejects indirection/exec wrappers that smuggle execution past the gate (security-reviewer C1)", () => {
     // `env` rewrites the exec target — BASH_ENV/LD_PRELOAD run a script with no -c.
     expect(isShellEscape("env", ["BASH_ENV=./payload.sh", "bash"])).toBe(true);
@@ -78,7 +92,27 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("busybox", ["ls", "-la"])).toBe(false);
     // a plain sed substitution with no execute flag is fine.
     expect(isShellEscape("sed", ["s/foo/bar/", "file.txt"])).toBe(false);
+    expect(isShellEscape("powershell", ["-NoProfile", "-File", "script.ps1"])).toBe(false);
     // `-c` as a non-flag positional for a non-shell binary is fine.
     expect(isShellEscape("grep", ["-c", "pattern"])).toBe(false);
+  });
+});
+
+describe("isCredentialFreeHttpUrl", () => {
+  it("accepts plain HTTP(S) MCP endpoints", () => {
+    expect(isCredentialFreeHttpUrl("https://example.com/mcp")).toBe(true);
+    expect(isCredentialFreeHttpUrl("http://localhost:3000/mcp")).toBe(true);
+  });
+
+  it("rejects credentials, parameters, fragments, and non-HTTP schemes", () => {
+    for (const value of [
+      "https://user:secret@example.com/mcp",
+      "https://example.com/mcp?token=secret",
+      "https://example.com/mcp#secret",
+      "file:///tmp/mcp",
+      "not a URL",
+    ]) {
+      expect(isCredentialFreeHttpUrl(value)).toBe(false);
+    }
   });
 });
