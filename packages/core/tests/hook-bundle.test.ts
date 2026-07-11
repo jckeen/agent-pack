@@ -24,7 +24,7 @@ async function writeSettings(hookCommand: string): Promise<void> {
     JSON.stringify({
       hooks: {
         PostToolUse: [
-          { matcher: "Edit", hooks: [{ type: "command", command: hookCommand }] },
+          { matcher: "Edit|Write", hooks: [{ type: "command", command: hookCommand }] },
         ],
       },
     }),

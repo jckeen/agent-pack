@@ -21,13 +21,11 @@ import { stringify } from "yaml";
 import type {
   AgentPackManifest,
   Atom,
-  CompatibilityMap,
   PermissionsBlock,
   RiskLevel,
-  TargetPlatform,
 } from "../schema/types.js";
-import { TARGET_PLATFORMS } from "../schema/types.js";
 import { buildManifest, slugify, type ImportFile } from "./buildManifest.js";
+import { importedCompatibility } from "./importCompatibility.js";
 import type { ParseWarning } from "./parseClaudeMd.js";
 import type { ParsedChatgptGpt } from "./parseChatgptGpt.js";
 
@@ -42,14 +40,6 @@ export interface BuildChatgptManifestResult {
   manifest: AgentPackManifest;
   files: ImportFile[];
   warnings: ParseWarning[];
-}
-
-function defaultTargets(): CompatibilityMap {
-  const targets: CompatibilityMap = {};
-  for (const t of TARGET_PLATFORMS) {
-    targets[t as TargetPlatform] = { status: "supported" };
-  }
-  return targets;
 }
 
 /** Unique-slug allocator shared across every atom kind. */
@@ -273,7 +263,7 @@ export function buildChatgptManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: defaultTargets() },
+    compatibility: { targets: importedCompatibility("chatgpt", "experimental") },
     permissions,
     security: { risk_level: riskLevel, risk_summary: riskSummary },
     profiles: {

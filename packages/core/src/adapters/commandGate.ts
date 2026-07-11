@@ -31,7 +31,8 @@ const SHELL_BASENAMES = new Set([
  *    `PATH` (so `env BASH_ENV=./payload.sh bash` runs a script with no `-c`).
  *  - `find -exec` / `xargs` / `watch` / `timeout` / `nohup` / `setsid` /
  *    `nice` / `stdbuf` / `flock` run an arbitrary trailing command.
- *  - `git -c core.pager='!cmd'` (and aliases) execute shell.
+ *  - Git config overrides such as `git -c core.pager='!cmd'` execute shell;
+ *    ordinary fixed subcommands such as `git status` remain usable as hooks.
  *  - `make -f -`, `ssh host cmd`, `socat EXEC:…`, `nc -e`, `expect -c`,
  *    `gdb -ex`, and editors (`vim -c '!cmd'`) all reach a shell.
  * Rejected outright — they are indirection, not servers. (security-reviewer C1)
@@ -47,7 +48,6 @@ const REJECTED_WRAPPER_BASENAMES = new Set([
   "nice",
   "stdbuf",
   "flock",
-  "git",
   "make",
   "ssh",
   "socat",
@@ -86,10 +86,142 @@ const INTERPRETER_EVAL_FLAGS: Record<string, RegExp> = {
 // arbitrary execution. An awk MCP server is not a real shape, so any awk
 // invocation with a program arg is treated as a shell escape.
 const AWK_BASENAMES = new Set(["awk", "gawk", "mawk", "nawk", "busybox"]);
+const SAFE_GIT_SUBCOMMANDS = new Set(["status", "diff", "log", "show", "rev-parse"]);
 
 function basename(command: string): string {
   const parts = command.split(/[\\/]+/);
-  return (parts[parts.length - 1] ?? command).toLowerCase();
+  return (parts[parts.length - 1] ?? command).toLowerCase().replace(/\.exe$/, "");
+}
+
+function tokenizeCommand(command: string): string[] | null {
+  const tokens: string[] = [];
+  let current = "";
+  let started = false;
+  let quote: "single" | "double" | null = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index] ?? "";
+    if (quote === "single") {
+      if (char === "'") quote = null;
+      else current += char;
+      started = true;
+      continue;
+    }
+    if (quote === "double") {
+      if (char === '"') {
+        quote = null;
+      } else if (char === "\\" && command[index + 1] !== undefined) {
+        const next = command[index + 1] ?? "";
+        if ('"\\$`\n'.includes(next)) {
+          current += next;
+          index += 1;
+        } else {
+          current += char;
+        }
+      } else {
+        current += char;
+      }
+      started = true;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (started) tokens.push(current);
+      current = "";
+      started = false;
+    } else if (char === "'") {
+      quote = "single";
+      started = true;
+    } else if (char === '"') {
+      quote = "double";
+      started = true;
+    } else if (char === "\\") {
+      if (command[index + 1] === undefined) return null;
+      if (
+        /^[A-Za-z]:/.test(current) ||
+        current === "." ||
+        current === ".." ||
+        current.startsWith("\\\\")
+      ) {
+        current += char;
+      } else if (current === "" && command[index + 1] === "\\") {
+        current += "\\\\";
+        index += 1;
+      } else {
+        current += command[index + 1] ?? "";
+        index += 1;
+      }
+      started = true;
+    } else {
+      current += char;
+      started = true;
+    }
+  }
+  if (quote) return null;
+  if (started) tokens.push(current);
+  return tokens;
+}
+
+function containsShellComposition(command: string): boolean {
+  let singleQuoted = false;
+  let doubleQuoted = false;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index] ?? "";
+    if (char === "\\" && !singleQuoted) {
+      index += 1;
+      continue;
+    }
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted;
+      continue;
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted;
+      continue;
+    }
+    if (
+      char === "^" ||
+      (!singleQuoted && (char === "`" || char === "\r" || char === "\n"))
+    ) {
+      return true;
+    }
+    if (!singleQuoted && char === "$" && command[index + 1] === "(") return true;
+    if (!singleQuoted && !doubleQuoted && ";&|<>".includes(char)) return true;
+  }
+  return false;
+}
+
+function normalizePowerShellFlag(arg: string): string {
+  return arg.toLowerCase().replace(/^[\u2013\u2014\u2015]/, "-");
+}
+
+function isPowerShellEvalFlag(arg: string): boolean {
+  const flag = normalizePowerShellFlag(arg);
+  return (
+    flag.length > 1 && ("-command".startsWith(flag) || "-encodedcommand".startsWith(flag))
+  );
+}
+
+function isPowerShellFileFlag(arg: string): boolean {
+  const flag = normalizePowerShellFlag(arg);
+  return flag.length > 1 && "-file".startsWith(flag);
+}
+
+function containsWindowsShellEval(
+  commandTokens: readonly string[],
+  args: readonly string[],
+): boolean {
+  const executable = basename(commandTokens[0] ?? "");
+  const trailing = [...commandTokens.slice(1), ...args];
+  if (
+    /%[^%]+%/.test(executable) ||
+    ["$env:comspec", "${env:comspec}"].includes(executable)
+  ) {
+    return true;
+  }
+  if (executable === "powershell" || executable === "pwsh") {
+    if (trailing.some(isPowerShellEvalFlag)) return true;
+    if (!trailing.some(isPowerShellFileFlag)) return true;
+  }
+  return executable === "cmd";
 }
 
 /**
@@ -101,7 +233,19 @@ function basename(command: string): string {
  */
 export function isShellEscape(command: string, args: readonly string[]): boolean {
   if (!command) return true;
-  const base = basename(command);
+  if (command.includes("$'")) return true;
+  if (containsShellComposition(command)) return true;
+  const commandTokens = tokenizeCommand(command);
+  if (!commandTokens || commandTokens.length === 0) return true;
+  const executable = commandTokens[0] ?? "";
+  const firstToken = commandTokens[0] ?? command;
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(firstToken)) return true;
+  if (executable.includes("$") && !/^\$\{?CLAUDE_PROJECT_DIR\}?\//i.test(executable)) {
+    return true;
+  }
+  if (containsWindowsShellEval(commandTokens, args)) return true;
+  const base = basename(executable);
+  const effectiveArgs = [...commandTokens.slice(1), ...args];
   if (base === "eval") return true;
   // Indirection wrappers (env/find/xargs/git/make/…) run an arbitrary trailing
   // command and have no legitimate MCP-server/hook shape — reject outright.
@@ -110,25 +254,70 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   // code is what an MCP server IS. That risk is surfaced for install-time
   // consent by the risk engine, not blocked by this gate.
   if (REJECTED_WRAPPER_BASENAMES.has(base)) return true;
+  if (base === "git") {
+    const subcommand = effectiveArgs[0] ?? "";
+    return (
+      !SAFE_GIT_SUBCOMMANDS.has(subcommand) ||
+      effectiveArgs.some(
+        (arg) =>
+          arg.startsWith("--config-env") ||
+          arg === "--ext-diff" ||
+          arg === "--textconv" ||
+          /(?:pager|alias)\s*=/.test(arg),
+      )
+    );
+  }
   if (SHELL_BASENAMES.has(base)) {
-    return args.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
+    return effectiveArgs.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
   }
   if (AWK_BASENAMES.has(base)) {
     // busybox is only an awk shape when its applet is awk.
-    if (base === "busybox" && args[0] !== "awk") {
+    if (base === "busybox" && effectiveArgs[0] !== "awk") {
       // fall through to interpreter/fallback checks below
     } else {
-      return args.some((a) => !a.startsWith("-"));
+      return effectiveArgs.some((a) => !a.startsWith("-"));
     }
   }
   const evalFlag = INTERPRETER_EVAL_FLAGS[base];
   if (evalFlag) {
-    return args.some((a) => evalFlag.test(a));
+    return effectiveArgs.some((a) => evalFlag.test(a));
   }
   // Fallback string check for commands that embed the whole invocation in
   // one string (hook commands): catches `sh -c`, `bash -lc`, `node -e`, ...
   const joined = [command, ...args].join(" ");
-  return /\b(?:sh|bash|zsh|ksh|dash|fish)\s+-[A-Za-z]*c\b|\bnode\s+(?:-e|--eval|-p)\b|\bpython3?\s+-[A-Za-z]*c\b|\bperl\s+-[A-Za-z]*[eE]\b|\bruby\s+-[A-Za-z]*e\b|\b(?:awk|gawk|mawk|nawk)\s+[^-]|\bphp\s+-[A-Za-z]*r\b|\b(?:lua|luajit|rscript|osascript)\s+-e\b|\beval\b/i.test(
+  return /\b(?:sh|bash|zsh|ksh|dash|fish)\s+-[A-Za-z]*c\b|\bnode\s+(?:-e|--eval|-p)\b|\bpython3?\s+-[A-Za-z]*c\b|\bperl\s+-[A-Za-z]*[eE]\b|\bruby\s+-[A-Za-z]*e\b|\b(?:awk|gawk|mawk|nawk)\s+[^-]|\bphp\s+-[A-Za-z]*r\b|\b(?:lua|luajit|rscript|osascript)\s+-e\b|\b(?:powershell|pwsh)(?:\.exe)?\s+-(?:c(?:ommand)?|e(?:n(?:c(?:odedcommand)?)?)?)\b|\bcmd(?:\.exe)?\s+\/[ck]\b|\beval\b/i.test(
     joined,
   );
+}
+
+export function isCredentialFreeHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = new URL(value);
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    const segments = decodedPath.split("/").filter(Boolean);
+    const hasCredentialSegment = segments.some(
+      (segment, index) =>
+        /^(?:sk|pk|gh[pousr]|github_pat|xox[baprs]|pat)[-_][A-Za-z0-9_-]{6,}$/i.test(
+          segment,
+        ) ||
+        /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(segment) ||
+        (/^(?:s|session|token|access[-_]?token|secret|credential|password|api[-_]?key|key|auth)$/i.test(
+          segment,
+        ) &&
+          segments[index + 1] !== undefined &&
+          !/^(?:mcp|sse|events)$/i.test(segments[index + 1] ?? "")),
+    );
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash &&
+      !decodedPath.includes(";") &&
+      !hasCredentialSegment
+    );
+  } catch {
+    return false;
+  }
 }

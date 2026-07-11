@@ -126,6 +126,55 @@ describe("buildManifest", () => {
     expect(ids).toContain("instruction:my-section-2");
   });
 
+  it("defaults source-ambiguous standalone instructions to generic", () => {
+    const parsed = parseClaudeMd("## Working Style\n\nbody\n");
+    const { manifest } = buildManifest(parsed, OPTS);
+    expect(manifest.compatibility.targets.generic?.status).toBe("supported");
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
+  it("uses an explicitly identified standalone source runtime", () => {
+    const parsed = parseClaudeMd("## Working Style\n\nbody\n");
+    const { manifest } = buildManifest(parsed, { ...OPTS, source: "codex" });
+    expect(manifest.compatibility.targets.codex?.status).toBe("supported");
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
+  it("downgrades a standalone source when imports are dropped", () => {
+    const parsed = parseClaudeMd(
+      "## Working Style\n\nBefore.\n@~/dev/private/CLAUDE.md\nAfter.\n",
+    );
+    const { manifest } = buildManifest(parsed, { ...OPTS, source: "claude-code" });
+    expect(parsed.warnings).toHaveLength(1);
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
+  it("downgrades a rule section when prose outside bullets would be lost", () => {
+    const parsed = parseClaudeMd(
+      "## Security\n\nKeep this context.\n\n- Never expose secrets.\n\nKeep this caveat.\n",
+    );
+    const { manifest, warnings } = buildManifest(parsed, {
+      ...OPTS,
+      source: "claude-code",
+    });
+    expect(
+      warnings.some((warning) => /prose outside list items/.test(warning.message)),
+    ).toBe(true);
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
+  it("downgrades a prose-only rule when its body is truncated", () => {
+    const parsed = parseClaudeMd(
+      `## Security\n\n${"Keep this security requirement. ".repeat(20)}\n`,
+    );
+    const { manifest, warnings } = buildManifest(parsed, {
+      ...OPTS,
+      source: "claude-code",
+    });
+    expect(warnings.some((warning) => /truncated/i.test(warning.message))).toBe(true);
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
   it("promotes governance/security headings to rules", () => {
     for (const h of [
       "Security",
@@ -188,11 +237,12 @@ describe("buildManifest", () => {
       "  so secrets do not slip in.",
     ].join("\n");
     const parsed = parseClaudeMd(text);
-    const { files } = buildManifest(parsed, OPTS);
+    const { files, warnings } = buildManifest(parsed, OPTS);
     const rule = parseYaml(files[0]!.content) as {
       behavior: { must: string[] };
     };
     expect(rule.behavior.must[0]).toContain("so secrets do not slip in");
+    expect(warnings).toEqual([]);
   });
 
   it("parses ordered-list (1./2)/...) items as individual must/must_not entries", () => {
@@ -207,7 +257,7 @@ describe("buildManifest", () => {
       "6. Local dev uses a real token through the same verifier.",
     ].join("\n");
     const parsed = parseClaudeMd(text);
-    const { files } = buildManifest(parsed, OPTS);
+    const { files, warnings } = buildManifest(parsed, OPTS);
     const rule = parseYaml(files[0]!.content) as {
       behavior: { must: string[]; must_not: string[] };
     };
@@ -218,6 +268,7 @@ describe("buildManifest", () => {
     ]);
     expect(rule.behavior.must[0]).toBe("Auth-by-default, not auth-by-config.");
     expect(rule.behavior.must[4]).toContain("Local dev uses a real token");
+    expect(warnings).toEqual([]);
   });
 
   it("folds wrapped continuation lines into an ordered-list item", () => {

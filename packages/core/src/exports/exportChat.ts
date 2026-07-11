@@ -24,6 +24,8 @@ import {
   renderSkillMd,
   SKILL_DESCRIPTION_MAX_LENGTH,
 } from "../skills/agentskills.js";
+import { isCredentialFreeHttpUrl } from "../adapters/commandGate.js";
+import { invalidChatMcpFields } from "../adapters/mcpValidation.js";
 
 export interface ExportChatOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -58,6 +60,8 @@ export interface ChatConnector {
   transport: "http" | "sse";
   url: string;
   auth: { scheme: string; scopes: string[] };
+  /** Optional tool catalogue retained from imported connector descriptors. */
+  tools?: Array<Record<string, unknown>>;
   /** Secrets the user must supply when adding the connector. */
   required_secrets: Array<{ name: string; description?: string }>;
   /** Copy-paste / QR install recipe text. */
@@ -184,7 +188,10 @@ export async function exportChat(options: ExportChatOptions): Promise<ExportChat
   );
 
   // ---------- 4. README + portability report ----------
-  const report = buildReport(resolved);
+  const report = buildReport(
+    resolved,
+    new Set(connectors.map((connector) => connector.atom)),
+  );
   const readmeContent = readme(loaded.manifest, profile, skills, connectors, report);
   await write("README.md", readmeContent);
 
@@ -328,8 +335,7 @@ async function onInvokeBody(atom: Atom, packRoot: string): Promise<string> {
 function ruleLines(parsed: Record<string, unknown> | null): string[] {
   const out: string[] = [];
   const behavior = parsed?.["behavior"] as
-    | { must?: unknown[]; must_not?: unknown[] }
-    | undefined;
+    { must?: unknown[]; must_not?: unknown[] } | undefined;
   const must = (behavior?.must ?? []).filter((s): s is string => typeof s === "string");
   const mustNot = (behavior?.must_not ?? []).filter(
     (s): s is string => typeof s === "string",
@@ -355,10 +361,15 @@ async function buildConnectors(
   for (const r of resolved) {
     if (r.atom.type !== "mcp_server") continue;
     const a = r.atom as McpAtom;
+    if (hasCodexOnlyMcpConfig(a)) continue;
+    const body = await parseAtomYaml(packRoot, a);
+    if (!body) continue;
+    const combined = { ...body, ...a } as Record<string, unknown>;
+    if (invalidChatMcpFields(combined).length > 0) continue;
     const transport = a.transport ?? "stdio";
     // Chat custom connectors are remote MCP only; stdio servers ship as .mcpb.
     if (transport !== "http" && transport !== "sse") continue;
-    if (!a.url) continue;
+    if (!isCredentialFreeHttpUrl(a.url)) continue;
 
     const requiredSecrets: Array<{ name: string; description?: string }> = [];
     for (const [key, spec] of Object.entries(a.env ?? {})) {
@@ -368,8 +379,10 @@ async function buildConnectors(
       requiredSecrets.push({ name: key, ...(description ? { description } : {}) });
     }
 
-    const body = await parseAtomYaml(packRoot, a);
-    const auth = connectorAuth(a, body);
+    const auth = connectorAuth(a, combined);
+    const tools = Array.isArray(combined["tools"])
+      ? (combined["tools"] as Array<Record<string, unknown>>)
+      : undefined;
     connectors.push({
       atom: a.id,
       name: a.name,
@@ -377,6 +390,7 @@ async function buildConnectors(
       transport,
       url: a.url,
       auth,
+      ...(tools ? { tools } : {}),
       required_secrets: requiredSecrets,
       install_recipe: installRecipe(a, auth, requiredSecrets),
     });
@@ -497,11 +511,22 @@ async function projectInstructions(
 // README + report
 // ---------------------------------------------------------------------------
 
-function buildReport(resolved: ResolvedAtom[]): ChatPortabilityEntry[] {
-  return resolved.map((r) => reportEntry(r.atom));
+function buildReport(
+  resolved: ResolvedAtom[],
+  connectorAtoms: ReadonlySet<string>,
+): ChatPortabilityEntry[] {
+  return resolved.map((r) => reportEntry(r.atom, connectorAtoms));
 }
 
-function reportEntry(atom: Atom): ChatPortabilityEntry {
+function hasCodexOnlyMcpConfig(atom: McpAtom): boolean {
+  const keys = (atom as McpAtom & { codex_only_config?: unknown })["codex_only_config"];
+  return keys !== undefined && (!Array.isArray(keys) || keys.length > 0);
+}
+
+function reportEntry(
+  atom: Atom,
+  connectorAtoms: ReadonlySet<string>,
+): ChatPortabilityEntry {
   switch (atom.type) {
     case "skill":
       return {
@@ -520,8 +545,44 @@ function reportEntry(atom: Atom): ChatPortabilityEntry {
         note: "No ambient loader in Chat. Bridged to an on-invoke skill, and surfaced in project-instructions.md for within-Project ambient use.",
       };
     case "mcp_server": {
-      const transport = (atom as McpAtom).transport ?? "stdio";
+      const mcp = atom as McpAtom;
+      if (hasCodexOnlyMcpConfig(mcp)) {
+        return {
+          atomId: atom.id,
+          type: atom.type,
+          portable: false,
+          note: "Codex-only MCP policy cannot be represented safely as a Chat connector.",
+        };
+      }
+      if (invalidChatMcpFields(mcp as unknown as Record<string, unknown>).length > 0) {
+        return {
+          atomId: atom.id,
+          type: atom.type,
+          portable: false,
+          note: "MCP fields are malformed or cannot be represented by a Chat connector.",
+        };
+      }
+      if (
+        (mcp.transport === "http" || mcp.transport === "sse") &&
+        !isCredentialFreeHttpUrl(mcp.url)
+      ) {
+        return {
+          atomId: atom.id,
+          type: atom.type,
+          portable: false,
+          note: "Remote MCP URL is not a credential-free HTTP(S) endpoint.",
+        };
+      }
+      const transport = mcp.transport ?? "stdio";
       if (transport === "http" || transport === "sse") {
+        if (!connectorAtoms.has(atom.id)) {
+          return {
+            atomId: atom.id,
+            type: atom.type,
+            portable: false,
+            note: "MCP descriptor fields cannot be represented by a Chat connector.",
+          };
+        }
         return {
           atomId: atom.id,
           type: atom.type,

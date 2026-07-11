@@ -88,6 +88,14 @@ describe("buildChatgptManifest", () => {
     expect(validation.errors).toEqual([]);
   });
 
+  it("keeps lossy ChatGPT imports experimental", async () => {
+    const parsed = await readFixture();
+    const { manifest } = buildChatgptManifest(parsed, OPTS);
+    expect(manifest.compatibility.targets.chatgpt?.status).toBe("experimental");
+    expect(manifest.compatibility.targets.codex?.status).toBe("partial");
+    expect(manifest.compatibility.targets.codex?.notes).toMatch(/compiled.*verify/i);
+  });
+
   it("maps instructions → instruction + rule atoms (governance split)", async () => {
     const parsed = await readFixture();
     const { manifest } = buildChatgptManifest(parsed, OPTS);

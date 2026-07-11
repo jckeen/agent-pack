@@ -253,7 +253,7 @@ describe("adapters write expected files", () => {
     const r = await runExport("codex", "full");
     const toml = await fs.readFile(path.join(r.outDir, ".codex/config.toml"), "utf8");
     const github = parseTomlTable(toml, "mcp_servers.github");
-    expect(github["transport"]).toBe("stdio");
+    expect(github["transport"]).toBeUndefined();
     expect(github["command"]).toBe("npx");
     expect(github["args"]).toEqual(["-y", "@modelcontextprotocol/server-github"]);
     expect(github["env_vars"]).toEqual(["GITHUB_TOKEN"]);

@@ -9,13 +9,11 @@ import { stringify } from "yaml";
 import type {
   AgentPackManifest,
   Atom,
-  CompatibilityMap,
   PermissionsBlock,
   RiskLevel,
-  TargetPlatform,
 } from "../schema/types.js";
-import { TARGET_PLATFORMS } from "../schema/types.js";
 import { buildManifest, slugify, type ImportFile } from "./buildManifest.js";
+import { importedCompatibility } from "./importCompatibility.js";
 import { normalizeSkillSlug } from "../skills/agentskills.js";
 import type { ParsedCodex } from "./parseCodex.js";
 import type { ParseWarning } from "./parseClaudeMd.js";
@@ -31,14 +29,6 @@ export interface BuildCodexManifestResult {
   manifest: AgentPackManifest;
   files: ImportFile[];
   warnings: ParseWarning[];
-}
-
-function defaultTargets(): CompatibilityMap {
-  const targets: CompatibilityMap = {};
-  for (const t of TARGET_PLATFORMS) {
-    targets[t as TargetPlatform] = { status: "supported" };
-  }
-  return targets;
 }
 
 /** Unique-slug allocator shared across every atom kind. */
@@ -95,7 +85,7 @@ export function buildCodexManifest(
     const dir = `atoms/skills/${skillSlug}`;
     let description = `Codex skill: ${skill.name}`;
     for (const f of skill.files) {
-      const isSkillMd = f.relPath === "SKILL.md" || f.relPath === "skill.md";
+      const isSkillMd = f.relPath.toLowerCase() === "skill.md";
       // Emit SKILL.md under the canonical name; carry bundled resources as-is.
       const outRel = isSkillMd ? "SKILL.md" : f.relPath;
       files.push({ relativePath: `${dir}/${outRel}`, content: f.content });
@@ -121,26 +111,59 @@ export function buildCodexManifest(
   const secretsRequired: NonNullable<NonNullable<PermissionsBlock["secrets"]>["required"]> =
     [];
   for (const mcp of parsed.mcpServers) {
+    if (mcp.omittedConfigKeys.length > 0) continue;
     const mcpSlug = allocSlug(slugify(mcp.name));
     const envObj: Record<string, { required: boolean }> = {};
+    const requiredSecretNames = new Set<string>();
     for (const key of Object.keys(mcp.env ?? {})) {
       envObj[key] = { required: true };
-      secretsRequired.push({ name: key, required_for: [`mcp_server:${mcpSlug}`] });
+      requiredSecretNames.add(key);
+    }
+    if (mcp.bearerTokenEnvVar) requiredSecretNames.add(mcp.bearerTokenEnvVar);
+    const envHttpHeaders = mcp.config["env_http_headers"];
+    if (
+      envHttpHeaders &&
+      typeof envHttpHeaders === "object" &&
+      !Array.isArray(envHttpHeaders)
+    ) {
+      for (const envName of Object.values(envHttpHeaders as Record<string, unknown>)) {
+        if (typeof envName === "string" && envName.trim()) requiredSecretNames.add(envName);
+      }
+    }
+    const envVars = mcp.config["env_vars"];
+    if (Array.isArray(envVars)) {
+      for (const entry of envVars) {
+        const envName =
+          typeof entry === "string"
+            ? entry
+            : entry && typeof entry === "object" && !Array.isArray(entry)
+              ? (entry as Record<string, unknown>)["name"]
+              : undefined;
+        if (typeof envName === "string" && envName.trim()) {
+          requiredSecretNames.add(envName);
+        }
+      }
+    }
+    for (const secretName of requiredSecretNames) {
+      secretsRequired.push({
+        name: secretName,
+        required_for: [`mcp_server:${mcpSlug}`],
+      });
     }
     const atomObj: Record<string, unknown> = {
       id: mcpSlug,
       name: mcp.name,
-      transport: mcp.transport ?? "stdio",
+      transport: mcp.transport ?? (mcp.url ? "http" : "stdio"),
+      ...mcp.config,
     };
     if (mcp.command !== undefined) atomObj["command"] = mcp.command;
+    if (mcp.url !== undefined) atomObj["url"] = mcp.url;
     if (mcp.args !== undefined) atomObj["args"] = mcp.args;
     if (Object.keys(envObj).length > 0) atomObj["env"] = envObj;
     if (mcp.cwd !== undefined) atomObj["cwd"] = mcp.cwd;
     if (mcp.enabledTools !== undefined) atomObj["enabled_tools"] = mcp.enabledTools;
     if (mcp.disabledTools !== undefined) atomObj["disabled_tools"] = mcp.disabledTools;
     const relativePath = `atoms/mcp/${mcpSlug}.yaml`;
-    files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
-    mcpServerNames.push(mcpSlug);
     const mcpAtom: Record<string, unknown> = {
       id: `mcp_server:${mcpSlug}`,
       type: "mcp_server",
@@ -149,14 +172,27 @@ export function buildCodexManifest(
       path: relativePath,
       risk_level: "high",
       permissions: ["network.access", "external_api.access"],
-      transport: mcp.transport ?? "stdio",
+      transport: mcp.transport ?? (mcp.url ? "http" : "stdio"),
+      ...mcp.config,
     };
     if (mcp.command !== undefined) mcpAtom["command"] = mcp.command;
+    if (mcp.url !== undefined) mcpAtom["url"] = mcp.url;
     if (mcp.args !== undefined) mcpAtom["args"] = mcp.args;
     if (Object.keys(envObj).length > 0) {
       mcpAtom["env"] = envObj;
+    }
+    if (requiredSecretNames.size > 0) {
       (mcpAtom["permissions"] as string[]).push("secrets.env");
     }
+    const codexOnlyConfig = Object.keys(mcp.config)
+      .filter((key) => !["args", "command", "name", "url"].includes(key))
+      .sort();
+    if (codexOnlyConfig.length > 0) {
+      atomObj["codex_only_config"] = codexOnlyConfig;
+      mcpAtom["codex_only_config"] = codexOnlyConfig;
+    }
+    files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
+    mcpServerNames.push(mcpSlug);
     atoms.push(mcpAtom as unknown as Atom);
   }
 
@@ -170,9 +206,18 @@ export function buildCodexManifest(
       events: { codex: [hook.event], "claude-code": [hook.event], generic: [hook.event] },
       handler: { kind: "shell", command: hook.command },
     };
+    if (hook.matcher !== undefined) {
+      (atomObj.handler as Record<string, unknown>)["matcher"] = hook.matcher;
+    }
+    for (const key of ["async", "timeout", "commandWindows", "statusMessage"] as const) {
+      if (hook[key] !== undefined) {
+        (atomObj.handler as Record<string, unknown>)[key] = hook[key];
+      }
+    }
     const relativePath = `atoms/hooks/${hookSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
     shellCommands.add(hook.command);
+    if (hook.commandWindows !== undefined) shellCommands.add(hook.commandWindows);
     atoms.push({
       id: `hook:${hookSlug}`,
       type: "hook",
@@ -187,12 +232,14 @@ export function buildCodexManifest(
 
   // ---------- subagents ----------
   for (const sub of parsed.subagents) {
+    if (sub.omittedConfigKeys.length > 0) continue;
     const subSlug = allocSlug(slugify(sub.name));
     const atomObj: Record<string, unknown> = {
       id: subSlug,
       name: sub.name,
     };
     if (sub.instructions !== undefined) atomObj["instructions"] = sub.instructions;
+    if (Object.keys(sub.config).length > 0) atomObj["codex_config"] = sub.config;
     const relativePath = `atoms/subagents/${subSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
     atoms.push({
@@ -207,8 +254,9 @@ export function buildCodexManifest(
   }
 
   if (atoms.length === 0) {
+    const warningDetails = warnings.map((warning) => warning.message).join("; ");
     throw new Error(
-      "No Codex artifacts found — nothing to import. Expected AGENTS.md, .codex/skills/, .codex/config.toml, or .codex/agents/.",
+      `No Codex artifacts found — nothing to import. Expected AGENTS.md, .agents/skills/, .codex/config.toml, or .codex/agents/.${warningDetails ? ` Import warnings: ${warningDetails}` : ""}`,
     );
   }
 
@@ -241,7 +289,12 @@ export function buildCodexManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: defaultTargets() },
+    compatibility: {
+      targets: importedCompatibility(
+        "codex",
+        warnings.length > 0 ? "partial" : "supported",
+      ),
+    },
     permissions,
     security: { risk_level: riskLevel },
     profiles: {

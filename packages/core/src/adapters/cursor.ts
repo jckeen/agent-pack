@@ -89,7 +89,15 @@ export const cursorAdapter = defineAdapter({
           args?: string[];
           env?: Record<string, unknown>;
           url?: string;
+          codex_only_config?: string[];
         };
+        if ((a.codex_only_config?.length ?? 0) > 0) {
+          warnings.push(
+            `MCP server \`${atom.id}\` was not exported because Codex-only restrictions cannot be represented safely in Cursor: ${a.codex_only_config!.join(", ")}.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         // Same gate as the claude-code adapter: MCP commands are arbitrary
         // process execution. Require declaration in permissions.mcp.servers
         // and refuse shell-escape shapes.

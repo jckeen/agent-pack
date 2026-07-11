@@ -13,7 +13,13 @@ import {
   yamlFrontmatter,
 } from "./types.js";
 import { renderRuleMarkdown } from "./ruleContent.js";
-import { isShellEscape } from "./commandGate.js";
+import { isCredentialFreeHttpUrl, isShellEscape } from "./commandGate.js";
+import {
+  parseHookEvents,
+  parseHookHandler,
+  selectHookEventValue,
+} from "./hookValidation.js";
+import { invalidClaudeMcpFields } from "./mcpValidation.js";
 import {
   conformSkillMd,
   normalizeSkillSlug,
@@ -261,23 +267,38 @@ export const claudeCodeAdapter = defineAdapter({
     // validator.
     const hookAtoms = byType.get("hook") ?? [];
     if (hookAtoms.length > 0) {
-      const hooks: Record<string, unknown[]> = {};
+      const hooks: Record<string, unknown[]> = Object.create(null) as Record<
+        string,
+        unknown[]
+      >;
       for (const atom of hookAtoms) {
         const parsed = await parseAtomYaml(packRoot, atom);
-        const events = ((atom as { lifecycle?: { events?: { "claude-code"?: string[] } } })
-          .lifecycle?.events?.["claude-code"] ??
-          (parsed?.["events"] as { "claude-code"?: string[] } | undefined)?.[
-            "claude-code"
-          ] ?? ["PostToolUse"]) as string[];
-        const handler =
-          (parsed?.["handler"] as
-            { command?: string; matcher?: string; script_path?: string } | undefined) ??
-          (
-            atom as {
-              handler?: { command?: string; matcher?: string; script_path?: string };
-            }
-          ).handler;
-        const command = handler?.command ?? "";
+        const lifecycleEvents = (atom as { lifecycle?: { events?: unknown } }).lifecycle
+          ?.events;
+        const parsedEvents = parsed?.["events"];
+        const rawEvents = selectHookEventValue(
+          lifecycleEvents,
+          parsedEvents,
+          "claude-code",
+        );
+        const events = parseHookEvents(rawEvents, ["PostToolUse"]);
+        if (!events) {
+          warnings.push(
+            `Hook ${atom.id} has malformed or unsafe Claude Code lifecycle events. Refusing to emit it.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        const rawHandler = parsed?.["handler"] ?? (atom as { handler?: unknown }).handler;
+        const { handler, invalidFields } = parseHookHandler(rawHandler);
+        if (!handler) {
+          warnings.push(
+            `Hook \`${atom.id}\` has a malformed hook handler (${invalidFields.join(", ")}). Refusing to emit it into settings.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        const command = handler.command;
         if (!isHookCommandAllowed(command, allowedShellCommands)) {
           warnings.push(
             `Hook \`${atom.id}\` declares command \`${command || "(empty)"}\` which is NOT listed in \`permissions.shell.commands\`. Refusing to emit it into settings.json.`,
@@ -285,10 +306,20 @@ export const claudeCodeAdapter = defineAdapter({
           unsupported.push(atom.id);
           continue;
         }
+        if (
+          handler.commandWindows !== undefined &&
+          !isHookCommandAllowed(handler.commandWindows, allowedShellCommands)
+        ) {
+          warnings.push(
+            `Hook ${atom.id} declares Windows command ${handler.commandWindows}, which is not allow-listed or contains a shell escape. Refusing to emit it into settings.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         // Bundled hook script (#90): write it to `.claude/hooks/<name>` so the
         // rewritten `$CLAUDE_PROJECT_DIR/.claude/hooks/<name>` command resolves.
         // The emitted file is path-contained + lockfile-hashed like any output.
-        if (handler?.script_path) {
+        if (handler.script_path) {
           const scriptBody = await readPackRelativeFile(packRoot, handler.script_path);
           if (scriptBody == null) {
             warnings.push(
@@ -306,15 +337,22 @@ export const claudeCodeAdapter = defineAdapter({
         }
         for (const evt of events) {
           const list = hooks[evt] ?? [];
-          const entry: Record<string, unknown> = {
-            hooks: [{ type: "command", command }],
-          };
+          const commandHook: Record<string, unknown> = { type: "command", command };
+          for (const key of [
+            "async",
+            "timeout",
+            "commandWindows",
+            "statusMessage",
+          ] as const) {
+            if (handler[key] !== undefined) commandHook[key] = handler[key];
+          }
+          const entry: Record<string, unknown> = { hooks: [commandHook] };
           // Tool-event hooks need a tool matcher. A pack may pin its own via
           // handler.matcher; otherwise default to file-editing tools — a
           // bare "*" would fire the command after EVERY tool call (Read,
           // Grep, Bash, ...), which is never what an after-edit hook means.
           if (evt === "PreToolUse" || evt === "PostToolUse") {
-            entry["matcher"] = handler?.matcher ?? "Edit|Write";
+            entry["matcher"] = handler.matcher ?? "Edit|Write";
           }
           list.push(entry);
           hooks[evt] = list;
@@ -344,18 +382,38 @@ export const claudeCodeAdapter = defineAdapter({
       const declaredServers = manifest.permissions?.mcp?.servers ?? [];
       for (const atom of mcpAtoms) {
         const slug = slugFor(atom);
-        const a = atom as {
+        const descriptor = await parseAtomYaml(packRoot, atom);
+        const a = { ...(descriptor ?? {}), ...atom } as {
           transport?: string;
           command?: string;
           args?: string[];
           env?: Record<string, unknown>;
           url?: string;
+          cwd?: string;
+          codex_only_config?: string[];
+          [key: string]: unknown;
         };
+        const invalidFields = invalidClaudeMcpFields(a);
+        if (invalidFields.length > 0) {
+          warnings.push(
+            `MCP server ${atom.id} has malformed or Claude-incompatible fields: ${invalidFields.join(", ")}. Refusing to emit it into .mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        if ((a.codex_only_config?.length ?? 0) > 0) {
+          warnings.push(
+            `MCP server \`${atom.id}\` was not exported because Codex-only restrictions cannot be represented safely in Claude Code: ${a.codex_only_config!.join(", ")}.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         // Gate symmetric to hooks: an MCP server's command is arbitrary
         // process execution at session start. Require the server to be
         // declared in `permissions.mcp.servers`, and refuse shell-escape
         // shapes outright (`bash -c`, `node -e`, ...) — otherwise an
         // mcp_server atom is a trivial bypass of the hook allow-list.
+        const transport = a.transport ?? (a.url ? "http" : "stdio");
         const joined = [a.command ?? "", ...(a.args ?? [])].join(" ");
         if (!declaredServers.includes(slug)) {
           warnings.push(
@@ -364,14 +422,16 @@ export const claudeCodeAdapter = defineAdapter({
           unsupported.push(atom.id);
           continue;
         }
-        if (!a.command || isShellEscape(a.command, a.args ?? [])) {
+        if (
+          transport === "stdio" &&
+          (!a.command || a.url || isShellEscape(a.command, a.args ?? []))
+        ) {
           warnings.push(
             `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it into .mcp.json.`,
           );
           unsupported.push(atom.id);
           continue;
         }
-        const transport = a.transport ?? "stdio";
         if (transport === "stdio") {
           mcpServers[slug] = {
             type: "stdio",
@@ -381,8 +441,21 @@ export const claudeCodeAdapter = defineAdapter({
               Object.entries(a.env ?? {}).map(([k]) => [k, `\${${k}}`]),
             ),
           };
-        } else {
+        } else if (
+          (transport === "http" || transport === "sse") &&
+          isCredentialFreeHttpUrl(a.url) &&
+          !a.command &&
+          (a.args?.length ?? 0) === 0 &&
+          Object.keys(a.env ?? {}).length === 0 &&
+          !a.cwd
+        ) {
           mcpServers[slug] = { type: transport, url: a.url };
+        } else {
+          warnings.push(
+            `MCP server ${atom.id} has an unsupported transport or unsafe remote URL. Refusing to emit it into .mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
         }
         warnings.push(
           `MCP server \`${atom.id}\` configured in .mcp.json. Required env: ${Object.keys(a.env ?? {}).join(", ") || "(none)"}.`,
