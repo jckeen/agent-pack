@@ -1,6 +1,6 @@
 # agent-pack
 
-AgentPack is an open-source (MIT) standard, registry, and CLI for packaging and installing agent configurations across platforms. TypeScript monorepo: `packages/{core,cli,db}` + `apps/registry` + `examples/pr-quality`. The repo is currently PRIVATE (planned to go public — see `STATUS.md` for the operator-only visibility flip).
+AgentPack is an open-source (MIT) standard, registry, and CLI for packaging and installing agent configurations across platforms. TypeScript monorepo: `packages/{core,cli,db,connector}` + `apps/registry` + `examples/pr-quality`. The repo is public (MIT); `STATUS.md` records the visibility flip and shipped-phase status.
 
 ## Project context (migrated from memory)
 
