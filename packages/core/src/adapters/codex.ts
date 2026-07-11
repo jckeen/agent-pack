@@ -16,70 +16,16 @@ import {
 import { renderRuleMarkdown } from "./ruleContent.js";
 import { isCredentialFreeHttpUrl, isShellEscape } from "./commandGate.js";
 import {
+  parseHookEvents,
+  parseHookHandler,
+  selectHookEventValue,
+} from "./hookValidation.js";
+import { CODEX_MCP_CONFIG_KEYS, invalidCodexMcpFields } from "./mcpValidation.js";
+import {
   conformSkillMd,
   normalizeSkillSlug,
   renderSkillMd,
 } from "../skills/agentskills.js";
-
-interface HookHandler {
-  command: string;
-  matcher?: string;
-  script_path?: string;
-  async?: boolean;
-  timeout?: number;
-  commandWindows?: string;
-  statusMessage?: string;
-}
-
-function parseHookHandler(value: unknown): {
-  handler: HookHandler | null;
-  invalidFields: string[];
-} {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { handler: null, invalidFields: ["handler"] };
-  }
-  const raw = value as Record<string, unknown>;
-  const allowedFields = new Set([
-    "kind",
-    "command",
-    "matcher",
-    "script_path",
-    "async",
-    "timeout",
-    "commandWindows",
-    "statusMessage",
-  ]);
-  const invalidFields = Object.keys(raw).filter((field) => !allowedFields.has(field));
-  if (
-    typeof raw["command"] !== "string" ||
-    (raw["command"] as string).trim().length === 0
-  ) {
-    invalidFields.push("command");
-  }
-  if (raw["kind"] !== undefined && raw["kind"] !== "shell") invalidFields.push("kind");
-  for (const field of ["matcher", "script_path", "commandWindows"]) {
-    if (
-      raw[field] !== undefined &&
-      (typeof raw[field] !== "string" || (raw[field] as string).trim().length === 0)
-    ) {
-      invalidFields.push(field);
-    }
-  }
-  if (raw["statusMessage"] !== undefined && typeof raw["statusMessage"] !== "string") {
-    invalidFields.push("statusMessage");
-  }
-  if (raw["async"] !== undefined && typeof raw["async"] !== "boolean") {
-    invalidFields.push("async");
-  }
-  if (
-    raw["timeout"] !== undefined &&
-    (!Number.isInteger(raw["timeout"]) || Number(raw["timeout"]) < 0)
-  ) {
-    invalidFields.push("timeout");
-  }
-  if (invalidFields.length > 0) return { handler: null, invalidFields };
-  return { handler: raw as unknown as HookHandler, invalidFields };
-}
 
 function tomlEscape(value: string): string {
   return value
@@ -241,7 +187,6 @@ export const codexAdapter = defineAdapter({
       // Same gate as the claude-code adapter: MCP commands are arbitrary
       // process execution. Require declaration in permissions.mcp.servers and
       // refuse shell-escape shapes.
-      const joined = [a.command ?? "", ...(a.args ?? [])].join(" ");
       if (!declaredServers.includes(slug)) {
         warnings.push(
           `MCP server \`${atom.id}\` is not declared in \`permissions.mcp.servers\`. Refusing to emit it.`,
@@ -249,9 +194,20 @@ export const codexAdapter = defineAdapter({
         unsupported.push(atom.id);
         continue;
       }
+      const invalidFields = invalidCodexMcpFields(a);
+      if (invalidFields.length > 0) {
+        warnings.push(
+          `MCP server ${atom.id} has malformed or unsupported Codex fields: ${invalidFields.join(", ")}. Refusing to emit it.`,
+        );
+        unsupported.push(atom.id);
+        continue;
+      }
+      const joined = [a.command ?? "", ...(a.args ?? [])].join(" ");
+      const transport = a.transport ?? (a.url ? "http" : "stdio");
       if (
         a.url &&
-        (!isCredentialFreeHttpUrl(a.url) ||
+        (transport !== "http" ||
+          !isCredentialFreeHttpUrl(a.url) ||
           Boolean(a.command) ||
           (a.args?.length ?? 0) > 0 ||
           Object.keys(a.env ?? {}).length > 0 ||
@@ -263,7 +219,10 @@ export const codexAdapter = defineAdapter({
         unsupported.push(atom.id);
         continue;
       }
-      if (!a.url && (!a.command || isShellEscape(a.command, a.args ?? []))) {
+      if (
+        !a.url &&
+        (transport !== "stdio" || !a.command || isShellEscape(a.command, a.args ?? []))
+      ) {
         warnings.push(
           `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it.`,
         );
@@ -271,33 +230,11 @@ export const codexAdapter = defineAdapter({
         continue;
       }
       const envKeys = Object.keys(a.env ?? {});
-      const configKeys = [
-        "args",
-        "auth",
-        "bearer_token_env_var",
-        "command",
-        "cwd",
-        "default_tools_approval_mode",
-        "disabled_tools",
-        "enabled",
-        "enabled_tools",
-        "env_http_headers",
-        "env_vars",
-        "environment_id",
-        "name",
-        "oauth",
-        "oauth_resource",
-        "required",
-        "scopes",
-        "startup_timeout_ms",
-        "startup_timeout_sec",
-        "supports_parallel_tool_calls",
-        "tool_timeout_sec",
-        "tools",
-        "url",
-      ];
       const serverConfig = Object.fromEntries(
-        configKeys.filter((key) => a[key] !== undefined).map((key) => [key, a[key]]),
+        CODEX_MCP_CONFIG_KEYS.filter((key) => a[key] !== undefined).map((key) => [
+          key,
+          a[key],
+        ]),
       );
       if (envKeys.length > 0) {
         const existingEnvVars = Array.isArray(serverConfig["env_vars"])
@@ -360,15 +297,24 @@ export const codexAdapter = defineAdapter({
     const allowedShellCommands = manifest.permissions?.shell?.commands ?? [];
     const hookAtoms = byType.get("hook") ?? [];
     if (hookAtoms.length > 0) {
-      const hooks: Record<string, unknown[]> = {};
+      const hooks: Record<string, unknown[]> = Object.create(null) as Record<
+        string,
+        unknown[]
+      >;
       for (const atom of hookAtoms) {
         const parsed = await parseAtomYaml(packRoot, atom);
-        const events = ((
-          parsed?.["events"] as { codex?: string[]; generic?: string[] } | undefined
-        )?.codex ??
-          (parsed?.["events"] as { generic?: string[] } | undefined)?.generic ?? [
-            "after_edit",
-          ]) as string[];
+        const lifecycleEvents = (atom as { lifecycle?: { events?: unknown } }).lifecycle
+          ?.events;
+        const parsedEvents = parsed?.["events"];
+        const rawEvents = selectHookEventValue(lifecycleEvents, parsedEvents, "codex");
+        const events = parseHookEvents(rawEvents, ["after_edit"]);
+        if (!events) {
+          warnings.push(
+            `Hook ${atom.id} has malformed or unsafe Codex lifecycle events. Refusing to emit it.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         const rawHandler = parsed?.["handler"] ?? (atom as { handler?: unknown }).handler;
         const { handler, invalidFields } = parseHookHandler(rawHandler);
         if (!handler) {

@@ -24,6 +24,14 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("sh -c evil", [])).toBe(true);
     expect(isShellEscape("node -e evil", [])).toBe(true);
     expect(isShellEscape("eval", [])).toBe(true);
+    expect(isShellEscape("env BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("find . -exec node {} ;", [])).toBe(true);
+    expect(isShellEscape("npm run format && ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("echo $(./payload.sh)", [])).toBe(true);
+    expect(isShellEscape("BASH_ENV=./payload.sh bash", [])).toBe(true);
+    expect(isShellEscape("LD_PRELOAD=./payload.so /bin/true", [])).toBe(true);
+    expect(isShellEscape("${SHELL} -c ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("PATH=./payload:$PATH git status", [])).toBe(true);
     expect(isShellEscape("", [])).toBe(true);
   });
 
@@ -59,6 +67,8 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("cmd.exe /d /s /c evil", [])).toBe(true);
     expect(isShellEscape("cmd.exe", ["script.cmd"])).toBe(true);
     expect(isShellEscape("powershell", ["script.ps1"])).toBe(true);
+    expect(isShellEscape("%COMSPEC% /d /s /c evil", [])).toBe(true);
+    expect(isShellEscape("%COMSPEC:~-7% /d /s /c evil", [])).toBe(true);
   });
 
   it("rejects indirection/exec wrappers that smuggle execution past the gate (security-reviewer C1)", () => {
@@ -93,6 +103,9 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     // a plain sed substitution with no execute flag is fine.
     expect(isShellEscape("sed", ["s/foo/bar/", "file.txt"])).toBe(false);
     expect(isShellEscape("powershell", ["-NoProfile", "-File", "script.ps1"])).toBe(false);
+    expect(isShellEscape("powershell", ["-NoProfile", "-f", "script.ps1"])).toBe(false);
+    expect(isShellEscape("echo", ["cmd"])).toBe(false);
+    expect(isShellEscape("printf", ["pwsh", "is a literal argument"])).toBe(false);
     // `-c` as a non-flag positional for a non-shell binary is fine.
     expect(isShellEscape("grep", ["-c", "pattern"])).toBe(false);
   });
@@ -102,6 +115,8 @@ describe("isCredentialFreeHttpUrl", () => {
   it("accepts plain HTTP(S) MCP endpoints", () => {
     expect(isCredentialFreeHttpUrl("https://example.com/mcp")).toBe(true);
     expect(isCredentialFreeHttpUrl("http://localhost:3000/mcp")).toBe(true);
+    expect(isCredentialFreeHttpUrl("https://example.com/tokenize/mcp")).toBe(true);
+    expect(isCredentialFreeHttpUrl("https://example.com/passwordless/mcp")).toBe(true);
   });
 
   it("rejects credentials, parameters, fragments, and non-HTTP schemes", () => {
@@ -109,6 +124,10 @@ describe("isCredentialFreeHttpUrl", () => {
       "https://user:secret@example.com/mcp",
       "https://example.com/mcp?token=secret",
       "https://example.com/mcp#secret",
+      "https://example.com/s/fixture-secret/mcp",
+      "https://example.com/mcp;access_token=fixture-secret",
+      "https://example.com/s/sk-live-1234567890/mcp",
+      "https://example.com/session/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig",
       "file:///tmp/mcp",
       "not a URL",
     ]) {

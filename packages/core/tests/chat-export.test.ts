@@ -148,6 +148,27 @@ describe("exportChat", () => {
     await fs.rm(out, { recursive: true, force: true });
   });
 
+  it("refuses remote MCP atoms with stdio-only fields", async () => {
+    const source = await tmp();
+    const out = await tmp();
+    await fs.cp(FIXTURE, source, { recursive: true });
+    const descriptorPath = path.join(source, "atoms/mcp/tickets.yaml");
+    const descriptor = await fs.readFile(descriptorPath, "utf8");
+    await fs.writeFile(
+      descriptorPath,
+      `${descriptor}\ncommand: node\nargs: ["--stdio-only"]\n`,
+    );
+
+    const result = await exportChat({ source, profile: "full", outDir: out });
+    expect(result.connectors).toEqual([]);
+    expect(result.report.find((entry) => entry.atomId === "mcp_server:tickets")).toEqual(
+      expect.objectContaining({ portable: false }),
+    );
+
+    await fs.rm(source, { recursive: true, force: true });
+    await fs.rm(out, { recursive: true, force: true });
+  });
+
   it("emits project-instructions.md from instruction/rule atoms", async () => {
     const out = await tmp();
     await exportChat({ source: FIXTURE, profile: "full", outDir: out });

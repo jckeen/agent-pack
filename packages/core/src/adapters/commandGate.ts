@@ -31,7 +31,8 @@ const SHELL_BASENAMES = new Set([
  *    `PATH` (so `env BASH_ENV=./payload.sh bash` runs a script with no `-c`).
  *  - `find -exec` / `xargs` / `watch` / `timeout` / `nohup` / `setsid` /
  *    `nice` / `stdbuf` / `flock` run an arbitrary trailing command.
- *  - `git -c core.pager='!cmd'` (and aliases) execute shell.
+ *  - Git config overrides such as `git -c core.pager='!cmd'` execute shell;
+ *    ordinary fixed subcommands such as `git status` remain usable as hooks.
  *  - `make -f -`, `ssh host cmd`, `socat EXEC:…`, `nc -e`, `expect -c`,
  *    `gdb -ex`, and editors (`vim -c '!cmd'`) all reach a shell.
  * Rejected outright — they are indirection, not servers. (security-reviewer C1)
@@ -47,7 +48,6 @@ const REJECTED_WRAPPER_BASENAMES = new Set([
   "nice",
   "stdbuf",
   "flock",
-  "git",
   "make",
   "ssh",
   "socat",
@@ -92,29 +92,46 @@ function basename(command: string): string {
   return (parts[parts.length - 1] ?? command).toLowerCase().replace(/\.exe$/, "");
 }
 
+function tokenizeCommand(command: string): string[] {
+  return (
+    command
+      .trim()
+      .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)
+      ?.map((token) => token.replace(/^["']|["']$/g, "")) ?? []
+  );
+}
+
+function normalizePowerShellFlag(arg: string): string {
+  return arg.toLowerCase().replace(/^[\u2013\u2014\u2015]/, "-");
+}
+
 function isPowerShellEvalFlag(arg: string): boolean {
-  const flag = arg.toLowerCase();
+  const flag = normalizePowerShellFlag(arg);
   return (
     flag.length > 1 && ("-command".startsWith(flag) || "-encodedcommand".startsWith(flag))
   );
 }
 
+function isPowerShellFileFlag(arg: string): boolean {
+  const flag = normalizePowerShellFlag(arg);
+  return flag.length > 1 && "-file".startsWith(flag);
+}
+
 function containsWindowsShellEval(command: string, args: readonly string[]): boolean {
-  const tokens = [command, ...args]
-    .join(" ")
-    .trim()
-    .split(/\s+/)
-    .map((token) => token.replace(/^["']|["']$/g, ""));
-  for (let index = 0; index < tokens.length; index += 1) {
-    const executable = basename(tokens[index] ?? "");
-    const trailing = tokens.slice(index + 1);
-    if (executable === "powershell" || executable === "pwsh") {
-      if (trailing.some(isPowerShellEvalFlag)) return true;
-      if (!trailing.some((arg) => arg.toLowerCase() === "-file")) return true;
-    }
-    if (executable === "cmd") return true;
+  const commandTokens = tokenizeCommand(command);
+  const executable = basename(commandTokens[0] ?? "");
+  const trailing = [...commandTokens.slice(1), ...args];
+  if (
+    /%[^%]+%/.test(executable) ||
+    ["$env:comspec", "${env:comspec}"].includes(executable)
+  ) {
+    return true;
   }
-  return false;
+  if (executable === "powershell" || executable === "pwsh") {
+    if (trailing.some(isPowerShellEvalFlag)) return true;
+    if (!trailing.some(isPowerShellFileFlag)) return true;
+  }
+  return executable === "cmd";
 }
 
 /**
@@ -126,8 +143,14 @@ function containsWindowsShellEval(command: string, args: readonly string[]): boo
  */
 export function isShellEscape(command: string, args: readonly string[]): boolean {
   if (!command) return true;
+  if (/[;&|`^<>]|\$\(|[\r\n]/.test(command)) return true;
+  const commandTokens = tokenizeCommand(command);
+  const firstToken = commandTokens[0] ?? command;
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(firstToken)) return true;
+  if (/^\$\{?(?:SHELL|COMSPEC)\}?$/i.test(firstToken)) return true;
   if (containsWindowsShellEval(command, args)) return true;
-  const base = basename(command);
+  const base = basename(commandTokens[0] ?? command);
+  const effectiveArgs = [...commandTokens.slice(1), ...args];
   if (base === "eval") return true;
   // Indirection wrappers (env/find/xargs/git/make/…) run an arbitrary trailing
   // command and have no legitimate MCP-server/hook shape — reject outright.
@@ -136,26 +159,29 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   // code is what an MCP server IS. That risk is surfaced for install-time
   // consent by the risk engine, not blocked by this gate.
   if (REJECTED_WRAPPER_BASENAMES.has(base)) return true;
+  if (
+    base === "git" &&
+    effectiveArgs.some(
+      (arg) =>
+        arg === "-c" || arg.startsWith("--config-env") || /(?:pager|alias)\s*=/.test(arg),
+    )
+  ) {
+    return true;
+  }
   if (SHELL_BASENAMES.has(base)) {
-    return args.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
-  }
-  if (base === "powershell" || base === "pwsh") {
-    return args.some(isPowerShellEvalFlag);
-  }
-  if (base === "cmd") {
-    return args.some((a) => /^\/[ck]$/i.test(a));
+    return effectiveArgs.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
   }
   if (AWK_BASENAMES.has(base)) {
     // busybox is only an awk shape when its applet is awk.
-    if (base === "busybox" && args[0] !== "awk") {
+    if (base === "busybox" && effectiveArgs[0] !== "awk") {
       // fall through to interpreter/fallback checks below
     } else {
-      return args.some((a) => !a.startsWith("-"));
+      return effectiveArgs.some((a) => !a.startsWith("-"));
     }
   }
   const evalFlag = INTERPRETER_EVAL_FLAGS[base];
   if (evalFlag) {
-    return args.some((a) => evalFlag.test(a));
+    return effectiveArgs.some((a) => evalFlag.test(a));
   }
   // Fallback string check for commands that embed the whole invocation in
   // one string (hook commands): catches `sh -c`, `bash -lc`, `node -e`, ...
@@ -169,12 +195,26 @@ export function isCredentialFreeHttpUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   try {
     const parsed = new URL(value);
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    const segments = decodedPath.split("/").filter(Boolean);
+    const hasCredentialSegment = segments.some(
+      (segment, index) =>
+        /^(?:sk|pk|gh[pousr]|github_pat|xox[baprs]|pat)[-_][A-Za-z0-9_-]{6,}$/i.test(
+          segment,
+        ) ||
+        /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(segment) ||
+        (/^(?:s|session|token|secret|credential|key|auth)$/i.test(segment) &&
+          segments[index + 1] !== undefined &&
+          !/^(?:mcp|sse|events)$/i.test(segments[index + 1] ?? "")),
+    );
     return (
       (parsed.protocol === "http:" || parsed.protocol === "https:") &&
       !parsed.username &&
       !parsed.password &&
       !parsed.search &&
-      !parsed.hash
+      !parsed.hash &&
+      !decodedPath.includes(";") &&
+      !hasCredentialSegment
     );
   } catch {
     return false;

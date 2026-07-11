@@ -13,6 +13,11 @@ import { parse as parseToml } from "smol-toml";
 import { parseClaudeMd, type ParsedClaudeMd } from "./parseClaudeMd.js";
 import { sanitizeCodexAgentConfig } from "../codex/customAgentConfig.js";
 import { isCredentialFreeHttpUrl, isShellEscape } from "../adapters/commandGate.js";
+import {
+  isStringArray,
+  isStringRecord,
+  validMcpConfigValue,
+} from "../adapters/mcpValidation.js";
 
 export interface CodexSkill {
   /** Directory name under `.agents/skills/` (also the skill `name`). */
@@ -77,88 +82,6 @@ export interface ParsedCodex {
 /** Normalize a tree key to forward-slash separators. */
 function norm(p: string): string {
   return p.split(/[\\/]+/).join("/");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return (
-    isRecord(value) && Object.values(value).every((entry) => typeof entry === "string")
-  );
-}
-
-function isEnvVarList(value: unknown): boolean {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (entry) =>
-        typeof entry === "string" ||
-        (isRecord(entry) &&
-          typeof entry["name"] === "string" &&
-          (entry["source"] === undefined || typeof entry["source"] === "string") &&
-          Object.keys(entry).every((key) => ["name", "source"].includes(key))),
-    )
-  );
-}
-
-function isToolConfig(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  return Object.values(value).every(
-    (tool) =>
-      isRecord(tool) &&
-      Object.keys(tool).every((key) => key === "approval_mode") &&
-      (tool["approval_mode"] === undefined ||
-        ["auto", "prompt", "writes", "approve"].includes(String(tool["approval_mode"]))),
-  );
-}
-
-function validMcpConfigValue(key: string, value: unknown): boolean {
-  if (
-    [
-      "bearer_token_env_var",
-      "command",
-      "cwd",
-      "environment_id",
-      "name",
-      "oauth_resource",
-      "url",
-    ].includes(key)
-  ) {
-    return typeof value === "string" && value.trim().length > 0;
-  }
-  if (["args", "disabled_tools", "enabled_tools", "scopes"].includes(key)) {
-    return isStringArray(value);
-  }
-  if (["enabled", "required", "supports_parallel_tool_calls"].includes(key)) {
-    return typeof value === "boolean";
-  }
-  if (key === "startup_timeout_ms") {
-    return Number.isInteger(value) && Number(value) >= 0;
-  }
-  if (["startup_timeout_sec", "tool_timeout_sec"].includes(key)) {
-    return typeof value === "number" && Number.isFinite(value);
-  }
-  if (key === "auth") return value === "oauth" || value === "chatgpt";
-  if (key === "default_tools_approval_mode") {
-    return ["auto", "prompt", "writes", "approve"].includes(String(value));
-  }
-  if (key === "env_http_headers") return isStringRecord(value);
-  if (key === "env_vars") return isEnvVarList(value);
-  if (key === "oauth") {
-    return (
-      isRecord(value) &&
-      Object.keys(value).every((entry) => entry === "client_id") &&
-      (value["client_id"] === undefined || typeof value["client_id"] === "string")
-    );
-  }
-  if (key === "tools") return isToolConfig(value);
-  return false;
 }
 
 function parseMcpServers(

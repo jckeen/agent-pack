@@ -15,6 +15,12 @@ import {
 import { renderRuleMarkdown } from "./ruleContent.js";
 import { isCredentialFreeHttpUrl, isShellEscape } from "./commandGate.js";
 import {
+  parseHookEvents,
+  parseHookHandler,
+  selectHookEventValue,
+} from "./hookValidation.js";
+import { invalidClaudeMcpFields } from "./mcpValidation.js";
+import {
   conformSkillMd,
   normalizeSkillSlug,
   renderSkillMd,
@@ -43,70 +49,6 @@ async function renderRuleSection(packRoot: string, atom: Atom): Promise<string> 
 
 interface ParsedYaml {
   [key: string]: unknown;
-}
-
-interface HookHandler {
-  command: string;
-  matcher?: string;
-  script_path?: string;
-  async?: boolean;
-  timeout?: number;
-  commandWindows?: string;
-  statusMessage?: string;
-}
-
-function parseHookHandler(value: unknown): {
-  handler: HookHandler | null;
-  invalidFields: string[];
-} {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { handler: null, invalidFields: ["handler"] };
-  }
-  const raw = value as Record<string, unknown>;
-  const invalidFields: string[] = [];
-  const allowedFields = new Set([
-    "kind",
-    "command",
-    "matcher",
-    "script_path",
-    "async",
-    "timeout",
-    "commandWindows",
-    "statusMessage",
-  ]);
-  invalidFields.push(...Object.keys(raw).filter((field) => !allowedFields.has(field)));
-  if (
-    typeof raw["command"] !== "string" ||
-    (raw["command"] as string).trim().length === 0
-  ) {
-    invalidFields.push("command");
-  }
-  if (raw["kind"] !== undefined && raw["kind"] !== "shell") invalidFields.push("kind");
-  for (const field of ["matcher", "script_path", "commandWindows"]) {
-    if (
-      raw[field] !== undefined &&
-      (typeof raw[field] !== "string" || (raw[field] as string).trim().length === 0)
-    ) {
-      invalidFields.push(field);
-    }
-  }
-  if (raw["statusMessage"] !== undefined && typeof raw["statusMessage"] !== "string") {
-    invalidFields.push("statusMessage");
-  }
-  if (raw["async"] !== undefined && typeof raw["async"] !== "boolean") {
-    invalidFields.push("async");
-  }
-  if (
-    raw["timeout"] !== undefined &&
-    (typeof raw["timeout"] !== "number" ||
-      !Number.isInteger(raw["timeout"]) ||
-      raw["timeout"] < 0)
-  ) {
-    invalidFields.push("timeout");
-  }
-  if (invalidFields.length > 0) return { handler: null, invalidFields };
-
-  return { handler: raw as unknown as HookHandler, invalidFields };
 }
 
 async function parseAtomYaml(packRoot: string, atom: Atom): Promise<ParsedYaml | null> {
@@ -325,14 +267,28 @@ export const claudeCodeAdapter = defineAdapter({
     // validator.
     const hookAtoms = byType.get("hook") ?? [];
     if (hookAtoms.length > 0) {
-      const hooks: Record<string, unknown[]> = {};
+      const hooks: Record<string, unknown[]> = Object.create(null) as Record<
+        string,
+        unknown[]
+      >;
       for (const atom of hookAtoms) {
         const parsed = await parseAtomYaml(packRoot, atom);
-        const events = ((atom as { lifecycle?: { events?: { "claude-code"?: string[] } } })
-          .lifecycle?.events?.["claude-code"] ??
-          (parsed?.["events"] as { "claude-code"?: string[] } | undefined)?.[
-            "claude-code"
-          ] ?? ["PostToolUse"]) as string[];
+        const lifecycleEvents = (atom as { lifecycle?: { events?: unknown } }).lifecycle
+          ?.events;
+        const parsedEvents = parsed?.["events"];
+        const rawEvents = selectHookEventValue(
+          lifecycleEvents,
+          parsedEvents,
+          "claude-code",
+        );
+        const events = parseHookEvents(rawEvents, ["PostToolUse"]);
+        if (!events) {
+          warnings.push(
+            `Hook ${atom.id} has malformed or unsafe Claude Code lifecycle events. Refusing to emit it.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         const rawHandler = parsed?.["handler"] ?? (atom as { handler?: unknown }).handler;
         const { handler, invalidFields } = parseHookHandler(rawHandler);
         if (!handler) {
@@ -426,7 +382,8 @@ export const claudeCodeAdapter = defineAdapter({
       const declaredServers = manifest.permissions?.mcp?.servers ?? [];
       for (const atom of mcpAtoms) {
         const slug = slugFor(atom);
-        const a = atom as {
+        const descriptor = await parseAtomYaml(packRoot, atom);
+        const a = { ...(descriptor ?? {}), ...atom } as {
           transport?: string;
           command?: string;
           args?: string[];
@@ -434,7 +391,16 @@ export const claudeCodeAdapter = defineAdapter({
           url?: string;
           cwd?: string;
           codex_only_config?: string[];
+          [key: string]: unknown;
         };
+        const invalidFields = invalidClaudeMcpFields(a);
+        if (invalidFields.length > 0) {
+          warnings.push(
+            `MCP server ${atom.id} has malformed or Claude-incompatible fields: ${invalidFields.join(", ")}. Refusing to emit it into .mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         if ((a.codex_only_config?.length ?? 0) > 0) {
           warnings.push(
             `MCP server \`${atom.id}\` was not exported because Codex-only restrictions cannot be represented safely in Claude Code: ${a.codex_only_config!.join(", ")}.`,

@@ -246,7 +246,7 @@ describe("parseCodex", () => {
         ".codex/config.toml": [
           "[mcp_servers.docs]",
           'command = "docs-server"',
-          'env_vars = ["DOCS_TOKEN", { name = "REMOTE_TOKEN", source = "vault" }]',
+          'env_vars = ["DOCS_TOKEN", { name = "REMOTE_TOKEN", source = "remote" }]',
         ].join("\n"),
       }),
     );
@@ -259,6 +259,24 @@ describe("parseCodex", () => {
     );
     const atom = result.manifest.atoms.find((entry) => entry.id === "mcp_server:docs");
     expect(atom?.permissions).toContain("secrets.env");
+  });
+
+  it("omits MCP servers with unsupported env_vars sources", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'command = "docs-server"',
+          'env_vars = [{ name = "DOCS_TOKEN", source = "vault" }]',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+    expect(
+      result.warnings.some((warning) => /malformed.*env_vars/i.test(warning.message)),
+    ).toBe(true);
   });
 
   it("omits MCP servers with malformed recognized settings", () => {
@@ -979,6 +997,47 @@ describe("importCodexDir (I/O + round-trip)", () => {
       expect(withArgs.plan.unsupportedAtoms).toContain("mcp_server:docs");
 
       delete mcp["args"];
+      mcp["bearer_token_env_var"] = "DOCS_TOKEN";
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      const withAuth = await exportPack({
+        source: pack,
+        target: "claude-code",
+        outDir: path.join(source, "auth-out"),
+      });
+      expect(withAuth.plan.unsupportedAtoms).toContain("mcp_server:docs");
+
+      delete mcp["bearer_token_env_var"];
+      mcp["args"] = { value: "server.js" };
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      for (const target of ["codex", "claude-code"] as const) {
+        const malformed = await exportPack({
+          source: pack,
+          target,
+          outDir: path.join(source, `${target}-malformed-out`),
+        });
+        expect(malformed.plan.unsupportedAtoms).toContain("mcp_server:docs");
+      }
+
+      delete mcp["args"];
+      mcp["transport"] = "stdio";
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      const mixedTransport = await exportPack({
+        source: pack,
+        target: "codex",
+        outDir: path.join(source, "mixed-transport-out"),
+      });
+      expect(mixedTransport.plan.unsupportedAtoms).toContain("mcp_server:docs");
+
+      mcp["transport"] = "sse";
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      const sseTransport = await exportPack({
+        source: pack,
+        target: "codex",
+        outDir: path.join(source, "sse-transport-out"),
+      });
+      expect(sseTransport.plan.unsupportedAtoms).toContain("mcp_server:docs");
+
+      mcp["transport"] = "http";
       mcp["url"] = "https://user:fixture-secret@example.com/mcp?token=fixture-secret";
       await fs.writeFile(manifestPath, stringifyYaml(manifest));
       const withSecret = await exportPack({
@@ -1088,6 +1147,13 @@ describe("importCodexDir (I/O + round-trip)", () => {
       );
       const result = await importCodexDir(source, { id: "acme.hook-options" });
       await writeImport(result, pack);
+      const manifestPath = path.join(pack, "AGENTPACK.yaml");
+      const manifest = parseYaml(await fs.readFile(manifestPath, "utf8")) as {
+        atoms: Array<Record<string, unknown>>;
+      };
+      const hookAtom = manifest.atoms.find((atom) => atom["type"] === "hook")!;
+      hookAtom["lifecycle"] = { events: { codex: ["ManifestEvent"] } };
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
       await exportPack({ source: pack, target: "codex", outDir });
 
       const emitted = JSON.parse(
@@ -1095,7 +1161,7 @@ describe("importCodexDir (I/O + round-trip)", () => {
       ) as {
         hooks: Record<string, Array<{ hooks: Array<Record<string, unknown>> }>>;
       };
-      expect(emitted.hooks.PostToolUse?.[0]?.hooks[0]).toEqual({
+      expect(emitted.hooks.ManifestEvent?.[0]?.hooks[0]).toEqual({
         type: "command",
         command: "npm run format",
         async: true,
@@ -1103,7 +1169,7 @@ describe("importCodexDir (I/O + round-trip)", () => {
         commandWindows: "npm.cmd run format",
         statusMessage: "Formatting",
       });
-      expect(emitted.hooks.PostToolUse?.[0]).toEqual(
+      expect(emitted.hooks.ManifestEvent?.[0]).toEqual(
         expect.objectContaining({ matcher: "Edit|Write" }),
       );
     } finally {
@@ -1140,6 +1206,39 @@ describe("importCodexDir (I/O + round-trip)", () => {
           source: pack,
           target,
           outDir: path.join(source, `${target}-out`),
+        });
+        expect(exported.plan.unsupportedAtoms).toContain(hook.id);
+      }
+
+      descriptor.handler = { command: "echo safe" };
+      await fs.writeFile(descriptorPath, stringifyYaml(descriptor));
+      const manifestPath = path.join(pack, "AGENTPACK.yaml");
+      const manifest = parseYaml(await fs.readFile(manifestPath, "utf8")) as {
+        atoms: Array<Record<string, unknown>>;
+      };
+      const hookAtom = manifest.atoms.find((atom) => atom["id"] === hook.id)!;
+      hookAtom["lifecycle"] = {
+        events: { codex: ["toString"], "claude-code": ["toString"] },
+      };
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      for (const target of ["codex", "claude-code"] as const) {
+        const exported = await exportPack({
+          source: pack,
+          target,
+          outDir: path.join(source, `${target}-events-out`),
+        });
+        expect(exported.plan.unsupportedAtoms).toContain(hook.id);
+      }
+
+      delete hookAtom["lifecycle"];
+      await fs.writeFile(manifestPath, stringifyYaml(manifest));
+      (descriptor as Record<string, unknown>)["events"] = 42;
+      await fs.writeFile(descriptorPath, stringifyYaml(descriptor));
+      for (const target of ["codex", "claude-code"] as const) {
+        const exported = await exportPack({
+          source: pack,
+          target,
+          outDir: path.join(source, `${target}-scalar-events-out`),
         });
         expect(exported.plan.unsupportedAtoms).toContain(hook.id);
       }
