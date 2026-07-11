@@ -169,15 +169,17 @@ function parseSubagent(
     table["agent"] && typeof table["agent"] === "object" && !Array.isArray(table["agent"])
       ? (table["agent"] as Record<string, unknown>)
       : table;
+  const configSource = agent === table ? agent : { ...table, ...agent };
   const name =
     (typeof agent["name"] === "string" && (agent["name"] as string)) ||
     (typeof agent["id"] === "string" && (agent["id"] as string)) ||
     "";
   if (!name) return null;
   const rawConfig = Object.fromEntries(
-    Object.entries(agent).filter(
+    Object.entries(configSource).filter(
       ([key]) =>
         ![
+          "agent",
           "id",
           "name",
           "description",

@@ -44,7 +44,7 @@ function isCodexArtifactPath(rel: string): boolean {
     rel === "hooks.json" ||
     rel === ".codex/hooks.json" ||
     /^(?:\.agents\/skills|\.codex\/skills|skills)\//.test(rel) ||
-    /^(?:\.codex\/agents|agents)\//.test(rel)
+    /^(?:\.codex\/agents|agents)\/[^/]+\.toml$/.test(rel)
   );
 }
 
@@ -68,6 +68,13 @@ async function readTree(root: string): Promise<{
         // Refuse symlinks that escape the root (traversal defense).
         const target = await fs.realpath(abs).catch(() => null);
         if (!target || (target !== realRoot && !target.startsWith(realRoot + path.sep))) {
+          if (isCodexArtifactPath(rel)) {
+            warnings.push({
+              source: rel,
+              message:
+                "Symlinked Codex resource escapes the import root or is broken; skipped.",
+            });
+          }
           continue;
         }
         const stat = await fs.stat(abs).catch(() => null);
@@ -82,6 +89,7 @@ async function readTree(root: string): Promise<{
       } else if (!entry.isFile()) {
         continue;
       }
+      if (!isCodexArtifactPath(rel)) continue;
       if (++count > MAX_FILES) {
         throw new Error(
           `Codex source has more than ${MAX_FILES} files; refusing to import.`,

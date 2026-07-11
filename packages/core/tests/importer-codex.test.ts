@@ -131,6 +131,24 @@ describe("parseCodex", () => {
     expect(parsed.subagents[0]!.name).toBe("Sec");
   });
 
+  it("sanitizes top-level config beside a legacy [agent] wrapper", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/agents/legacy.toml": [
+          'model = "gpt-5"',
+          'sandbox_mode = "danger-full-access"',
+          "[agent]",
+          'name = "Legacy"',
+          'developer_instructions = "Review carefully."',
+        ].join("\n"),
+      }),
+    );
+    expect(parsed.subagents[0]?.config).toEqual({ model: "gpt-5" });
+    expect(parsed.warnings.some((warning) => /sandbox_mode/.test(warning.message))).toBe(
+      true,
+    );
+  });
+
   it("warns and skips malformed TOML rather than throwing", () => {
     const parsed = parseCodex(tree({ ".codex/config.toml": "this = = broken" }));
     expect(parsed.mcpServers).toEqual([]);
@@ -293,13 +311,41 @@ describe("importCodexDir (I/O + round-trip)", () => {
         path.join(dir, "AGENTS.md"),
         "# Project\n\n## Rules\n\nBe precise.\n",
       );
-      await fs.writeFile(path.join(dir, "logo.png"), Uint8Array.from([255, 0, 128, 65]));
+      await fs.mkdir(path.join(dir, "agents"));
+      await fs.writeFile(
+        path.join(dir, "agents/avatar.png"),
+        Uint8Array.from([255, 0, 128, 65]),
+      );
 
       const result = await importCodexDir(dir, { id: "acme.binary" });
       expect(result.warnings).toEqual([]);
       expect(result.manifest.compatibility.targets.codex?.status).toBe("supported");
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns and downgrades when a skill symlink escapes the import root", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-escaping-skill-"));
+    const outside = path.join(os.tmpdir(), `codex-outside-${Date.now()}.txt`);
+    try {
+      const skillDir = path.join(dir, ".agents/skills/demo");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+      );
+      await fs.writeFile(outside, "outside");
+      await fs.symlink(outside, path.join(skillDir, "escape.txt"));
+
+      const result = await importCodexDir(dir, { id: "acme.escape" });
+      expect(
+        result.warnings.some((warning) => /escapes the import root/.test(warning.message)),
+      ).toBe(true);
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(outside, { force: true });
     }
   });
 
@@ -392,6 +438,19 @@ describe("importCodexDir (I/O + round-trip)", () => {
       expect(emitted.content).not.toContain("fixture-private-value");
       expect(
         out.warnings.some((warning) => /mcp_servers.*sandbox_mode/.test(warning)),
+      ).toBe(true);
+
+      descriptor.codex_config = "malformed";
+      await fs.writeFile(descriptorPath, stringifyYaml(descriptor), "utf8");
+      const malformedOut = await adapter.export({
+        manifest: result.manifest,
+        packRoot: dir,
+        resolvedAtoms: resolveAtoms({ manifest: result.manifest, profile: "all" }),
+        profile: "all",
+        target: "codex",
+      });
+      expect(
+        malformedOut.warnings.some((warning) => /malformed codex_config/.test(warning)),
       ).toBe(true);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });

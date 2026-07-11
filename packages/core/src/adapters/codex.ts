@@ -346,6 +346,11 @@ export const codexAdapter = defineAdapter({
       const body = await resolveSubagentBody(packRoot, atom);
       const descriptor = await parseAtomYaml(packRoot, atom);
       const rawCodexConfig = descriptor?.["codex_config"];
+      const hasMalformedCodexConfig =
+        rawCodexConfig !== undefined &&
+        (!rawCodexConfig ||
+          typeof rawCodexConfig !== "object" ||
+          Array.isArray(rawCodexConfig));
       const unsafeCodexConfig =
         rawCodexConfig &&
         typeof rawCodexConfig === "object" &&
@@ -354,6 +359,11 @@ export const codexAdapter = defineAdapter({
           : {};
       const { config: codexConfig, omittedKeys } =
         sanitizeCodexAgentConfig(unsafeCodexConfig);
+      if (hasMalformedCodexConfig) {
+        warnings.push(
+          `Subagent \`${atom.id}\` has malformed codex_config; expected a mapping and omitted it.`,
+        );
+      }
       if (omittedKeys.length > 0) {
         warnings.push(
           `Subagent \`${atom.id}\` omitted security-sensitive or unsupported Codex config: ${omittedKeys.join(", ")}.`,

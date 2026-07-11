@@ -126,11 +126,18 @@ describe("buildManifest", () => {
     expect(ids).toContain("instruction:my-section-2");
   });
 
-  it("marks plain CLAUDE.md imports as native only to Claude Code", () => {
+  it("defaults source-ambiguous standalone instructions to generic", () => {
     const parsed = parseClaudeMd("## Working Style\n\nbody\n");
     const { manifest } = buildManifest(parsed, OPTS);
-    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("supported");
-    expect(manifest.compatibility.targets.codex?.status).toBe("partial");
+    expect(manifest.compatibility.targets.generic?.status).toBe("supported");
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
+  it("uses an explicitly identified standalone source runtime", () => {
+    const parsed = parseClaudeMd("## Working Style\n\nbody\n");
+    const { manifest } = buildManifest(parsed, { ...OPTS, source: "codex" });
+    expect(manifest.compatibility.targets.codex?.status).toBe("supported");
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
   });
 
   it("promotes governance/security headings to rules", () => {

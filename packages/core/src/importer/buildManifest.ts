@@ -2,7 +2,7 @@
 // No I/O — `writeImport` (in ./index.ts) handles the filesystem.
 
 import { stringify } from "yaml";
-import type { AgentPackManifest, Atom } from "../schema/types.js";
+import type { AgentPackManifest, Atom, TargetPlatform } from "../schema/types.js";
 import { importedCompatibility } from "./importCompatibility.js";
 import type { ParsedClaudeMd, ParseWarning } from "./parseClaudeMd.js";
 
@@ -13,6 +13,8 @@ export interface BuildManifestOptions {
   name?: string;
   /** Pack version. */
   version?: string;
+  /** Native source runtime when known; standalone text defaults to generic. */
+  source?: TargetPlatform;
 }
 
 export interface ImportFile {
@@ -206,7 +208,7 @@ export function buildManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: importedCompatibility("claude-code") },
+    compatibility: { targets: importedCompatibility(opts.source ?? "generic") },
     permissions: {},
     security: { risk_level: "low" },
     profiles: {
