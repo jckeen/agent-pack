@@ -92,7 +92,7 @@ describe("parseCodex", () => {
           "[mcp_servers.github]",
           'command = "npx"',
           'args = ["-y", "server-github"]',
-          'env = { GITHUB_TOKEN = "x" }',
+          'env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }',
           'enabled_tools = ["a"]',
           'disabled_tools = ["b"]',
         ].join("\n"),
@@ -114,6 +114,10 @@ describe("parseCodex", () => {
         ".codex/config.toml": [
           "[mcp_servers.docs]",
           'url = "https://example.com/mcp"',
+          'bearer_token_env_var = "DOCS_TOKEN"',
+          "enabled = false",
+          'enabled_tools = ["search"]',
+          'disabled_tools = ["delete"]',
         ].join("\n"),
       }),
     );
@@ -122,8 +126,70 @@ describe("parseCodex", () => {
         name: "docs",
         url: "https://example.com/mcp",
         command: undefined,
+        bearerTokenEnvVar: "DOCS_TOKEN",
+        enabled: false,
+        enabledTools: ["search"],
+        disabledTools: ["delete"],
       }),
     ]);
+  });
+
+  it("omits MCP servers with secret-bearing static headers", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'url = "https://example.com/mcp"',
+          'http_headers = { Authorization = "Bearer fixture-secret" }',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+    expect(result.files.some((file) => file.content.includes("fixture-secret"))).toBe(
+      false,
+    );
+    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+  });
+
+  it("omits MCP servers with malformed recognized settings", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'url = "https://example.com/mcp"',
+          'enabled = "false"',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+    expect(
+      result.warnings.some((warning) => /malformed.*enabled/i.test(warning.message)),
+    ).toBe(true);
+    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+  });
+
+  it("omits MCP servers whose environment values are not portable placeholders", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'command = "docs-server"',
+          'env = { MODE = "read-only" }',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+    expect(
+      result.warnings.some((warning) => /environment.*MODE/i.test(warning.message)),
+    ).toBe(true);
+    expect(result.files.some((file) => file.content.includes("read-only"))).toBe(false);
+    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
   });
 
   it("parses [hooks] tables with Claude-compatible event names", () => {
@@ -154,6 +220,22 @@ describe("parseCodex", () => {
     expect(parsed.hooks).toHaveLength(1);
     expect(parsed.hooks[0]!.event).toBe("PreToolUse");
     expect(parsed.hooks[0]!.command).toBe("echo hi");
+  });
+
+  it("skips hook groups with malformed matchers instead of widening them", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/hooks.json": JSON.stringify({
+          hooks: {
+            PreToolUse: [{ matcher: 42, hooks: [{ command: "echo hi" }] }],
+          },
+        }),
+      }),
+    );
+    expect(parsed.hooks).toEqual([]);
+    expect(
+      parsed.warnings.some((warning) => /matcher.*skipped/i.test(warning.message)),
+    ).toBe(true);
   });
 
   it("parses subagent .toml definitions", () => {
@@ -527,7 +609,14 @@ describe("importCodexDir (I/O + round-trip)", () => {
       await fs.mkdir(path.join(source, ".codex"), { recursive: true });
       await fs.writeFile(
         path.join(source, ".codex/config.toml"),
-        '[mcp_servers.docs]\nurl = "https://example.com/mcp"\n',
+        [
+          "[mcp_servers.docs]",
+          'url = "https://example.com/mcp"',
+          'bearer_token_env_var = "DOCS_TOKEN"',
+          "enabled = false",
+          'enabled_tools = ["search"]',
+          'disabled_tools = ["delete"]',
+        ].join("\n"),
       );
       const result = await importCodexDir(source, { id: "acme.remote-mcp" });
       await writeImport(result, pack);
@@ -538,10 +627,36 @@ describe("importCodexDir (I/O + round-trip)", () => {
       });
       const config = parseToml(
         await fs.readFile(path.join(outDir, ".codex/config.toml"), "utf8"),
-      ) as { mcp_servers?: Record<string, { url?: string; command?: string }> };
+      ) as {
+        mcp_servers?: Record<
+          string,
+          {
+            url?: string;
+            command?: string;
+            bearer_token_env_var?: string;
+            enabled?: boolean;
+            enabled_tools?: string[];
+            disabled_tools?: string[];
+          }
+        >;
+      };
       expect(config.mcp_servers?.docs?.url).toBe("https://example.com/mcp");
       expect(config.mcp_servers?.docs?.command).toBeUndefined();
+      expect(config.mcp_servers?.docs?.bearer_token_env_var).toBe("DOCS_TOKEN");
+      expect(config.mcp_servers?.docs?.enabled).toBe(false);
+      expect(config.mcp_servers?.docs?.enabled_tools).toEqual(["search"]);
+      expect(config.mcp_servers?.docs?.disabled_tools).toEqual(["delete"]);
+      expect(result.manifest.permissions?.secrets?.required).toContainEqual({
+        name: "DOCS_TOKEN",
+        required_for: ["mcp_server:docs"],
+      });
       expect(exported.plan.unsupportedAtoms).not.toContain("mcp_server:docs");
+      const claudeExported = await exportPack({
+        source: pack,
+        target: "claude-code",
+        outDir: path.join(source, "claude-out"),
+      });
+      expect(claudeExported.plan.unsupportedAtoms).toContain("mcp_server:docs");
     } finally {
       await fs.rm(source, { recursive: true, force: true });
     }

@@ -328,8 +328,7 @@ async function onInvokeBody(atom: Atom, packRoot: string): Promise<string> {
 function ruleLines(parsed: Record<string, unknown> | null): string[] {
   const out: string[] = [];
   const behavior = parsed?.["behavior"] as
-    | { must?: unknown[]; must_not?: unknown[] }
-    | undefined;
+    { must?: unknown[]; must_not?: unknown[] } | undefined;
   const must = (behavior?.must ?? []).filter((s): s is string => typeof s === "string");
   const mustNot = (behavior?.must_not ?? []).filter(
     (s): s is string => typeof s === "string",
@@ -355,6 +354,7 @@ async function buildConnectors(
   for (const r of resolved) {
     if (r.atom.type !== "mcp_server") continue;
     const a = r.atom as McpAtom;
+    if (hasCodexOnlyMcpConfig(a)) continue;
     const transport = a.transport ?? "stdio";
     // Chat custom connectors are remote MCP only; stdio servers ship as .mcpb.
     if (transport !== "http" && transport !== "sse") continue;
@@ -501,6 +501,11 @@ function buildReport(resolved: ResolvedAtom[]): ChatPortabilityEntry[] {
   return resolved.map((r) => reportEntry(r.atom));
 }
 
+function hasCodexOnlyMcpConfig(atom: McpAtom): boolean {
+  const keys = (atom as McpAtom & { codex_only_config?: unknown })["codex_only_config"];
+  return keys !== undefined && (!Array.isArray(keys) || keys.length > 0);
+}
+
 function reportEntry(atom: Atom): ChatPortabilityEntry {
   switch (atom.type) {
     case "skill":
@@ -520,7 +525,16 @@ function reportEntry(atom: Atom): ChatPortabilityEntry {
         note: "No ambient loader in Chat. Bridged to an on-invoke skill, and surfaced in project-instructions.md for within-Project ambient use.",
       };
     case "mcp_server": {
-      const transport = (atom as McpAtom).transport ?? "stdio";
+      const mcp = atom as McpAtom;
+      if (hasCodexOnlyMcpConfig(mcp)) {
+        return {
+          atomId: atom.id,
+          type: atom.type,
+          portable: false,
+          note: "Codex-only MCP policy cannot be represented safely as a Chat connector.",
+        };
+      }
+      const transport = mcp.transport ?? "stdio";
       if (transport === "http" || transport === "sse") {
         return {
           atomId: atom.id,

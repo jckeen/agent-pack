@@ -168,12 +168,14 @@ export const codexAdapter = defineAdapter({
     const declaredServers = manifest.permissions?.mcp?.servers ?? [];
     for (const atom of mcpAtoms) {
       const slug = slugFor(atom);
-      const a = atom as {
+      const descriptor = await parseAtomYaml(packRoot, atom);
+      const a = { ...(descriptor ?? {}), ...atom } as {
         transport?: string;
         command?: string;
         url?: string;
         args?: string[];
         env?: Record<string, unknown>;
+        [key: string]: unknown;
       };
       // Same gate as the claude-code adapter: MCP commands are arbitrary
       // process execution. Require declaration in permissions.mcp.servers and
@@ -201,17 +203,60 @@ export const codexAdapter = defineAdapter({
         continue;
       }
       const envKeys = Object.keys(a.env ?? {});
-      const serverConfig = a.url
-        ? { url: a.url }
-        : {
-            transport: a.transport ?? "stdio",
-            command: a.command ?? "",
-            args: a.args ?? [],
-            env_vars: envKeys,
-          };
-      tomlBlocks.push(renderTomlTable(`mcp_servers.${slug}`, serverConfig));
+      const configKeys = [
+        "args",
+        "auth",
+        "bearer_token_env_var",
+        "command",
+        "cwd",
+        "default_tools_approval_mode",
+        "disabled_tools",
+        "enabled",
+        "enabled_tools",
+        "env_http_headers",
+        "env_vars",
+        "environment_id",
+        "name",
+        "oauth",
+        "oauth_resource",
+        "required",
+        "scopes",
+        "startup_timeout_ms",
+        "startup_timeout_sec",
+        "supports_parallel_tool_calls",
+        "tool_timeout_sec",
+        "tools",
+        "url",
+      ];
+      const serverConfig = Object.fromEntries(
+        configKeys.filter((key) => a[key] !== undefined).map((key) => [key, a[key]]),
+      );
+      if (envKeys.length > 0) {
+        const existingEnvVars = Array.isArray(serverConfig["env_vars"])
+          ? (serverConfig["env_vars"] as unknown[])
+          : [];
+        serverConfig["env_vars"] = [
+          ...existingEnvVars,
+          ...envKeys.filter((key) => !existingEnvVars.includes(key)),
+        ];
+      }
+      tomlBlocks.push(stringifyToml({ mcp_servers: { [slug]: serverConfig } }).trimEnd());
+      const requiredEnv = new Set(envKeys);
+      if (typeof a["bearer_token_env_var"] === "string") {
+        requiredEnv.add(a["bearer_token_env_var"] as string);
+      }
+      const envHttpHeaders = a["env_http_headers"];
+      if (
+        envHttpHeaders &&
+        typeof envHttpHeaders === "object" &&
+        !Array.isArray(envHttpHeaders)
+      ) {
+        for (const envName of Object.values(envHttpHeaders as Record<string, unknown>)) {
+          if (typeof envName === "string") requiredEnv.add(envName);
+        }
+      }
       warnings.push(
-        `MCP server \`${atom.id}\` configured in project .codex/config.toml. Required env: ${envKeys.join(", ") || "(none)"}.`,
+        `MCP server \`${atom.id}\` configured in project .codex/config.toml. Required env: ${[...requiredEnv].join(", ") || "(none)"}.`,
       );
     }
 
@@ -235,9 +280,21 @@ export const codexAdapter = defineAdapter({
             "after_edit",
           ]) as string[];
         const handler =
-          (parsed?.["handler"] as { command?: string } | undefined) ??
-          (atom as { handler?: { command?: string } }).handler;
+          (parsed?.["handler"] as
+            { command?: string; matcher?: string; script_path?: string } | undefined) ??
+          (
+            atom as {
+              handler?: { command?: string; matcher?: string; script_path?: string };
+            }
+          ).handler;
         const command = handler?.command ?? "";
+        if (handler?.script_path) {
+          warnings.push(
+            `Hook \`${atom.id}\` bundles a runtime-specific script that the Codex adapter cannot place safely. Refusing to emit it.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         if (
           !command ||
           !allowedShellCommands.includes(command) ||
@@ -251,12 +308,11 @@ export const codexAdapter = defineAdapter({
         }
         for (const evt of events) {
           const list = hooks[evt] ?? [];
-          list.push({
-            command,
-            description: atom.description,
-            risk_level: atom.risk_level,
-            source_atom: atom.id,
-          });
+          const group: Record<string, unknown> = {
+            hooks: [{ type: "command", command }],
+          };
+          if (handler?.matcher) group["matcher"] = handler.matcher;
+          list.push(group);
           hooks[evt] = list;
         }
       }

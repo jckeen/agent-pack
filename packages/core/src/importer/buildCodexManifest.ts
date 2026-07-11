@@ -111,16 +111,37 @@ export function buildCodexManifest(
   const secretsRequired: NonNullable<NonNullable<PermissionsBlock["secrets"]>["required"]> =
     [];
   for (const mcp of parsed.mcpServers) {
+    if (mcp.omittedConfigKeys.length > 0) continue;
     const mcpSlug = allocSlug(slugify(mcp.name));
     const envObj: Record<string, { required: boolean }> = {};
     for (const key of Object.keys(mcp.env ?? {})) {
       envObj[key] = { required: true };
       secretsRequired.push({ name: key, required_for: [`mcp_server:${mcpSlug}`] });
     }
+    const additionalSecretNames = new Set<string>();
+    if (mcp.bearerTokenEnvVar) additionalSecretNames.add(mcp.bearerTokenEnvVar);
+    const envHttpHeaders = mcp.config["env_http_headers"];
+    if (
+      envHttpHeaders &&
+      typeof envHttpHeaders === "object" &&
+      !Array.isArray(envHttpHeaders)
+    ) {
+      for (const envName of Object.values(envHttpHeaders as Record<string, unknown>)) {
+        if (typeof envName === "string" && envName.trim())
+          additionalSecretNames.add(envName);
+      }
+    }
+    for (const secretName of additionalSecretNames) {
+      secretsRequired.push({
+        name: secretName,
+        required_for: [`mcp_server:${mcpSlug}`],
+      });
+    }
     const atomObj: Record<string, unknown> = {
       id: mcpSlug,
       name: mcp.name,
       transport: mcp.transport ?? (mcp.url ? "http" : "stdio"),
+      ...mcp.config,
     };
     if (mcp.command !== undefined) atomObj["command"] = mcp.command;
     if (mcp.url !== undefined) atomObj["url"] = mcp.url;
@@ -130,8 +151,6 @@ export function buildCodexManifest(
     if (mcp.enabledTools !== undefined) atomObj["enabled_tools"] = mcp.enabledTools;
     if (mcp.disabledTools !== undefined) atomObj["disabled_tools"] = mcp.disabledTools;
     const relativePath = `atoms/mcp/${mcpSlug}.yaml`;
-    files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
-    mcpServerNames.push(mcpSlug);
     const mcpAtom: Record<string, unknown> = {
       id: `mcp_server:${mcpSlug}`,
       type: "mcp_server",
@@ -141,14 +160,24 @@ export function buildCodexManifest(
       risk_level: "high",
       permissions: ["network.access", "external_api.access"],
       transport: mcp.transport ?? (mcp.url ? "http" : "stdio"),
+      ...mcp.config,
     };
     if (mcp.command !== undefined) mcpAtom["command"] = mcp.command;
     if (mcp.url !== undefined) mcpAtom["url"] = mcp.url;
     if (mcp.args !== undefined) mcpAtom["args"] = mcp.args;
-    if (Object.keys(envObj).length > 0) {
+    if (Object.keys(envObj).length > 0 || additionalSecretNames.size > 0) {
       mcpAtom["env"] = envObj;
       (mcpAtom["permissions"] as string[]).push("secrets.env");
     }
+    const codexOnlyConfig = Object.keys(mcp.config)
+      .filter((key) => !["args", "command", "cwd", "name", "url"].includes(key))
+      .sort();
+    if (codexOnlyConfig.length > 0) {
+      atomObj["codex_only_config"] = codexOnlyConfig;
+      mcpAtom["codex_only_config"] = codexOnlyConfig;
+    }
+    files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
+    mcpServerNames.push(mcpSlug);
     atoms.push(mcpAtom as unknown as Atom);
   }
 
@@ -162,6 +191,9 @@ export function buildCodexManifest(
       events: { codex: [hook.event], "claude-code": [hook.event], generic: [hook.event] },
       handler: { kind: "shell", command: hook.command },
     };
+    if (hook.matcher !== undefined) {
+      (atomObj.handler as Record<string, unknown>)["matcher"] = hook.matcher;
+    }
     const relativePath = `atoms/hooks/${hookSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
     shellCommands.add(hook.command);

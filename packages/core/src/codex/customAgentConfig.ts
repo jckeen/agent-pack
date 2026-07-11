@@ -1,13 +1,3 @@
-const REASONING_EFFORTS = new Set([
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-]);
 const NICKNAME_RE = /^[A-Za-z0-9 _-]+$/;
 
 export interface SanitizedCodexAgentConfig {
@@ -32,7 +22,7 @@ export function sanitizeCodexAgentConfig(
     } else if (
       key === "model_reasoning_effort" &&
       typeof value === "string" &&
-      REASONING_EFFORTS.has(value)
+      value.trim() !== ""
     ) {
       config[key] = value;
     } else if (

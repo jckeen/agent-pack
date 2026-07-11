@@ -67,6 +67,13 @@ inherited parent settings from silently widening permissions. Importing a
 home-style `.codex` directory also reads sibling `.agents/skills` under a
 separate containment root.
 
+Imported Codex MCP servers preserve native authentication environment names,
+enablement, and tool allow/deny policy when compiling back to Codex. Static
+headers, malformed fields, and literal environment values can contain
+credentials or restrictions, so those servers are omitted instead of weakened;
+adapters, including Chat export, that cannot represent Codex-only policy report
+the atom as unsupported.
+
 ## Cursor
 
 **Target:** `cursor`

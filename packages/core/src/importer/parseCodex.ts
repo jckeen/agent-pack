@@ -30,12 +30,19 @@ export interface CodexMcpServer {
   cwd?: string;
   enabledTools?: string[];
   disabledTools?: string[];
+  bearerTokenEnvVar?: string;
+  enabled?: boolean;
+  /** Schema-validated Codex-native fields carried back to Codex. */
+  config: Record<string, unknown>;
+  /** Unsafe, malformed, or semantically lossy fields that make this server ineligible. */
+  omittedConfigKeys: string[];
 }
 
 export interface CodexHook {
   /** Codex/Claude Code event name (PreToolUse, PostToolUse, SessionStart, …). */
   event: string;
   command: string;
+  matcher?: string;
 }
 
 export interface CodexSubagent {
@@ -67,18 +74,86 @@ function norm(p: string): string {
   return p.split(/[\\/]+/).join("/");
 }
 
-function asStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  return value.filter((v): v is string => typeof v === "string");
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function asStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = typeof v === "string" ? v : String(v);
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) && Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
+function isEnvVarList(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        typeof entry === "string" ||
+        (isRecord(entry) &&
+          typeof entry["name"] === "string" &&
+          (entry["source"] === undefined || typeof entry["source"] === "string") &&
+          Object.keys(entry).every((key) => ["name", "source"].includes(key))),
+    )
+  );
+}
+
+function isToolConfig(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return Object.values(value).every(
+    (tool) =>
+      isRecord(tool) &&
+      Object.keys(tool).every((key) => key === "approval_mode") &&
+      (tool["approval_mode"] === undefined ||
+        ["auto", "prompt", "writes", "approve"].includes(String(tool["approval_mode"]))),
+  );
+}
+
+function validMcpConfigValue(key: string, value: unknown): boolean {
+  if (
+    [
+      "bearer_token_env_var",
+      "command",
+      "cwd",
+      "environment_id",
+      "name",
+      "oauth_resource",
+      "url",
+    ].includes(key)
+  ) {
+    return typeof value === "string";
   }
-  return out;
+  if (["args", "disabled_tools", "enabled_tools", "scopes"].includes(key)) {
+    return isStringArray(value);
+  }
+  if (["enabled", "required", "supports_parallel_tool_calls"].includes(key)) {
+    return typeof value === "boolean";
+  }
+  if (key === "startup_timeout_ms") {
+    return Number.isInteger(value) && Number(value) >= 0;
+  }
+  if (["startup_timeout_sec", "tool_timeout_sec"].includes(key)) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+  if (key === "auth") return value === "oauth" || value === "chatgpt";
+  if (key === "default_tools_approval_mode") {
+    return ["auto", "prompt", "writes", "approve"].includes(String(value));
+  }
+  if (key === "env_http_headers") return isStringRecord(value);
+  if (key === "env_vars") return isEnvVarList(value);
+  if (key === "oauth") {
+    return (
+      isRecord(value) &&
+      Object.keys(value).every((entry) => entry === "client_id") &&
+      (value["client_id"] === undefined || typeof value["client_id"] === "string")
+    );
+  }
+  if (key === "tools") return isToolConfig(value);
+  return false;
 }
 
 function parseMcpServers(
@@ -95,6 +170,75 @@ function parseMcpServers(
       continue;
     }
     const d = def as Record<string, unknown>;
+    const safeConfigKeys = new Set([
+      "args",
+      "auth",
+      "bearer_token_env_var",
+      "command",
+      "cwd",
+      "default_tools_approval_mode",
+      "disabled_tools",
+      "enabled",
+      "enabled_tools",
+      "env_http_headers",
+      "env_vars",
+      "environment_id",
+      "name",
+      "oauth",
+      "oauth_resource",
+      "required",
+      "scopes",
+      "startup_timeout_ms",
+      "startup_timeout_sec",
+      "supports_parallel_tool_calls",
+      "tool_timeout_sec",
+      "tools",
+      "url",
+    ]);
+    const unsupportedKeys = Object.keys(d)
+      .filter((key) => key !== "env" && !safeConfigKeys.has(key))
+      .sort();
+    const malformedKeys = Object.entries(d)
+      .filter(([key, value]) => safeConfigKeys.has(key) && !validMcpConfigValue(key, value))
+      .map(([key]) => key)
+      .sort();
+    const env = d["env"];
+    const malformedEnvKeys = isStringRecord(env)
+      ? Object.entries(env)
+          .filter(([key, value]) => value !== `\${${key}}`)
+          .map(([key]) => key)
+          .sort()
+      : env === undefined
+        ? []
+        : ["env"];
+    const config = Object.fromEntries(
+      Object.entries(d).filter(
+        ([key, value]) => safeConfigKeys.has(key) && validMcpConfigValue(key, value),
+      ),
+    );
+    const omittedConfigKeys = [
+      ...unsupportedKeys,
+      ...malformedKeys,
+      ...malformedEnvKeys.map((key) => `env.${key}`),
+    ].sort();
+    if (unsupportedKeys.length > 0) {
+      warnings.push({
+        source,
+        message: `Omitted secret-bearing or unsupported MCP settings for ${name}: ${unsupportedKeys.join(", ")}.`,
+      });
+    }
+    if (malformedKeys.length > 0) {
+      warnings.push({
+        source,
+        message: `Malformed MCP settings for ${name}; server skipped: ${malformedKeys.join(", ")}.`,
+      });
+    }
+    if (malformedEnvKeys.length > 0) {
+      warnings.push({
+        source,
+        message: `MCP environment values for ${name} must be same-name placeholders; server skipped: ${malformedEnvKeys.join(", ")}.`,
+      });
+    }
     servers.push({
       name,
       transport:
@@ -105,21 +249,32 @@ function parseMcpServers(
             : undefined,
       command: typeof d["command"] === "string" ? (d["command"] as string) : undefined,
       url: typeof d["url"] === "string" ? (d["url"] as string) : undefined,
-      args: asStringArray(d["args"]),
-      env: asStringRecord(d["env"]),
+      args: isStringArray(d["args"]) ? d["args"] : undefined,
+      env: isStringRecord(env) && malformedEnvKeys.length === 0 ? env : undefined,
       cwd: typeof d["cwd"] === "string" ? (d["cwd"] as string) : undefined,
-      enabledTools: asStringArray(d["enabled_tools"]),
-      disabledTools: asStringArray(d["disabled_tools"]),
+      enabledTools: isStringArray(d["enabled_tools"]) ? d["enabled_tools"] : undefined,
+      disabledTools: isStringArray(d["disabled_tools"]) ? d["disabled_tools"] : undefined,
+      bearerTokenEnvVar:
+        typeof d["bearer_token_env_var"] === "string"
+          ? (d["bearer_token_env_var"] as string)
+          : undefined,
+      enabled: typeof d["enabled"] === "boolean" ? (d["enabled"] as boolean) : undefined,
+      config,
+      omittedConfigKeys,
     });
   }
   return servers;
 }
 
 /** Extract hooks from a parsed `[hooks]` TOML table (config.toml). */
-function parseTomlHooks(table: Record<string, unknown>): CodexHook[] {
+function parseTomlHooks(
+  table: Record<string, unknown>,
+  warnings: CodexWarning[],
+  source: string,
+): CodexHook[] {
   const raw = table["hooks"];
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  return collectHookEntries(raw as Record<string, unknown>);
+  return collectHookEntries(raw as Record<string, unknown>, warnings, source);
 }
 
 /** Extract hooks from a `{ hooks: { <Event>: [{command}] } }` JSON shape. */
@@ -141,19 +296,49 @@ function parseJsonHooks(
     warnings.push({ source, message: `${source} has no \`hooks\` object; skipped.` });
     return [];
   }
-  return collectHookEntries(root as Record<string, unknown>);
+  return collectHookEntries(root as Record<string, unknown>, warnings, source);
 }
 
 /** Shared: `{ <Event>: [{command}] | {command} }` → CodexHook[]. */
-function collectHookEntries(events: Record<string, unknown>): CodexHook[] {
+function collectHookEntries(
+  events: Record<string, unknown>,
+  warnings: CodexWarning[],
+  source: string,
+): CodexHook[] {
   const hooks: CodexHook[] = [];
   for (const [event, list] of Object.entries(events)) {
     const entries = Array.isArray(list) ? list : [list];
     for (const entry of entries) {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-      const command = (entry as Record<string, unknown>)["command"];
+      const group = entry as Record<string, unknown>;
+      if (
+        Object.prototype.hasOwnProperty.call(group, "matcher") &&
+        (typeof group["matcher"] !== "string" || !group["matcher"].trim())
+      ) {
+        warnings.push({
+          source,
+          message: `Hook matcher for ${event} is invalid; group skipped.`,
+        });
+        continue;
+      }
+      const matcher =
+        typeof group["matcher"] === "string" && (group["matcher"] as string).trim()
+          ? (group["matcher"] as string).trim()
+          : undefined;
+      const handlers = Array.isArray(group["hooks"]) ? (group["hooks"] as unknown[]) : [];
+      if (handlers.length > 0) {
+        for (const handler of handlers) {
+          if (!handler || typeof handler !== "object" || Array.isArray(handler)) continue;
+          const command = (handler as Record<string, unknown>)["command"];
+          if (typeof command === "string" && command.trim()) {
+            hooks.push({ event, command: command.trim(), matcher });
+          }
+        }
+        continue;
+      }
+      const command = group["command"];
       if (typeof command === "string" && command.trim()) {
-        hooks.push({ event, command });
+        hooks.push({ event, command: command.trim(), matcher });
       }
     }
   }
@@ -287,7 +472,7 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
     try {
       const table = parseToml(tree.get(configPath)!) as Record<string, unknown>;
       mcpServers = parseMcpServers(table, warnings, configPath);
-      hooks = parseTomlHooks(table);
+      hooks = parseTomlHooks(table, warnings, configPath);
       const unsupportedKeys = Object.keys(table)
         .filter((key) => !["agentpack", "hooks", "mcp_servers"].includes(key))
         .sort();

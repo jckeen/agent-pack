@@ -22,7 +22,7 @@ describe("sanitizeCodexAgentConfig", () => {
   it("omits invalid reasoning and nickname values", () => {
     expect(
       sanitizeCodexAgentConfig({
-        model_reasoning_effort: "definitely-invalid",
+        model_reasoning_effort: "",
         nickname_candidates: ["invalid.nickname"],
       }),
     ).toEqual({
@@ -43,7 +43,7 @@ describe("sanitizeCodexAgentConfig", () => {
   });
 
   it("accepts current Codex reasoning effort names", () => {
-    for (const effort of ["none", "max", "ultra"]) {
+    for (const effort of ["none", "max", "ultra", "catalog-defined-effort"]) {
       expect(sanitizeCodexAgentConfig({ model_reasoning_effort: effort })).toEqual({
         config: { model_reasoning_effort: effort },
         omittedKeys: [],

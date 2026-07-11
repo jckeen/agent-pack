@@ -350,7 +350,15 @@ export const claudeCodeAdapter = defineAdapter({
           args?: string[];
           env?: Record<string, unknown>;
           url?: string;
+          codex_only_config?: string[];
         };
+        if ((a.codex_only_config?.length ?? 0) > 0) {
+          warnings.push(
+            `MCP server \`${atom.id}\` was not exported because Codex-only restrictions cannot be represented safely in Claude Code: ${a.codex_only_config!.join(", ")}.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         // Gate symmetric to hooks: an MCP server's command is arbitrary
         // process execution at session start. Require the server to be
         // declared in `permissions.mcp.servers`, and refuse shell-escape

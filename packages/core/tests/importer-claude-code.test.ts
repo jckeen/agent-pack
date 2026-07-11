@@ -66,7 +66,9 @@ describe("parseClaudeCode", () => {
         }),
       }),
     );
-    expect(parsed.hooks).toEqual([{ event: "PostToolUse", command: "fmt.sh" }]);
+    expect(parsed.hooks).toEqual([
+      { event: "PostToolUse", matcher: "Edit|Write", command: "fmt.sh" },
+    ]);
     expect(parsed.mcpServers.map((m) => m.name).sort()).toEqual(["cf", "db"]);
     expect(parsed.mcpServers.find((m) => m.name === "cf")?.url).toBe(
       "https://example.com/mcp",
@@ -138,7 +140,7 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     }
   });
 
-  it("downgrades Claude Code when hook matchers cannot be preserved", async () => {
+  it("preserves Claude hook matchers when exporting to Codex", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-hook-matcher-"));
     try {
       await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
@@ -153,11 +155,26 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
         }),
       );
       const result = await importClaudeCodeDir(dir, { id: "acme.matcher" });
-      expect(result.warnings.some((warning) => /matcher.*Bash/.test(warning.message))).toBe(
-        true,
+      const tmp = path.join(dir, "roundtrip");
+      await writeImport(result, path.join(tmp, "pack"));
+      await exportPack({
+        source: path.join(tmp, "pack"),
+        target: "codex",
+        outDir: path.join(tmp, "out"),
+      });
+      const emitted = JSON.parse(
+        await fs.readFile(path.join(tmp, "out/.codex/hooks.json"), "utf8"),
+      ) as {
+        hooks: Record<
+          string,
+          Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>
+        >;
+      };
+      expect(emitted.hooks.PostToolUse?.[0]?.matcher).toBe("Bash");
+      expect(emitted.hooks.PostToolUse?.[0]?.hooks?.[0]?.command).toBe("audit.sh");
+      expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe(
+        "supported",
       );
-      expect(result.manifest.atoms.some((atom) => atom.type === "hook")).toBe(false);
-      expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

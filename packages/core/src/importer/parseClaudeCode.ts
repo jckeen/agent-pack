@@ -35,6 +35,8 @@ export interface ClaudeCodeHook {
   /** Claude Code event name (PreToolUse, PostToolUse, SessionStart, …). */
   event: string;
   command: string;
+  /** Tool matcher retained across Claude Code and Codex matcher groups. */
+  matcher?: string;
   /**
    * Bundled script body, set by the I/O layer (`importClaudeCodeDir`) when the
    * command resolves to a readable text script. When present, the build bundles
@@ -143,10 +145,12 @@ function parseHooks(
       if (!group || typeof group !== "object") continue;
       const groupRecord = group as Record<string, unknown>;
       const matcher = groupRecord["matcher"];
-      if (matcher !== undefined && matcher !== "Edit|Write") {
+      const portableMatcher =
+        typeof matcher === "string" && matcher.trim() !== "" ? matcher.trim() : undefined;
+      if (matcher !== undefined && portableMatcher === undefined) {
         warnings.push({
           source,
-          message: `Hook matcher \`${String(matcher)}\` is not portable and was skipped.`,
+          message: "Hook matcher must be a non-empty string; hook group was skipped.",
         });
         continue;
       }
@@ -156,7 +160,7 @@ function parseHooks(
         if (!entry || typeof entry !== "object") continue;
         const command = (entry as Record<string, unknown>)["command"];
         if (typeof command === "string" && command.trim()) {
-          hooks.push({ event, command: command.trim() });
+          hooks.push({ event, command: command.trim(), matcher: portableMatcher });
         }
       }
     }

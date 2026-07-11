@@ -196,6 +196,7 @@ export function buildClaudeCodeManifest(
       handler["script_path"] = scriptPath;
     }
     handler["command"] = command;
+    if (hook.matcher !== undefined) handler["matcher"] = hook.matcher;
     const atomObj = {
       id: hookSlug,
       name: `${hook.event} hook`,

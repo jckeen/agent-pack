@@ -180,12 +180,7 @@ async function runImporter(
   if (from === "chatgpt-gpt") return importChatgptGptDir(srcPath, opts);
   const text = await readSource(srcPath);
   const filename = path.basename(srcPath).toLowerCase();
-  const source =
-    filename === "claude.md"
-      ? "claude-code"
-      : filename === "agents.md"
-        ? "codex"
-        : "generic";
+  const source = filename === "claude.md" ? "claude-code" : "generic";
   return importClaudeMd(text, { ...opts, source });
 }
 
