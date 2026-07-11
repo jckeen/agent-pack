@@ -51,6 +51,23 @@ describe("parseCodex", () => {
     expect(skill.files.map((f) => f.relPath).sort()).toEqual(["SKILL.md", "checklist.md"]);
   });
 
+  it("rejects ambiguous copies of a skill across current and legacy roots", () => {
+    const parsed = parseCodex(
+      tree({
+        ".agents/skills/review/SKILL.md":
+          "---\nname: review\ndescription: Current copy.\n---\n",
+        ".codex/skills/review/SKILL.md":
+          "---\nname: review\ndescription: Legacy copy.\n---\n",
+      }),
+    );
+    expect(parsed.skills).toEqual([]);
+    expect(parsed.warnings).toContainEqual({
+      source: "skills/review",
+      message:
+        "Skill exists in multiple Codex roots (.agents/skills, .codex/skills); skipped to avoid ambiguous overwrite.",
+    });
+  });
+
   it("parses [mcp_servers.*] from config.toml", () => {
     const parsed = parseCodex(
       tree({
@@ -292,10 +309,22 @@ describe("importCodexDir (I/O + round-trip)", () => {
       )!;
       const reparsedSubagent = parseToml(subagentToml.content) as {
         developer_instructions?: string;
+        sandbox_mode?: string;
+        model?: string;
+        model_reasoning_effort?: string;
+        mcp_servers?: string[];
+        nickname_candidates?: string[];
+        skills?: { config?: Record<string, boolean> };
       };
       expect(reparsedSubagent.developer_instructions).toContain(
         "You are a security-focused code reviewer.",
       );
+      expect(reparsedSubagent.sandbox_mode).toBe("read-only");
+      expect(reparsedSubagent.model).toBe("gpt-5");
+      expect(reparsedSubagent.model_reasoning_effort).toBe("high");
+      expect(reparsedSubagent.mcp_servers).toEqual(["github"]);
+      expect(reparsedSubagent.nickname_candidates).toEqual(["Security", "AppSec"]);
+      expect(reparsedSubagent.skills?.config).toEqual({ "code-review": true });
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

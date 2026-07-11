@@ -40,6 +40,7 @@ export interface CodexSubagent {
   name: string;
   description?: string;
   instructions?: string;
+  config: Record<string, unknown>;
 }
 
 export interface CodexWarning {
@@ -168,6 +169,19 @@ function parseSubagent(content: string): CodexSubagent | null {
     (typeof agent["id"] === "string" && (agent["id"] as string)) ||
     "";
   if (!name) return null;
+  const config = Object.fromEntries(
+    Object.entries(agent).filter(
+      ([key]) =>
+        ![
+          "id",
+          "name",
+          "description",
+          "developer_instructions",
+          "instructions",
+          "prompt",
+        ].includes(key),
+    ),
+  );
   return {
     name,
     description:
@@ -182,6 +196,7 @@ function parseSubagent(content: string): CodexSubagent | null {
           : typeof agent["prompt"] === "string"
             ? (agent["prompt"] as string)
             : undefined,
+    config,
   };
 }
 
@@ -242,13 +257,18 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
   }
 
   // ---------- skills ----------
-  const skillRe = /^(?:(?:\.agents|\.codex)\/)?skills\/([^/]+)\/(.+)$/;
+  const skillRe = /^((?:\.agents|\.codex)\/skills|skills)\/([^/]+)\/(.+)$/;
   const skillMap = new Map<string, CodexSkill>();
+  const skillRoots = new Map<string, Set<string>>();
   for (const [p, content] of tree) {
     const m = p.match(skillRe);
     if (!m) continue;
-    const name = m[1]!;
-    const rel = m[2]!;
+    const root = m[1]!;
+    const name = m[2]!;
+    const rel = m[3]!;
+    const roots = skillRoots.get(name) ?? new Set<string>();
+    roots.add(root);
+    skillRoots.set(name, roots);
     let skill = skillMap.get(name);
     if (!skill) {
       skill = { name, files: [] };
@@ -258,6 +278,14 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
   }
   const skills = [...skillMap.values()]
     .filter((s) => {
+      const roots = skillRoots.get(s.name) ?? new Set<string>();
+      if (roots.size > 1) {
+        warnings.push({
+          source: `skills/${s.name}`,
+          message: `Skill exists in multiple Codex roots (${[...roots].sort().join(", ")}); skipped to avoid ambiguous overwrite.`,
+        });
+        return false;
+      }
       const hasSkillMd = s.files.some(
         (f) => f.relPath === "SKILL.md" || f.relPath === "skill.md",
       );

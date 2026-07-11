@@ -2,3 +2,11 @@
 name = "Security Reviewer"
 description = "Specialized security review agent for diffs."
 developer_instructions = "You are a security-focused code reviewer. Flag auth, injection, secrets, and SSRF risks."
+sandbox_mode = "read-only"
+model = "gpt-5"
+model_reasoning_effort = "high"
+mcp_servers = ["github"]
+nickname_candidates = ["Security", "AppSec"]
+
+[skills]
+config = { code-review = true }

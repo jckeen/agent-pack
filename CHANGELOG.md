@@ -10,7 +10,9 @@
   including `references/` and `agents/openai.yaml`, through the current
   `.agents/skills/` surface and across to Claude Code without changing text.
   Non-UTF-8 resources are skipped with a warning instead of being corrupted,
-  and Codex `developer_instructions` survive the native subagent round trip.
+  ambiguous current/legacy skill copies are rejected instead of overwritten,
+  and Codex custom-agent instructions, sandbox, model, MCP, skills, and other
+  native settings survive the round trip.
 - The standard and personal-config sync guide document the distinction between
   native-source fidelity and compiled target output.
 
