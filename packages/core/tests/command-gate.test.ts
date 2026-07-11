@@ -36,6 +36,10 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("git difftool --extcmd=./payload.sh", [])).toBe(true);
     expect(isShellEscape("git config core.pager '!./payload.sh'", [])).toBe(true);
     expect(isShellEscape("git -ccore.editor=./payload status", [])).toBe(true);
+    expect(isShellEscape('"ba"sh -c ./payload.sh', [])).toBe(true);
+    expect(isShellEscape("b\\ash -c ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("$'ignored; literal' && ./payload.sh", [])).toBe(true);
+    expect(isShellEscape("printf $'safe\\nliteral'", [])).toBe(true);
     expect(isShellEscape("", [])).toBe(true);
   });
 
@@ -112,6 +116,7 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("printf", ["pwsh", "is a literal argument"])).toBe(false);
     expect(isShellEscape("printf 'safe; literal'", [])).toBe(false);
     expect(isShellEscape("git diff -c", [])).toBe(false);
+    expect(isShellEscape('"C:\\Program Files\\tool.exe" --serve', [])).toBe(false);
     // `-c` as a non-flag positional for a non-shell binary is fine.
     expect(isShellEscape("grep", ["-c", "pattern"])).toBe(false);
   });

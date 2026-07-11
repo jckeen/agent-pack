@@ -102,6 +102,36 @@ function tokenizeCommand(command: string): string[] {
   );
 }
 
+function parseExecutableToken(command: string): string | null {
+  const trimmed = command.trimStart();
+  if (!trimmed) return null;
+  const quote = trimmed[0];
+  if (quote === '"' || quote === "'") {
+    let escaped = false;
+    for (let index = 1; index < trimmed.length; index += 1) {
+      const char = trimmed[index] ?? "";
+      if (quote === '"' && char === "\\" && !escaped) {
+        escaped = true;
+        continue;
+      }
+      if (char === quote && !escaped) {
+        if (trimmed[index + 1] !== undefined && !/\s/.test(trimmed[index + 1] ?? "")) {
+          return null;
+        }
+        return trimmed.slice(1, index);
+      }
+      escaped = false;
+    }
+    return null;
+  }
+  const token = trimmed.match(/^\S+/)?.[0] ?? "";
+  if (!token || /["']/.test(token)) return null;
+  if (/\\/.test(token) && !/^(?:[A-Za-z]:\\|\.{1,2}\\|\\\\)/.test(token)) {
+    return null;
+  }
+  return token;
+}
+
 function containsShellComposition(command: string): boolean {
   let singleQuoted = false;
   let doubleQuoted = false;
@@ -173,15 +203,16 @@ function containsWindowsShellEval(command: string, args: readonly string[]): boo
  */
 export function isShellEscape(command: string, args: readonly string[]): boolean {
   if (!command) return true;
+  if (command.includes("$'")) return true;
   if (containsShellComposition(command)) return true;
-  const firstRawWord = command.match(/^\S+/)?.[0] ?? command;
-  if (!/^["']/.test(command) && /["']/.test(firstRawWord)) return true;
+  const executable = parseExecutableToken(command);
+  if (!executable) return true;
   const commandTokens = tokenizeCommand(command);
   const firstToken = commandTokens[0] ?? command;
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(firstToken)) return true;
   if (/^\$\{?(?:SHELL|COMSPEC)\}?$/i.test(firstToken)) return true;
   if (containsWindowsShellEval(command, args)) return true;
-  const base = basename(commandTokens[0] ?? command);
+  const base = basename(executable);
   const effectiveArgs = [...commandTokens.slice(1), ...args];
   if (base === "eval") return true;
   // Indirection wrappers (env/find/xargs/git/make/…) run an arbitrary trailing
