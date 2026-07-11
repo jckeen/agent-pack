@@ -14,6 +14,7 @@
 
 import { parse as parseYaml } from "yaml";
 import { parseClaudeMd, type ParsedClaudeMd } from "./parseClaudeMd.js";
+import { isShellEscape } from "../adapters/commandGate.js";
 
 export interface ClaudeCodeSkill {
   /** Directory name under `skills/` (also the skill `name`). */
@@ -37,6 +38,10 @@ export interface ClaudeCodeHook {
   command: string;
   /** Tool matcher retained across Claude Code and Codex matcher groups. */
   matcher?: string;
+  async?: boolean;
+  timeout?: number;
+  commandWindows?: string;
+  statusMessage?: string;
   /**
    * Bundled script body, set by the I/O layer (`importClaudeCodeDir`) when the
    * command resolves to a readable text script. When present, the build bundles
@@ -137,12 +142,19 @@ function parseHooks(
   warnings: ClaudeCodeWarning[],
   source: string,
 ): ClaudeCodeHook[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  if (value === undefined) return [];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    warnings.push({ source, message: "Hooks must be an object; skipped." });
+    return [];
+  }
   const hooks: ClaudeCodeHook[] = [];
   for (const [event, groups] of Object.entries(value as Record<string, unknown>)) {
     const groupList = Array.isArray(groups) ? groups : [groups];
     for (const group of groupList) {
-      if (!group || typeof group !== "object") continue;
+      if (!group || typeof group !== "object" || Array.isArray(group)) {
+        warnings.push({ source, message: `Malformed hook group for ${event}; skipped.` });
+        continue;
+      }
       const groupRecord = group as Record<string, unknown>;
       const matcher = groupRecord["matcher"];
       const portableMatcher =
@@ -155,17 +167,116 @@ function parseHooks(
         continue;
       }
       const inner = groupRecord["hooks"];
-      const entries = Array.isArray(inner) ? inner : [];
+      if (!Array.isArray(inner) || inner.length === 0) {
+        warnings.push({
+          source,
+          message: `Hook group for ${event} must contain a non-empty hooks array; skipped.`,
+        });
+        continue;
+      }
+      const groupKeys = Object.keys(groupRecord).filter(
+        (key) => !["matcher", "hooks"].includes(key),
+      );
+      if (groupKeys.length > 0) {
+        warnings.push({
+          source,
+          message: `Unsupported hook group options for ${event}; group skipped: ${groupKeys.sort().join(", ")}.`,
+        });
+        continue;
+      }
+      const entries = inner;
       for (const entry of entries) {
-        if (!entry || typeof entry !== "object") continue;
-        const command = (entry as Record<string, unknown>)["command"];
-        if (typeof command === "string" && command.trim()) {
-          hooks.push({ event, command: command.trim(), matcher: portableMatcher });
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          warnings.push({
+            source,
+            message: `Malformed hook handler for ${event}; skipped.`,
+          });
+          continue;
         }
+        const parsed = parseCommandHook(
+          entry as Record<string, unknown>,
+          event,
+          portableMatcher,
+          warnings,
+          source,
+        );
+        if (parsed) hooks.push(parsed);
       }
     }
   }
   return hooks;
+}
+
+function parseCommandHook(
+  handler: Record<string, unknown>,
+  event: string,
+  matcher: string | undefined,
+  warnings: ClaudeCodeWarning[],
+  source: string,
+): ClaudeCodeHook | null {
+  if (handler["type"] !== undefined && handler["type"] !== "command") {
+    warnings.push({
+      source,
+      message: `Non-command hook handler for ${event} was skipped.`,
+    });
+    return null;
+  }
+  const command = handler["command"];
+  if (typeof command !== "string" || !command.trim()) {
+    warnings.push({
+      source,
+      message: `Command hook for ${event} has no command; skipped.`,
+    });
+    return null;
+  }
+  if (
+    isShellEscape(command.trim(), []) ||
+    (typeof handler["commandWindows"] === "string" &&
+      isShellEscape(handler["commandWindows"].trim(), []))
+  ) {
+    warnings.push({
+      source,
+      message: `Command hook for ${event} contains a shell-escape shape; skipped.`,
+    });
+    return null;
+  }
+  const optionTypesValid =
+    (handler["async"] === undefined || typeof handler["async"] === "boolean") &&
+    (handler["timeout"] === undefined ||
+      (Number.isInteger(handler["timeout"]) && Number(handler["timeout"]) >= 0)) &&
+    (handler["commandWindows"] === undefined ||
+      (typeof handler["commandWindows"] === "string" &&
+        handler["commandWindows"].trim().length > 0)) &&
+    (handler["statusMessage"] === undefined ||
+      typeof handler["statusMessage"] === "string");
+  const supportedKeys = new Set([
+    "type",
+    "command",
+    "async",
+    "timeout",
+    "commandWindows",
+    "statusMessage",
+  ]);
+  if (!optionTypesValid || Object.keys(handler).some((key) => !supportedKeys.has(key))) {
+    warnings.push({
+      source,
+      message: `Malformed or unsupported command hook options for ${event}; handler skipped.`,
+    });
+    return null;
+  }
+  return {
+    event,
+    command: command.trim(),
+    matcher,
+    ...(typeof handler["async"] === "boolean" ? { async: handler["async"] } : {}),
+    ...(typeof handler["timeout"] === "number" ? { timeout: handler["timeout"] } : {}),
+    ...(typeof handler["commandWindows"] === "string"
+      ? { commandWindows: handler["commandWindows"].trim() }
+      : {}),
+    ...(typeof handler["statusMessage"] === "string"
+      ? { statusMessage: handler["statusMessage"] }
+      : {}),
+  };
 }
 
 /** Claude Code `mcpServers: { <name>: { command?, args?, env?, type?, url? } }`. */

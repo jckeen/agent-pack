@@ -185,7 +185,7 @@ export function buildCodexManifest(
       (mcpAtom["permissions"] as string[]).push("secrets.env");
     }
     const codexOnlyConfig = Object.keys(mcp.config)
-      .filter((key) => !["args", "command", "cwd", "name", "url"].includes(key))
+      .filter((key) => !["args", "command", "name", "url"].includes(key))
       .sort();
     if (codexOnlyConfig.length > 0) {
       atomObj["codex_only_config"] = codexOnlyConfig;
@@ -217,6 +217,7 @@ export function buildCodexManifest(
     const relativePath = `atoms/hooks/${hookSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
     shellCommands.add(hook.command);
+    if (hook.commandWindows !== undefined) shellCommands.add(hook.commandWindows);
     atoms.push({
       id: `hook:${hookSlug}`,
       type: "hook",

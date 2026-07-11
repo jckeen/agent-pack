@@ -77,6 +77,8 @@ const INTERPRETER_EVAL_FLAGS: Record<string, RegExp> = {
   luajit: /^-e$/,
   rscript: /^-e$/, // Rscript -e '<code>' (basename lowercased)
   osascript: /^-e$/,
+  powershell: /^-(?:command|encodedcommand|c|e(?:ncodedcommand)?)$/i,
+  pwsh: /^-(?:command|encodedcommand|c|e(?:ncodedcommand)?)$/i,
   // GNU sed executes shell via the `e` command (`…e cmd`) or the `s///e` flag.
   sed: /(^|[;\n])\s*e(\s|$)|s[^\w\s][^\n]*[^\w\s][a-z]*e[a-z]*$/,
 };
@@ -128,7 +130,7 @@ export function isShellEscape(command: string, args: readonly string[]): boolean
   // Fallback string check for commands that embed the whole invocation in
   // one string (hook commands): catches `sh -c`, `bash -lc`, `node -e`, ...
   const joined = [command, ...args].join(" ");
-  return /\b(?:sh|bash|zsh|ksh|dash|fish)\s+-[A-Za-z]*c\b|\bnode\s+(?:-e|--eval|-p)\b|\bpython3?\s+-[A-Za-z]*c\b|\bperl\s+-[A-Za-z]*[eE]\b|\bruby\s+-[A-Za-z]*e\b|\b(?:awk|gawk|mawk|nawk)\s+[^-]|\bphp\s+-[A-Za-z]*r\b|\b(?:lua|luajit|rscript|osascript)\s+-e\b|\beval\b/i.test(
+  return /\b(?:sh|bash|zsh|ksh|dash|fish)\s+-[A-Za-z]*c\b|\bnode\s+(?:-e|--eval|-p)\b|\bpython3?\s+-[A-Za-z]*c\b|\bperl\s+-[A-Za-z]*[eE]\b|\bruby\s+-[A-Za-z]*e\b|\b(?:awk|gawk|mawk|nawk)\s+[^-]|\bphp\s+-[A-Za-z]*r\b|\b(?:lua|luajit|rscript|osascript)\s+-e\b|\b(?:powershell|pwsh)\s+-(?:command|encodedcommand|c|e(?:ncodedcommand)?)\b|\beval\b/i.test(
     joined,
   );
 }

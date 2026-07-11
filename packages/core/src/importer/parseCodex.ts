@@ -12,6 +12,7 @@
 import { parse as parseToml } from "smol-toml";
 import { parseClaudeMd, type ParsedClaudeMd } from "./parseClaudeMd.js";
 import { sanitizeCodexAgentConfig } from "../codex/customAgentConfig.js";
+import { isShellEscape } from "../adapters/commandGate.js";
 
 export interface CodexSkill {
   /** Directory name under `.agents/skills/` (also the skill `name`). */
@@ -129,7 +130,7 @@ function validMcpConfigValue(key: string, value: unknown): boolean {
       "url",
     ].includes(key)
   ) {
-    return typeof value === "string";
+    return typeof value === "string" && value.trim().length > 0;
   }
   if (["args", "disabled_tools", "enabled_tools", "scopes"].includes(key)) {
     return isStringArray(value);
@@ -185,6 +186,10 @@ function parseMcpServers(
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
   const servers: CodexMcpServer[] = [];
   for (const [name, def] of Object.entries(raw as Record<string, unknown>)) {
+    if (!name.trim()) {
+      warnings.push({ source, message: "MCP server table name is empty; skipped." });
+      continue;
+    }
     if (!def || typeof def !== "object" || Array.isArray(def)) {
       warnings.push({ source, message: `mcp_servers.${name} is not a table; skipped.` });
       continue;
@@ -216,7 +221,7 @@ function parseMcpServers(
       "url",
     ]);
     const unsupportedKeys = Object.keys(d)
-      .filter((key) => key !== "env" && !safeConfigKeys.has(key))
+      .filter((key) => key !== "env" && key !== "transport" && !safeConfigKeys.has(key))
       .sort();
     const malformedKeys = Object.entries(d)
       .filter(([key, value]) => safeConfigKeys.has(key) && !validMcpConfigValue(key, value))
@@ -225,6 +230,18 @@ function parseMcpServers(
     const unsafeUrl =
       Object.prototype.hasOwnProperty.call(d, "url") && !isPortableMcpUrl(d["url"]);
     if (unsafeUrl && !malformedKeys.includes("url")) malformedKeys.push("url");
+    const legacyTransport = d["transport"];
+    const malformedTransport =
+      legacyTransport !== undefined &&
+      !(
+        (legacyTransport === "stdio" &&
+          typeof d["command"] === "string" &&
+          d["url"] === undefined) ||
+        (legacyTransport === "http" &&
+          isPortableMcpUrl(d["url"]) &&
+          d["command"] === undefined)
+      );
+    if (malformedTransport) malformedKeys.push("transport");
     malformedKeys.sort();
     const env = d["env"];
     const malformedEnvKeys = isStringRecord(env)
@@ -275,8 +292,8 @@ function parseMcpServers(
     servers.push({
       name,
       transport:
-        typeof d["transport"] === "string"
-          ? (d["transport"] as string)
+        legacyTransport === "stdio" || legacyTransport === "http"
+          ? legacyTransport
           : isPortableMcpUrl(d["url"])
             ? "http"
             : undefined,
@@ -306,7 +323,11 @@ function parseTomlHooks(
   source: string,
 ): CodexHook[] {
   const raw = table["hooks"];
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  if (raw === undefined) return [];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    warnings.push({ source, message: "Inline hooks must be a table; skipped." });
+    return [];
+  }
   return collectHookEntries(raw as Record<string, unknown>, warnings, source);
 }
 
@@ -340,9 +361,16 @@ function collectHookEntries(
 ): CodexHook[] {
   const hooks: CodexHook[] = [];
   for (const [event, list] of Object.entries(events)) {
+    if (!event.trim()) {
+      warnings.push({ source, message: "Hook event name is empty; skipped." });
+      continue;
+    }
     const entries = Array.isArray(list) ? list : [list];
     for (const entry of entries) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        warnings.push({ source, message: `Malformed hook group for ${event}; skipped.` });
+        continue;
+      }
       const group = entry as Record<string, unknown>;
       if (
         Object.prototype.hasOwnProperty.call(group, "matcher") &&
@@ -358,10 +386,33 @@ function collectHookEntries(
         typeof group["matcher"] === "string" && (group["matcher"] as string).trim()
           ? (group["matcher"] as string).trim()
           : undefined;
-      const handlers = Array.isArray(group["hooks"]) ? (group["hooks"] as unknown[]) : [];
-      if (handlers.length > 0) {
+      if (Object.prototype.hasOwnProperty.call(group, "hooks")) {
+        const groupOptions = Object.keys(group).filter(
+          (key) => !["matcher", "hooks"].includes(key),
+        );
+        if (groupOptions.length > 0) {
+          warnings.push({
+            source,
+            message: `Unsupported hook group options for ${event}; group skipped: ${groupOptions.sort().join(", ")}.`,
+          });
+          continue;
+        }
+        const handlers = group["hooks"];
+        if (!Array.isArray(handlers) || handlers.length === 0) {
+          warnings.push({
+            source,
+            message: `Hook group for ${event} must contain a non-empty hooks array; skipped.`,
+          });
+          continue;
+        }
         for (const handler of handlers) {
-          if (!handler || typeof handler !== "object" || Array.isArray(handler)) continue;
+          if (!handler || typeof handler !== "object" || Array.isArray(handler)) {
+            warnings.push({
+              source,
+              message: `Malformed hook handler for ${event}; skipped.`,
+            });
+            continue;
+          }
           const parsed = parseCommandHook(
             handler as Record<string, unknown>,
             event,
@@ -397,13 +448,31 @@ function parseCommandHook(
     return null;
   }
   const command = handler["command"];
-  if (typeof command !== "string" || !command.trim()) return null;
+  if (typeof command !== "string" || !command.trim()) {
+    warnings.push({
+      source,
+      message: `Command hook for ${event} has no command; skipped.`,
+    });
+    return null;
+  }
+  if (
+    isShellEscape(command.trim(), []) ||
+    (typeof handler["commandWindows"] === "string" &&
+      isShellEscape(handler["commandWindows"].trim(), []))
+  ) {
+    warnings.push({
+      source,
+      message: `Command hook for ${event} contains a shell-escape shape; skipped.`,
+    });
+    return null;
+  }
   const optionTypesValid =
     (handler["async"] === undefined || typeof handler["async"] === "boolean") &&
     (handler["timeout"] === undefined ||
       (Number.isInteger(handler["timeout"]) && Number(handler["timeout"]) >= 0)) &&
     (handler["commandWindows"] === undefined ||
-      typeof handler["commandWindows"] === "string") &&
+      (typeof handler["commandWindows"] === "string" &&
+        handler["commandWindows"].trim().length > 0)) &&
     (handler["statusMessage"] === undefined ||
       typeof handler["statusMessage"] === "string");
   const supportedKeys = new Set([
@@ -433,7 +502,7 @@ function parseCommandHook(
     ...(typeof handler["async"] === "boolean" ? { async: handler["async"] } : {}),
     ...(typeof handler["timeout"] === "number" ? { timeout: handler["timeout"] } : {}),
     ...(typeof handler["commandWindows"] === "string"
-      ? { commandWindows: handler["commandWindows"] }
+      ? { commandWindows: handler["commandWindows"].trim() }
       : {}),
     ...(typeof handler["statusMessage"] === "string"
       ? { statusMessage: handler["statusMessage"] }

@@ -77,6 +77,46 @@ describe("parseClaudeCode", () => {
       TOKEN: "${TOKEN}",
     });
   });
+
+  it("preserves command-hook options and skips non-command handlers", () => {
+    const parsed = parseClaudeCode(
+      tree({
+        "settings.json": JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              {
+                matcher: "Edit|Write",
+                hooks: [
+                  {
+                    type: "command",
+                    command: "fmt.sh",
+                    async: true,
+                    timeout: 30,
+                    statusMessage: "Formatting",
+                  },
+                  { type: "prompt", command: "echo widened" },
+                  { type: "agent", command: "echo widened again" },
+                ],
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    expect(parsed.hooks).toEqual([
+      {
+        event: "PostToolUse",
+        matcher: "Edit|Write",
+        command: "fmt.sh",
+        async: true,
+        timeout: 30,
+        statusMessage: "Formatting",
+      },
+    ]);
+    expect(
+      parsed.warnings.filter((warning) => /non-command.*skipped/i.test(warning.message)),
+    ).toHaveLength(2);
+  });
 });
 
 describe("importClaudeCodeDir (I/O against fixture)", () => {
@@ -140,7 +180,7 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     }
   });
 
-  it("preserves Claude hook matchers when exporting to Codex", async () => {
+  it("preserves Claude command-hook matchers and options across exports", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-hook-matcher-"));
     try {
       await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
@@ -149,7 +189,19 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
         JSON.stringify({
           hooks: {
             PostToolUse: [
-              { matcher: "Bash", hooks: [{ type: "command", command: "audit.sh" }] },
+              {
+                matcher: "Bash",
+                hooks: [
+                  {
+                    type: "command",
+                    command: "audit.sh",
+                    async: true,
+                    timeout: 30,
+                    commandWindows: "audit.cmd",
+                    statusMessage: "Auditing",
+                  },
+                ],
+              },
             ],
           },
         }),
@@ -167,11 +219,31 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
       ) as {
         hooks: Record<
           string,
-          Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>
+          Array<{ matcher?: string; hooks?: Array<Record<string, unknown>> }>
         >;
       };
       expect(emitted.hooks.PostToolUse?.[0]?.matcher).toBe("Bash");
-      expect(emitted.hooks.PostToolUse?.[0]?.hooks?.[0]?.command).toBe("audit.sh");
+      expect(emitted.hooks.PostToolUse?.[0]?.hooks?.[0]).toEqual({
+        type: "command",
+        command: "audit.sh",
+        async: true,
+        timeout: 30,
+        commandWindows: "audit.cmd",
+        statusMessage: "Auditing",
+      });
+      await exportPack({
+        source: path.join(tmp, "pack"),
+        target: "claude-code",
+        outDir: path.join(tmp, "claude-out"),
+      });
+      const claude = JSON.parse(
+        await fs.readFile(path.join(tmp, "claude-out/.claude/settings.json"), "utf8"),
+      ) as {
+        hooks: Record<string, Array<{ hooks?: Array<Record<string, unknown>> }>>;
+      };
+      expect(claude.hooks.PostToolUse?.[0]?.hooks?.[0]).toEqual(
+        emitted.hooks.PostToolUse?.[0]?.hooks?.[0],
+      );
       expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe(
         "supported",
       );

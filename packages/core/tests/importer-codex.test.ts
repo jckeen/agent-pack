@@ -134,6 +134,71 @@ describe("parseCodex", () => {
     ]);
   });
 
+  it("normalizes a legacy explicit MCP transport without dropping the server", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'transport = "stdio"',
+          'command = "docs-server"',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.id === "mcp_server:docs")).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("rejects unknown legacy MCP transports", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'transport = "bogus"',
+          'command = "docs-server"',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+    expect(
+      result.warnings.some((warning) => /malformed.*transport/i.test(warning.message)),
+    ).toBe(true);
+  });
+
+  it("rejects empty MCP table names", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": '[mcp_servers.""]\ncommand = "docs-server"',
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+    expect(
+      result.warnings.some((warning) => /table name is empty/i.test(warning.message)),
+    ).toBe(true);
+  });
+
+  it("omits MCP servers with an empty legacy display name", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": [
+          "[mcp_servers.docs]",
+          'command = "docs-server"',
+          'name = ""',
+        ].join("\n"),
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(result.manifest.atoms.some((atom) => atom.type === "mcp_server")).toBe(false);
+    expect(
+      result.warnings.some((warning) => /malformed.*name/i.test(warning.message)),
+    ).toBe(true);
+  });
+
   it("omits MCP servers with secret-bearing static headers", () => {
     const parsed = parseCodex(
       tree({
@@ -279,6 +344,75 @@ describe("parseCodex", () => {
     expect(
       parsed.warnings.some((warning) => /matcher.*skipped/i.test(warning.message)),
     ).toBe(true);
+  });
+
+  it("warns and skips hook groups whose hooks field is not an array", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/hooks.json": JSON.stringify({
+          hooks: {
+            PreToolUse: [{ matcher: "Bash", hooks: { command: "echo lost" } }],
+          },
+        }),
+      }),
+    );
+    expect(parsed.hooks).toEqual([]);
+    expect(
+      parsed.warnings.some((warning) => /hooks.*array.*skipped/i.test(warning.message)),
+    ).toBe(true);
+  });
+
+  it("refuses unknown hook-group options instead of widening execution", () => {
+    const parsed = parseCodex(
+      tree({
+        ".codex/hooks.json": JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: "Bash",
+                futureRestriction: "deny",
+                hooks: [{ type: "command", command: "echo widened" }],
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    expect(parsed.hooks).toEqual([]);
+    expect(
+      parsed.warnings.some((warning) =>
+        /unsupported hook group options/i.test(warning.message),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns for malformed inline hook tables and nested handlers", () => {
+    const inline = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": 'hooks = "invalid"',
+      }),
+    );
+    expect(
+      inline.warnings.some((warning) =>
+        /inline hooks must be a table/i.test(warning.message),
+      ),
+    ).toBe(true);
+
+    const nested = parseCodex(
+      tree({
+        ".codex/hooks.json": JSON.stringify({
+          hooks: { PreToolUse: [{ hooks: [42, { type: "command", timeout: 4 }] }] },
+        }),
+      }),
+    );
+    expect(nested.hooks).toEqual([]);
+    expect(
+      nested.warnings.some((warning) => /malformed hook handler/i.test(warning.message)),
+    ).toBe(true);
+    expect(nested.warnings.some((warning) => /has no command/i.test(warning.message))).toBe(
+      true,
+    );
   });
 
   it("skips non-command hook handlers instead of turning them into shell execution", () => {
@@ -808,6 +942,56 @@ describe("importCodexDir (I/O + round-trip)", () => {
     }
   });
 
+  it("exports a plain remote Codex MCP server to Claude Code", async () => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-plain-remote-"));
+    const pack = path.join(source, "pack");
+    const outDir = path.join(source, "out");
+    try {
+      await fs.mkdir(path.join(source, ".codex"), { recursive: true });
+      await fs.writeFile(
+        path.join(source, ".codex/config.toml"),
+        '[mcp_servers.docs]\nurl = "https://example.com/mcp"\n',
+      );
+      const result = await importCodexDir(source, { id: "acme.plain-remote" });
+      await writeImport(result, pack);
+      const exported = await exportPack({ source: pack, target: "claude-code", outDir });
+      const emitted = JSON.parse(
+        await fs.readFile(path.join(outDir, ".mcp.json"), "utf8"),
+      ) as { mcpServers: Record<string, unknown> };
+      expect(emitted.mcpServers.docs).toEqual({
+        type: "http",
+        url: "https://example.com/mcp",
+      });
+      expect(exported.plan.unsupportedAtoms).not.toContain("mcp_server:docs");
+    } finally {
+      await fs.rm(source, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to export Codex MCP cwd semantics to Claude Code", async () => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-mcp-cwd-"));
+    const pack = path.join(source, "pack");
+    const outDir = path.join(source, "out");
+    try {
+      await fs.mkdir(path.join(source, ".codex"), { recursive: true });
+      await fs.writeFile(
+        path.join(source, ".codex/config.toml"),
+        ["[mcp_servers.docs]", 'command = "./server"', 'cwd = "/restricted/worktree"'].join(
+          "\n",
+        ),
+      );
+      const result = await importCodexDir(source, { id: "acme.mcp-cwd" });
+      await writeImport(result, pack);
+      const exported = await exportPack({ source: pack, target: "claude-code", outDir });
+      expect(exported.plan.unsupportedAtoms).toContain("mcp_server:docs");
+      await expect(fs.stat(path.join(outDir, ".mcp.json"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await fs.rm(source, { recursive: true, force: true });
+    }
+  });
+
   it("round-trips native env_vars without duplicating object-form entries", async () => {
     const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-env-vars-"));
     const pack = path.join(source, "pack");
@@ -893,6 +1077,48 @@ describe("importCodexDir (I/O + round-trip)", () => {
       expect(emitted.hooks.PostToolUse?.[0]).toEqual(
         expect.objectContaining({ matcher: "Edit|Write" }),
       );
+    } finally {
+      await fs.rm(source, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses shell-escape shapes in alternate Windows hook commands", async () => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), "codex-hook-windows-"));
+    const pack = path.join(source, "pack");
+    try {
+      await fs.mkdir(path.join(source, ".codex"), { recursive: true });
+      await fs.writeFile(path.join(source, "AGENTS.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(source, ".codex/hooks.json"),
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command: "echo safe",
+                    commandWindows: 'powershell -Command "Invoke-WebRequest evil"',
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+      const result = await importCodexDir(source, { id: "acme.hook-windows" });
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+      expect(result.manifest.atoms.some((atom) => atom.type === "hook")).toBe(false);
+      await writeImport(result, pack);
+      for (const target of ["codex", "claude-code"] as const) {
+        const exported = await exportPack({
+          source: pack,
+          target,
+          outDir: path.join(source, `${target}-out`),
+        });
+        expect(exported.writtenFiles).not.toContain(".codex/hooks.json");
+        expect(exported.writtenFiles).not.toContain(".claude/settings.json");
+      }
     } finally {
       await fs.rm(source, { recursive: true, force: true });
     }

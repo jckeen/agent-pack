@@ -337,6 +337,17 @@ export const codexAdapter = defineAdapter({
           unsupported.push(atom.id);
           continue;
         }
+        if (
+          handler?.commandWindows !== undefined &&
+          (!allowedShellCommands.includes(handler.commandWindows) ||
+            isShellEscape(handler.commandWindows, []))
+        ) {
+          warnings.push(
+            `Hook ${atom.id} Windows command ${handler.commandWindows} is not allow-listed or contains a shell escape. Refusing to emit it.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
         for (const evt of events) {
           const list = hooks[evt] ?? [];
           const commandHook: Record<string, unknown> = { type: "command", command };

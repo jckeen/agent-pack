@@ -45,6 +45,16 @@ interface ParsedYaml {
   [key: string]: unknown;
 }
 
+interface HookHandler {
+  command?: string;
+  matcher?: string;
+  script_path?: string;
+  async?: boolean;
+  timeout?: number;
+  commandWindows?: string;
+  statusMessage?: string;
+}
+
 async function parseAtomYaml(packRoot: string, atom: Atom): Promise<ParsedYaml | null> {
   const raw = await readAtomFile(packRoot, atom);
   if (!raw) return null;
@@ -270,17 +280,26 @@ export const claudeCodeAdapter = defineAdapter({
             "claude-code"
           ] ?? ["PostToolUse"]) as string[];
         const handler =
-          (parsed?.["handler"] as
-            { command?: string; matcher?: string; script_path?: string } | undefined) ??
+          (parsed?.["handler"] as HookHandler | undefined) ??
           (
             atom as {
-              handler?: { command?: string; matcher?: string; script_path?: string };
+              handler?: HookHandler;
             }
           ).handler;
         const command = handler?.command ?? "";
         if (!isHookCommandAllowed(command, allowedShellCommands)) {
           warnings.push(
             `Hook \`${atom.id}\` declares command \`${command || "(empty)"}\` which is NOT listed in \`permissions.shell.commands\`. Refusing to emit it into settings.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
+        }
+        if (
+          handler?.commandWindows !== undefined &&
+          !isHookCommandAllowed(handler.commandWindows, allowedShellCommands)
+        ) {
+          warnings.push(
+            `Hook ${atom.id} declares Windows command ${handler.commandWindows}, which is not allow-listed or contains a shell escape. Refusing to emit it into settings.json.`,
           );
           unsupported.push(atom.id);
           continue;
@@ -306,9 +325,16 @@ export const claudeCodeAdapter = defineAdapter({
         }
         for (const evt of events) {
           const list = hooks[evt] ?? [];
-          const entry: Record<string, unknown> = {
-            hooks: [{ type: "command", command }],
-          };
+          const commandHook: Record<string, unknown> = { type: "command", command };
+          for (const key of [
+            "async",
+            "timeout",
+            "commandWindows",
+            "statusMessage",
+          ] as const) {
+            if (handler?.[key] !== undefined) commandHook[key] = handler[key];
+          }
+          const entry: Record<string, unknown> = { hooks: [commandHook] };
           // Tool-event hooks need a tool matcher. A pack may pin its own via
           // handler.matcher; otherwise default to file-editing tools — a
           // bare "*" would fire the command after EVERY tool call (Read,
@@ -364,6 +390,7 @@ export const claudeCodeAdapter = defineAdapter({
         // declared in `permissions.mcp.servers`, and refuse shell-escape
         // shapes outright (`bash -c`, `node -e`, ...) — otherwise an
         // mcp_server atom is a trivial bypass of the hook allow-list.
+        const transport = a.transport ?? (a.url ? "http" : "stdio");
         const joined = [a.command ?? "", ...(a.args ?? [])].join(" ");
         if (!declaredServers.includes(slug)) {
           warnings.push(
@@ -372,14 +399,16 @@ export const claudeCodeAdapter = defineAdapter({
           unsupported.push(atom.id);
           continue;
         }
-        if (!a.command || isShellEscape(a.command, a.args ?? [])) {
+        if (
+          transport === "stdio" &&
+          (!a.command || a.url || isShellEscape(a.command, a.args ?? []))
+        ) {
           warnings.push(
             `MCP server \`${atom.id}\` command \`${joined || "(empty)"}\` contains a shell-escape shape. Refusing to emit it into .mcp.json.`,
           );
           unsupported.push(atom.id);
           continue;
         }
-        const transport = a.transport ?? "stdio";
         if (transport === "stdio") {
           mcpServers[slug] = {
             type: "stdio",
@@ -389,8 +418,14 @@ export const claudeCodeAdapter = defineAdapter({
               Object.entries(a.env ?? {}).map(([k]) => [k, `\${${k}}`]),
             ),
           };
-        } else {
+        } else if ((transport === "http" || transport === "sse") && a.url && !a.command) {
           mcpServers[slug] = { type: transport, url: a.url };
+        } else {
+          warnings.push(
+            `MCP server ${atom.id} has an unsupported or ambiguous transport. Refusing to emit it into .mcp.json.`,
+          );
+          unsupported.push(atom.id);
+          continue;
         }
         warnings.push(
           `MCP server \`${atom.id}\` configured in .mcp.json. Required env: ${Object.keys(a.env ?? {}).join(", ") || "(none)"}.`,

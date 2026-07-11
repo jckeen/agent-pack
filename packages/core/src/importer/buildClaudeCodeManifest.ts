@@ -197,6 +197,9 @@ export function buildClaudeCodeManifest(
     }
     handler["command"] = command;
     if (hook.matcher !== undefined) handler["matcher"] = hook.matcher;
+    for (const key of ["async", "timeout", "commandWindows", "statusMessage"] as const) {
+      if (hook[key] !== undefined) handler[key] = hook[key];
+    }
     const atomObj = {
       id: hookSlug,
       name: `${hook.event} hook`,
@@ -206,6 +209,7 @@ export function buildClaudeCodeManifest(
     const relativePath = `atoms/hooks/${hookSlug}.yaml`;
     files.push({ relativePath, content: stringify(atomObj, { lineWidth: 0 }) });
     shellCommands.add(command);
+    if (hook.commandWindows !== undefined) shellCommands.add(hook.commandWindows);
     atoms.push({
       id: `hook:${hookSlug}`,
       type: "hook",
