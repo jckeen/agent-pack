@@ -2,13 +2,8 @@
 // No I/O — `writeImport` (in ./index.ts) handles the filesystem.
 
 import { stringify } from "yaml";
-import type {
-  AgentPackManifest,
-  Atom,
-  CompatibilityMap,
-  TargetPlatform,
-} from "../schema/types.js";
-import { TARGET_PLATFORMS } from "../schema/types.js";
+import type { AgentPackManifest, Atom, TargetPlatform } from "../schema/types.js";
+import { importedCompatibility } from "./importCompatibility.js";
 import type { ParsedClaudeMd, ParseWarning } from "./parseClaudeMd.js";
 
 export interface BuildManifestOptions {
@@ -18,6 +13,8 @@ export interface BuildManifestOptions {
   name?: string;
   /** Pack version. */
   version?: string;
+  /** Native source runtime when known; standalone text defaults to generic. */
+  source?: TargetPlatform;
 }
 
 export interface ImportFile {
@@ -122,12 +119,19 @@ function deriveDescription(heading: string, body: string): string {
   return desc.length > PROSE_CAP ? `${desc.slice(0, PROSE_CAP).trimEnd()}…` : desc;
 }
 
-function defaultTargets(): CompatibilityMap {
-  const targets: CompatibilityMap = {};
-  for (const t of TARGET_PLATFORMS) {
-    targets[t as TargetPlatform] = { status: "supported" };
+function hasUnstructuredRuleContent(body: string): boolean {
+  const bulletRe = /^\s*(?:[-*+]|\d+[.)])\s+.*\S\s*$/;
+  let inBullet = false;
+  for (const line of body.split("\n")) {
+    if (bulletRe.test(line)) {
+      inBullet = true;
+    } else if (line.trim() === "") {
+      inBullet = false;
+    } else if (!inBullet) {
+      return true;
+    }
   }
-  return targets;
+  return false;
 }
 
 export function buildManifest(
@@ -150,6 +154,7 @@ export function buildManifest(
 
   const files: ImportFile[] = [];
   const atoms: Atom[] = [];
+  const warnings: ParseWarning[] = [...parsed.warnings];
   const usedSlugs = new Map<string, number>();
 
   for (const section of parsed.sections) {
@@ -168,6 +173,18 @@ export function buildManifest(
 
     if (isRuleHeading(section.heading)) {
       const bullets = bulletsToBehavior(section.body);
+      if (bullets !== null && hasUnstructuredRuleContent(section.body)) {
+        warnings.push({
+          line: section.lineStart,
+          message: `Rule section \`${section.heading}\` contains prose outside list items; structured rule output is lossy.`,
+        });
+      }
+      if (bullets === null && section.body.replace(/\s+/g, " ").trim().length > PROSE_CAP) {
+        warnings.push({
+          line: section.lineStart,
+          message: `Rule section \`${section.heading}\` exceeds ${PROSE_CAP} characters; prose rule output was truncated.`,
+        });
+      }
       const behavior =
         bullets !== null
           ? { must: bullets.must, must_not: bullets.must_not }
@@ -219,7 +236,12 @@ export function buildManifest(
       license: "MIT",
       publisher: opts.id.split(".")[0]!,
     },
-    compatibility: { targets: defaultTargets() },
+    compatibility: {
+      targets: importedCompatibility(
+        opts.source ?? "generic",
+        warnings.length > 0 ? "partial" : "supported",
+      ),
+    },
     permissions: {},
     security: { risk_level: "low" },
     profiles: {
@@ -232,5 +254,5 @@ export function buildManifest(
     exports: { default_profile: "all" },
   };
 
-  return { manifest, files, warnings: parsed.warnings };
+  return { manifest, files, warnings };
 }

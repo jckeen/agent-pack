@@ -26,6 +26,12 @@ The importer carries skills, agents, commands, hooks (script bodies bundled so
 they run on other machines), and MCP servers. Secrets never travel:
 `.credentials.json` is never opened and MCP `env` surfaces key **names** only.
 
+A newly imported manifest marks a lossless source runtime `supported`. Other
+targets start as `partial`: AgentPack can compile the atoms, but transport does
+not prove that platform-specific tool names, lifecycle events, or delegation
+semantics are equivalent. Lossy ChatGPT imports remain `experimental`. Promote
+a target only after reviewing and exercising its exported behavior.
+
 **2. Install everywhere** — on each machine:
 
 ```bash

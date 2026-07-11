@@ -41,25 +41,49 @@ Fidelity notes (these mirror what Claude Code actually reads):
 
 **Target:** `codex`
 
-| Atom          | Output                                                                                                                    |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `instruction` | `AGENTS.md` section                                                                                                       |
-| `rule`        | `AGENTS.md` rules section (full body)                                                                                     |
-| `skill`       | `.codex/skills/<slug>/` + an index entry in `AGENTS.md`                                                                   |
-| `command`     | `.codex/skills/<slug>/SKILL.md` + `AGENTS.md` index entry                                                                 |
-| `subagent`    | `.codex/agents/<slug>.toml` (reference output)                                                                            |
-| `hook`        | `.codex/hooks.json` (reference output)                                                                                    |
-| `mcp_server`  | `.codex/config.toml` `[mcp_servers.<slug>]` table (reference output; same declaration + shell-escape gate as claude-code) |
-| `workflow`    | `AGENTS.md` workflow section                                                                                              |
+| Atom          | Output                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------- |
+| `instruction` | `AGENTS.md` section                                                                                     |
+| `rule`        | `AGENTS.md` rules section (full body)                                                                   |
+| `skill`       | `.agents/skills/<slug>/` + an index entry in `AGENTS.md`                                                |
+| `command`     | `.agents/skills/<slug>/SKILL.md` + `AGENTS.md` index entry                                              |
+| `subagent`    | `.codex/agents/<slug>.toml` with `developer_instructions`                                               |
+| `hook`        | `.codex/hooks.json`                                                                                     |
+| `mcp_server`  | `.codex/config.toml` `[mcp_servers.<slug>]` table (same declaration + shell-escape gate as claude-code) |
+| `workflow`    | `AGENTS.md` workflow section                                                                            |
 
-**Honesty note (verified against Codex CLI 0.128.0):** Codex reads the
-repo-root `AGENTS.md` and `~/.codex/config.toml` — it does **not** read
-project-level `.codex/config.toml`, `.codex/hooks.json`, `.codex/skills/`, or
-`.codex/agents/`. The adapter therefore (a) surfaces every skill in
-`AGENTS.md` with a pointer to its SKILL.md so the agent can actually find it,
-and (b) labels the `.codex/` files as reference outputs (the generated
-`config.toml` header says to copy `mcp_servers` tables into
-`~/.codex/config.toml` to activate them).
+**Honesty note:** Codex discovers repository skills under `.agents/skills/`
+and custom agents under `.codex/agents/`. The adapter also indexes skills in
+`AGENTS.md` for inspection. Trusted projects load `.codex/config.toml`, and
+project hooks are discovered from `.codex/hooks.json`; project-specific MCP
+configuration stays scoped to that repository.
+
+Imported custom agents preserve exact instructions and inert model/nickname
+preferences. Sandbox, MCP, skills, provider, and unknown custom-agent settings
+can carry executable configuration or credentials, so an imported agent using
+them is omitted from the shared atom graph. Authored pack agents with unsafe or
+malformed Codex config are reported as unsupported and not exported, preventing
+inherited parent settings from silently widening permissions. Importing a
+home-style `.codex` directory also reads sibling `.agents/skills` under a
+separate containment root.
+
+Nested skill symlinks are skipped rather than dereferenced, preventing a skill
+from absorbing unrelated project files or recursive directory cycles. Claude
+Code and Codex command hooks preserve matcher, async, timeout, Windows-command,
+and status options; non-command and malformed handlers are skipped rather than
+converted to shell execution. Alternate Windows commands are independently
+allow-listed and checked for shell escapes.
+
+Imported Codex MCP servers preserve native authentication environment names,
+enablement, and tool allow/deny policy when compiling back to Codex. Static
+headers, malformed fields, and literal environment values can contain
+credentials or restrictions, so those servers are omitted instead of weakened;
+adapters, including Chat export, that cannot represent Codex-only policy report
+the atom as unsupported. Remote URLs must be credential-free HTTP(S) endpoints;
+userinfo, query strings, and fragments are not copied into generated packs.
+Legacy explicit `stdio`/`http` transport fields are normalized away when their
+shape is unambiguous. Codex-only working directories cause other adapters to
+refuse the server rather than resolving a relative executable elsewhere.
 
 ## Cursor
 

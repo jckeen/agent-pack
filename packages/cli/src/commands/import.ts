@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { createPatch } from "diff";
 import type { Command } from "commander";
 import ora from "ora";
@@ -178,7 +179,9 @@ async function runImporter(
   if (from === "codex") return importCodexDir(srcPath, opts);
   if (from === "chatgpt-gpt") return importChatgptGptDir(srcPath, opts);
   const text = await readSource(srcPath);
-  return importClaudeMd(text, opts);
+  const filename = path.basename(srcPath).toLowerCase();
+  const source = filename === "claude.md" ? "claude-code" : "generic";
+  return importClaudeMd(text, { ...opts, source });
 }
 
 /**

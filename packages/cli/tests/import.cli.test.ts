@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { loadManifest } from "@agentpack/core";
 
 const CLI_ENTRY = path.resolve(__dirname, "../dist/index.js");
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -104,6 +105,25 @@ describe("agentpack import", () => {
     expect(imp.code).toBe(0);
     const validate = await run(["validate", outDir]);
     expect(validate.code).toBe(0);
+  });
+
+  it("treats a standalone AGENTS.md as runtime-neutral without --from", async () => {
+    const fixturePath = path.join(TMP_ROOT, "AGENTS.md");
+    const outDir = path.join(TMP_ROOT, "out-agents-generic");
+    await fs.writeFile(fixturePath, "## Working Style\n\nbody\n", "utf8");
+
+    const imp = await run([
+      "import",
+      fixturePath,
+      "--out",
+      outDir,
+      "--id",
+      "acme.agents-generic",
+    ]);
+    expect(imp.code).toBe(0);
+    const { manifest } = await loadManifest(outDir);
+    expect(manifest.compatibility.targets.generic?.status).toBe("supported");
+    expect(manifest.compatibility.targets.codex?.status).toBe("partial");
   });
 
   it("exits 2 when --id is missing", async () => {

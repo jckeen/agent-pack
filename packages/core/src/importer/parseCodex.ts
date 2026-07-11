@@ -4,16 +4,23 @@
 // Codex (June 2026) shares Claude Code's primitives, so the mapping is
 // near-lossless:
 //   - `AGENTS.md`                       → instruction / rule sections
-//   - `.codex/skills/<name>/SKILL.md`   → skill (same Agent Skills format)
+//   - `.agents/skills/<name>/SKILL.md`  → skill (same Agent Skills format)
 //   - `config.toml [mcp_servers.*]`     → mcp_server
 //   - `config.toml [hooks]` / hooks.json→ hook (event names map 1:1 to Claude)
 //   - `.codex/agents/*.toml`            → subagent
 
 import { parse as parseToml } from "smol-toml";
 import { parseClaudeMd, type ParsedClaudeMd } from "./parseClaudeMd.js";
+import { sanitizeCodexAgentConfig } from "../codex/customAgentConfig.js";
+import { isCredentialFreeHttpUrl, isShellEscape } from "../adapters/commandGate.js";
+import {
+  isStringArray,
+  isStringRecord,
+  validMcpConfigValue,
+} from "../adapters/mcpValidation.js";
 
 export interface CodexSkill {
-  /** Directory name under `.codex/skills/` (also the skill `name`). */
+  /** Directory name under `.agents/skills/` (also the skill `name`). */
   name: string;
   /** Every file in the skill directory, relative to the skill root. */
   files: Array<{ relPath: string; content: string }>;
@@ -23,23 +30,37 @@ export interface CodexMcpServer {
   name: string;
   transport?: string;
   command?: string;
+  url?: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
   enabledTools?: string[];
   disabledTools?: string[];
+  bearerTokenEnvVar?: string;
+  enabled?: boolean;
+  /** Schema-validated Codex-native fields carried back to Codex. */
+  config: Record<string, unknown>;
+  /** Unsafe, malformed, or semantically lossy fields that make this server ineligible. */
+  omittedConfigKeys: string[];
 }
 
 export interface CodexHook {
   /** Codex/Claude Code event name (PreToolUse, PostToolUse, SessionStart, …). */
   event: string;
   command: string;
+  matcher?: string;
+  async?: boolean;
+  timeout?: number;
+  commandWindows?: string;
+  statusMessage?: string;
 }
 
 export interface CodexSubagent {
   name: string;
   description?: string;
   instructions?: string;
+  config: Record<string, unknown>;
+  omittedConfigKeys: string[];
 }
 
 export interface CodexWarning {
@@ -63,20 +84,6 @@ function norm(p: string): string {
   return p.split(/[\\/]+/).join("/");
 }
 
-function asStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  return value.filter((v): v is string => typeof v === "string");
-}
-
-function asStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = typeof v === "string" ? v : String(v);
-  }
-  return out;
-}
-
 function parseMcpServers(
   table: Record<string, unknown>,
   warnings: CodexWarning[],
@@ -86,31 +93,149 @@ function parseMcpServers(
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
   const servers: CodexMcpServer[] = [];
   for (const [name, def] of Object.entries(raw as Record<string, unknown>)) {
+    if (!name.trim()) {
+      warnings.push({ source, message: "MCP server table name is empty; skipped." });
+      continue;
+    }
     if (!def || typeof def !== "object" || Array.isArray(def)) {
       warnings.push({ source, message: `mcp_servers.${name} is not a table; skipped.` });
       continue;
     }
     const d = def as Record<string, unknown>;
+    const safeConfigKeys = new Set([
+      "args",
+      "auth",
+      "bearer_token_env_var",
+      "command",
+      "cwd",
+      "default_tools_approval_mode",
+      "disabled_tools",
+      "enabled",
+      "enabled_tools",
+      "env_http_headers",
+      "env_vars",
+      "environment_id",
+      "name",
+      "oauth",
+      "oauth_resource",
+      "required",
+      "scopes",
+      "startup_timeout_ms",
+      "startup_timeout_sec",
+      "supports_parallel_tool_calls",
+      "tool_timeout_sec",
+      "tools",
+      "url",
+    ]);
+    const unsupportedKeys = Object.keys(d)
+      .filter((key) => key !== "env" && key !== "transport" && !safeConfigKeys.has(key))
+      .sort();
+    const malformedKeys = Object.entries(d)
+      .filter(([key, value]) => safeConfigKeys.has(key) && !validMcpConfigValue(key, value))
+      .map(([key]) => key)
+      .sort();
+    const unsafeUrl =
+      Object.prototype.hasOwnProperty.call(d, "url") && !isCredentialFreeHttpUrl(d["url"]);
+    if (unsafeUrl && !malformedKeys.includes("url")) malformedKeys.push("url");
+    const legacyTransport = d["transport"];
+    const malformedTransport =
+      legacyTransport !== undefined &&
+      !(
+        (legacyTransport === "stdio" &&
+          typeof d["command"] === "string" &&
+          d["url"] === undefined) ||
+        (legacyTransport === "http" &&
+          isCredentialFreeHttpUrl(d["url"]) &&
+          d["command"] === undefined)
+      );
+    if (malformedTransport) malformedKeys.push("transport");
+    malformedKeys.sort();
+    const env = d["env"];
+    const malformedEnvKeys = isStringRecord(env)
+      ? Object.entries(env)
+          .filter(([key, value]) => value !== `\${${key}}`)
+          .map(([key]) => key)
+          .sort()
+      : env === undefined
+        ? []
+        : ["env"];
+    const config = Object.fromEntries(
+      Object.entries(d).filter(
+        ([key, value]) =>
+          safeConfigKeys.has(key) &&
+          validMcpConfigValue(key, value) &&
+          !(key === "url" && unsafeUrl),
+      ),
+    );
+    const omittedConfigKeys = [
+      ...unsupportedKeys,
+      ...malformedKeys,
+      ...malformedEnvKeys.map((key) => `env.${key}`),
+    ].sort();
+    if (unsupportedKeys.length > 0) {
+      warnings.push({
+        source,
+        message: `Omitted secret-bearing or unsupported MCP settings for ${name}: ${unsupportedKeys.join(", ")}.`,
+      });
+    }
+    if (malformedKeys.length > 0) {
+      warnings.push({
+        source,
+        message: `Malformed MCP settings for ${name}; server skipped: ${malformedKeys.join(", ")}.`,
+      });
+    }
+    if (unsafeUrl) {
+      warnings.push({
+        source,
+        message: `MCP URL for ${name} must be credential-free HTTP(S); server skipped.`,
+      });
+    }
+    if (malformedEnvKeys.length > 0) {
+      warnings.push({
+        source,
+        message: `MCP environment values for ${name} must be same-name placeholders; server skipped: ${malformedEnvKeys.join(", ")}.`,
+      });
+    }
     servers.push({
       name,
       transport:
-        typeof d["transport"] === "string" ? (d["transport"] as string) : undefined,
+        legacyTransport === "stdio" || legacyTransport === "http"
+          ? legacyTransport
+          : isCredentialFreeHttpUrl(d["url"])
+            ? "http"
+            : undefined,
       command: typeof d["command"] === "string" ? (d["command"] as string) : undefined,
-      args: asStringArray(d["args"]),
-      env: asStringRecord(d["env"]),
+      url: isCredentialFreeHttpUrl(d["url"]) ? d["url"] : undefined,
+      args: isStringArray(d["args"]) ? d["args"] : undefined,
+      env: isStringRecord(env) && malformedEnvKeys.length === 0 ? env : undefined,
       cwd: typeof d["cwd"] === "string" ? (d["cwd"] as string) : undefined,
-      enabledTools: asStringArray(d["enabled_tools"]),
-      disabledTools: asStringArray(d["disabled_tools"]),
+      enabledTools: isStringArray(d["enabled_tools"]) ? d["enabled_tools"] : undefined,
+      disabledTools: isStringArray(d["disabled_tools"]) ? d["disabled_tools"] : undefined,
+      bearerTokenEnvVar:
+        typeof d["bearer_token_env_var"] === "string"
+          ? (d["bearer_token_env_var"] as string)
+          : undefined,
+      enabled: typeof d["enabled"] === "boolean" ? (d["enabled"] as boolean) : undefined,
+      config,
+      omittedConfigKeys,
     });
   }
   return servers;
 }
 
 /** Extract hooks from a parsed `[hooks]` TOML table (config.toml). */
-function parseTomlHooks(table: Record<string, unknown>): CodexHook[] {
+function parseTomlHooks(
+  table: Record<string, unknown>,
+  warnings: CodexWarning[],
+  source: string,
+): CodexHook[] {
   const raw = table["hooks"];
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  return collectHookEntries(raw as Record<string, unknown>);
+  if (raw === undefined) return [];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    warnings.push({ source, message: "Inline hooks must be a table; skipped." });
+    return [];
+  }
+  return collectHookEntries(raw as Record<string, unknown>, warnings, source);
 }
 
 /** Extract hooks from a `{ hooks: { <Event>: [{command}] } }` JSON shape. */
@@ -132,26 +257,171 @@ function parseJsonHooks(
     warnings.push({ source, message: `${source} has no \`hooks\` object; skipped.` });
     return [];
   }
-  return collectHookEntries(root as Record<string, unknown>);
+  return collectHookEntries(root as Record<string, unknown>, warnings, source);
 }
 
 /** Shared: `{ <Event>: [{command}] | {command} }` → CodexHook[]. */
-function collectHookEntries(events: Record<string, unknown>): CodexHook[] {
+function collectHookEntries(
+  events: Record<string, unknown>,
+  warnings: CodexWarning[],
+  source: string,
+): CodexHook[] {
   const hooks: CodexHook[] = [];
   for (const [event, list] of Object.entries(events)) {
+    if (!event.trim()) {
+      warnings.push({ source, message: "Hook event name is empty; skipped." });
+      continue;
+    }
     const entries = Array.isArray(list) ? list : [list];
     for (const entry of entries) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-      const command = (entry as Record<string, unknown>)["command"];
-      if (typeof command === "string" && command.trim()) {
-        hooks.push({ event, command });
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        warnings.push({ source, message: `Malformed hook group for ${event}; skipped.` });
+        continue;
       }
+      const group = entry as Record<string, unknown>;
+      if (
+        Object.prototype.hasOwnProperty.call(group, "matcher") &&
+        (typeof group["matcher"] !== "string" || !group["matcher"].trim())
+      ) {
+        warnings.push({
+          source,
+          message: `Hook matcher for ${event} is invalid; group skipped.`,
+        });
+        continue;
+      }
+      const matcher =
+        typeof group["matcher"] === "string" && (group["matcher"] as string).trim()
+          ? (group["matcher"] as string).trim()
+          : undefined;
+      if (Object.prototype.hasOwnProperty.call(group, "hooks")) {
+        const groupOptions = Object.keys(group).filter(
+          (key) => !["matcher", "hooks"].includes(key),
+        );
+        if (groupOptions.length > 0) {
+          warnings.push({
+            source,
+            message: `Unsupported hook group options for ${event}; group skipped: ${groupOptions.sort().join(", ")}.`,
+          });
+          continue;
+        }
+        const handlers = group["hooks"];
+        if (!Array.isArray(handlers) || handlers.length === 0) {
+          warnings.push({
+            source,
+            message: `Hook group for ${event} must contain a non-empty hooks array; skipped.`,
+          });
+          continue;
+        }
+        for (const handler of handlers) {
+          if (!handler || typeof handler !== "object" || Array.isArray(handler)) {
+            warnings.push({
+              source,
+              message: `Malformed hook handler for ${event}; skipped.`,
+            });
+            continue;
+          }
+          const parsed = parseCommandHook(
+            handler as Record<string, unknown>,
+            event,
+            matcher,
+            warnings,
+            source,
+            false,
+          );
+          if (parsed) hooks.push(parsed);
+        }
+        continue;
+      }
+      const parsed = parseCommandHook(group, event, matcher, warnings, source, true);
+      if (parsed) hooks.push(parsed);
     }
   }
   return hooks;
 }
 
-function parseSubagent(content: string): CodexSubagent | null {
+function parseCommandHook(
+  handler: Record<string, unknown>,
+  event: string,
+  matcher: string | undefined,
+  warnings: CodexWarning[],
+  source: string,
+  allowMatcherKey: boolean,
+): CodexHook | null {
+  if (handler["type"] !== undefined && handler["type"] !== "command") {
+    warnings.push({
+      source,
+      message: `Non-command hook handler for ${event} was skipped.`,
+    });
+    return null;
+  }
+  const command = handler["command"];
+  if (typeof command !== "string" || !command.trim()) {
+    warnings.push({
+      source,
+      message: `Command hook for ${event} has no command; skipped.`,
+    });
+    return null;
+  }
+  if (
+    isShellEscape(command.trim(), []) ||
+    (typeof handler["commandWindows"] === "string" &&
+      isShellEscape(handler["commandWindows"].trim(), []))
+  ) {
+    warnings.push({
+      source,
+      message: `Command hook for ${event} contains a shell-escape shape; skipped.`,
+    });
+    return null;
+  }
+  const optionTypesValid =
+    (handler["async"] === undefined || typeof handler["async"] === "boolean") &&
+    (handler["timeout"] === undefined ||
+      (Number.isInteger(handler["timeout"]) && Number(handler["timeout"]) >= 0)) &&
+    (handler["commandWindows"] === undefined ||
+      (typeof handler["commandWindows"] === "string" &&
+        handler["commandWindows"].trim().length > 0)) &&
+    (handler["statusMessage"] === undefined ||
+      typeof handler["statusMessage"] === "string");
+  const supportedKeys = new Set([
+    "type",
+    "command",
+    "async",
+    "timeout",
+    "commandWindows",
+    "statusMessage",
+  ]);
+  if (
+    !optionTypesValid ||
+    Object.keys(handler).some(
+      (key) => !supportedKeys.has(key) && !(allowMatcherKey && key === "matcher"),
+    )
+  ) {
+    warnings.push({
+      source,
+      message: `Malformed or unsupported command hook options for ${event}; handler skipped.`,
+    });
+    return null;
+  }
+  return {
+    event,
+    command: command.trim(),
+    matcher,
+    ...(typeof handler["async"] === "boolean" ? { async: handler["async"] } : {}),
+    ...(typeof handler["timeout"] === "number" ? { timeout: handler["timeout"] } : {}),
+    ...(typeof handler["commandWindows"] === "string"
+      ? { commandWindows: handler["commandWindows"].trim() }
+      : {}),
+    ...(typeof handler["statusMessage"] === "string"
+      ? { statusMessage: handler["statusMessage"] }
+      : {}),
+  };
+}
+
+function parseSubagent(
+  content: string,
+  source: string,
+  warnings: CodexWarning[],
+): CodexSubagent | null {
   let table: Record<string, unknown>;
   try {
     table = parseToml(content) as Record<string, unknown>;
@@ -163,32 +433,94 @@ function parseSubagent(content: string): CodexSubagent | null {
     table["agent"] && typeof table["agent"] === "object" && !Array.isArray(table["agent"])
       ? (table["agent"] as Record<string, unknown>)
       : table;
+  const configSource = agent === table ? agent : { ...table, ...agent };
   const name =
-    (typeof agent["name"] === "string" && (agent["name"] as string)) ||
-    (typeof agent["id"] === "string" && (agent["id"] as string)) ||
+    (typeof agent["name"] === "string" && (agent["name"] as string).trim()) ||
+    (typeof agent["id"] === "string" && (agent["id"] as string).trim()) ||
     "";
   if (!name) return null;
+  const rawConfig = Object.fromEntries(
+    Object.entries(configSource).filter(
+      ([key]) =>
+        ![
+          "agent",
+          "id",
+          "name",
+          "description",
+          "developer_instructions",
+          "instructions",
+          "prompt",
+        ].includes(key),
+    ),
+  );
+  const { config, omittedKeys } = sanitizeCodexAgentConfig(rawConfig);
+  if (omittedKeys.length > 0) {
+    warnings.push({
+      source,
+      message: `Omitted security-sensitive or unsupported custom-agent settings: ${omittedKeys.join(", ")}.`,
+    });
+  }
+  let instructions: string | undefined;
+  if (Object.prototype.hasOwnProperty.call(agent, "developer_instructions")) {
+    if (
+      typeof agent["developer_instructions"] === "string" &&
+      (agent["developer_instructions"] as string).trim() !== ""
+    ) {
+      instructions = agent["developer_instructions"] as string;
+    } else {
+      warnings.push({
+        source,
+        message: "Custom agent developer_instructions must be a string; omitted.",
+      });
+    }
+  } else if (
+    typeof agent["instructions"] === "string" &&
+    (agent["instructions"] as string).trim() !== ""
+  ) {
+    instructions = agent["instructions"] as string;
+    warnings.push({
+      source,
+      message: "Legacy custom-agent instructions key imported; use developer_instructions.",
+    });
+  } else if (
+    typeof agent["prompt"] === "string" &&
+    (agent["prompt"] as string).trim() !== ""
+  ) {
+    instructions = agent["prompt"] as string;
+    warnings.push({
+      source,
+      message: "Legacy custom-agent prompt key imported; use developer_instructions.",
+    });
+  } else {
+    warnings.push({
+      source,
+      message: "Custom agent is missing required developer_instructions.",
+    });
+  }
+  const description =
+    typeof agent["description"] === "string" ? (agent["description"] as string).trim() : "";
+  if (!description) {
+    warnings.push({
+      source,
+      message: "Custom agent is missing required description.",
+    });
+  }
+  if (!instructions || !description) return null;
   return {
     name,
-    description:
-      typeof agent["description"] === "string"
-        ? (agent["description"] as string)
-        : undefined,
-    instructions:
-      typeof agent["instructions"] === "string"
-        ? (agent["instructions"] as string)
-        : typeof agent["prompt"] === "string"
-          ? (agent["prompt"] as string)
-          : undefined,
+    description,
+    instructions,
+    config,
+    omittedConfigKeys: omittedKeys,
   };
 }
 
 /**
  * Parse a Codex setup tree (relative-path → file content) into structured
- * primitives. `AGENTS.md` is matched at the tree root; `.codex/` artifacts are
- * matched both at the root (`.codex/…`, the project layout) and one level up
- * for a home-style tree where the map root IS `~/.codex` (`config.toml`,
- * `skills/…`). Unknown or malformed files surface as warnings, never throws.
+ * primitives. `AGENTS.md` is matched at the tree root. Skills accept the
+ * current `.agents/skills/` project layout plus legacy `.codex/skills/` and
+ * home-style `skills/` layouts. Unknown or malformed files surface as
+ * warnings, never throws.
  */
 export function parseCodex(files: Map<string, string>): ParsedCodex {
   const tree = new Map<string, string>();
@@ -212,7 +544,16 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
     try {
       const table = parseToml(tree.get(configPath)!) as Record<string, unknown>;
       mcpServers = parseMcpServers(table, warnings, configPath);
-      hooks = parseTomlHooks(table);
+      hooks = parseTomlHooks(table, warnings, configPath);
+      const unsupportedKeys = Object.keys(table)
+        .filter((key) => !["agentpack", "hooks", "mcp_servers"].includes(key))
+        .sort();
+      if (unsupportedKeys.length > 0) {
+        warnings.push({
+          source: configPath,
+          message: `Unsupported Codex config keys skipped: ${unsupportedKeys.join(", ")}.`,
+        });
+      }
     } catch (err) {
       warnings.push({
         source: configPath,
@@ -240,13 +581,18 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
   }
 
   // ---------- skills ----------
-  const skillRe = /^(?:\.codex\/)?skills\/([^/]+)\/(.+)$/;
+  const skillRe = /^((?:\.agents|\.codex)\/skills|skills)\/([^/]+)\/(.+)$/;
   const skillMap = new Map<string, CodexSkill>();
+  const skillRoots = new Map<string, Set<string>>();
   for (const [p, content] of tree) {
     const m = p.match(skillRe);
     if (!m) continue;
-    const name = m[1]!;
-    const rel = m[2]!;
+    const root = m[1]!;
+    const name = m[2]!;
+    const rel = m[3]!;
+    const roots = skillRoots.get(name) ?? new Set<string>();
+    roots.add(root);
+    skillRoots.set(name, roots);
     let skill = skillMap.get(name);
     if (!skill) {
       skill = { name, files: [] };
@@ -256,9 +602,25 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
   }
   const skills = [...skillMap.values()]
     .filter((s) => {
-      const hasSkillMd = s.files.some(
-        (f) => f.relPath === "SKILL.md" || f.relPath === "skill.md",
-      );
+      const roots = skillRoots.get(s.name) ?? new Set<string>();
+      if (roots.size > 1) {
+        warnings.push({
+          source: `skills/${s.name}`,
+          message: `Skill exists in multiple Codex roots (${[...roots].sort().join(", ")}); skipped to avoid ambiguous overwrite.`,
+        });
+        return false;
+      }
+      const manifestNames = s.files
+        .map((file) => file.relPath)
+        .filter((relPath) => relPath.toLowerCase() === "skill.md");
+      if (manifestNames.length > 1) {
+        warnings.push({
+          source: `skills/${s.name}`,
+          message: `Skill contains conflicting manifest names (${manifestNames.sort().join(", ")}); skipped to avoid canonical-path overwrite.`,
+        });
+        return false;
+      }
+      const hasSkillMd = s.files.some((f) => f.relPath.toLowerCase() === "skill.md");
       if (!hasSkillMd) {
         warnings.push({
           source: `skills/${s.name}`,
@@ -274,7 +636,7 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
   const subagents: CodexSubagent[] = [];
   for (const [p, content] of tree) {
     if (!subagentRe.test(p)) continue;
-    const sub = parseSubagent(content);
+    const sub = parseSubagent(content, p, warnings);
     if (sub) subagents.push(sub);
     else warnings.push({ source: p, message: `Failed to parse subagent ${p}; skipped.` });
   }
