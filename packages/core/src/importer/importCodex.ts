@@ -162,7 +162,10 @@ export async function importCodexDir(
   rootDir: string,
   opts: ImportCodexOptions,
 ): Promise<ImportResult> {
-  const { tree, warnings: readWarnings } = await readTree(rootDir);
+  const resolvedRoot = await fs.realpath(rootDir);
+  const importRoot =
+    path.basename(resolvedRoot) === ".codex" ? path.dirname(resolvedRoot) : resolvedRoot;
+  const { tree, warnings: readWarnings } = await readTree(importRoot);
   const parsed = parseCodex(tree);
   parsed.warnings.unshift(...readWarnings);
   const { manifest, files, warnings } = buildCodexManifest(parsed, opts);

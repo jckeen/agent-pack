@@ -119,6 +119,10 @@ function deriveDescription(heading: string, body: string): string {
   return desc.length > PROSE_CAP ? `${desc.slice(0, PROSE_CAP).trimEnd()}…` : desc;
 }
 
+function hasUnstructuredRuleContent(body: string): boolean {
+  return body.split("\n").some((line) => line.trim() !== "" && !/^\s*[-*]\s+/.test(line));
+}
+
 export function buildManifest(
   parsed: ParsedClaudeMd,
   opts: BuildManifestOptions,
@@ -139,6 +143,7 @@ export function buildManifest(
 
   const files: ImportFile[] = [];
   const atoms: Atom[] = [];
+  const warnings: ParseWarning[] = [...parsed.warnings];
   const usedSlugs = new Map<string, number>();
 
   for (const section of parsed.sections) {
@@ -157,6 +162,12 @@ export function buildManifest(
 
     if (isRuleHeading(section.heading)) {
       const bullets = bulletsToBehavior(section.body);
+      if (bullets !== null && hasUnstructuredRuleContent(section.body)) {
+        warnings.push({
+          line: section.lineStart,
+          message: `Rule section \`${section.heading}\` contains prose outside list items; structured rule output is lossy.`,
+        });
+      }
       const behavior =
         bullets !== null
           ? { must: bullets.must, must_not: bullets.must_not }
@@ -211,7 +222,7 @@ export function buildManifest(
     compatibility: {
       targets: importedCompatibility(
         opts.source ?? "generic",
-        parsed.warnings.length > 0 ? "partial" : "supported",
+        warnings.length > 0 ? "partial" : "supported",
       ),
     },
     permissions: {},
@@ -226,5 +237,5 @@ export function buildManifest(
     exports: { default_profile: "all" },
   };
 
-  return { manifest, files, warnings: parsed.warnings };
+  return { manifest, files, warnings };
 }

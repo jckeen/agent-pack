@@ -149,6 +149,20 @@ describe("buildManifest", () => {
     expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
   });
 
+  it("downgrades a rule section when prose outside bullets would be lost", () => {
+    const parsed = parseClaudeMd(
+      "## Security\n\nKeep this context.\n\n- Never expose secrets.\n\nKeep this caveat.\n",
+    );
+    const { manifest, warnings } = buildManifest(parsed, {
+      ...OPTS,
+      source: "claude-code",
+    });
+    expect(
+      warnings.some((warning) => /prose outside list items/.test(warning.message)),
+    ).toBe(true);
+    expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+  });
+
   it("promotes governance/security headings to rules", () => {
     for (const h of [
       "Security",

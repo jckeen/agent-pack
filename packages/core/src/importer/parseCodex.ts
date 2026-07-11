@@ -42,6 +42,7 @@ export interface CodexSubagent {
   description?: string;
   instructions?: string;
   config: Record<string, unknown>;
+  omittedConfigKeys: string[];
 }
 
 export interface CodexWarning {
@@ -232,6 +233,7 @@ function parseSubagent(
         : undefined,
     instructions,
     config,
+    omittedConfigKeys: omittedKeys,
   };
 }
 
@@ -265,6 +267,15 @@ export function parseCodex(files: Map<string, string>): ParsedCodex {
       const table = parseToml(tree.get(configPath)!) as Record<string, unknown>;
       mcpServers = parseMcpServers(table, warnings, configPath);
       hooks = parseTomlHooks(table);
+      const unsupportedKeys = Object.keys(table)
+        .filter((key) => !["agentpack", "hooks", "mcp_servers"].includes(key))
+        .sort();
+      if (unsupportedKeys.length > 0) {
+        warnings.push({
+          source: configPath,
+          message: `Unsupported Codex config keys skipped: ${unsupportedKeys.join(", ")}.`,
+        });
+      }
     } catch (err) {
       warnings.push({
         source: configPath,

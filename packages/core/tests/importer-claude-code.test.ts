@@ -120,6 +120,24 @@ describe("importClaudeCodeDir (I/O against fixture)", () => {
     }
   });
 
+  it("downgrades Claude Code when valid settings are not portable", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-code-settings-"));
+    try {
+      await fs.writeFile(path.join(dir, "CLAUDE.md"), "## Working Style\n\nbody\n");
+      await fs.writeFile(
+        path.join(dir, "settings.json"),
+        JSON.stringify({ permissions: { deny: ["Bash(rm:*)"] } }),
+      );
+      const result = await importClaudeCodeDir(dir, { id: "acme.permissions" });
+      expect(result.warnings.some((warning) => /permissions/.test(warning.message))).toBe(
+        true,
+      );
+      expect(result.manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("surfaces the stdio MCP secret but NEVER ships the token value", async () => {
     const result = await importClaudeCodeDir(FIXTURE_DIR, OPTS);
     // The env KEY is surfaced as a required secret slot…

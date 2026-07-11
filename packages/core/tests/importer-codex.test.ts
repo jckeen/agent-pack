@@ -170,6 +170,22 @@ describe("parseCodex", () => {
     expect(parsed.mcpServers).toEqual([]);
     expect(parsed.warnings.some((w) => /config\.toml/.test(w.message))).toBe(true);
   });
+
+  it("downgrades when project config contains unsupported restrictions", () => {
+    const parsed = parseCodex(
+      tree({
+        "AGENTS.md": "## Working Style\n\nbody\n",
+        ".codex/config.toml": 'sandbox_mode = "read-only"\napproval_policy = "never"\n',
+      }),
+    );
+    const result = buildCodexManifest(parsed, OPTS);
+    expect(
+      result.warnings.some((warning) =>
+        /approval_policy, sandbox_mode/.test(warning.message),
+      ),
+    ).toBe(true);
+    expect(result.manifest.compatibility.targets.codex?.status).toBe("partial");
+  });
 });
 
 describe("parseCodex — preamble preservation", () => {
@@ -210,10 +226,10 @@ describe("buildCodexManifest", () => {
     expect(validation.errors).toEqual([]);
   });
 
-  it("marks only the imported runtime as natively supported", async () => {
+  it("downgrades the imported runtime when project settings are skipped", async () => {
     const parsed = await readFixture();
     const { manifest } = buildCodexManifest(parsed, OPTS);
-    expect(manifest.compatibility.targets.codex?.status).toBe("supported");
+    expect(manifest.compatibility.targets.codex?.status).toBe("partial");
     expect(manifest.compatibility.targets["claude-code"]?.status).toBe("partial");
     expect(manifest.compatibility.targets["claude-code"]?.notes).toMatch(
       /compiled.*verify/i,
@@ -406,6 +422,28 @@ describe("importCodexDir (I/O + round-trip)", () => {
     }
   });
 
+  it("imports current sibling skills when given a home-style .codex root", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "codex-home-style-"));
+    try {
+      await fs.mkdir(path.join(home, ".codex"), { recursive: true });
+      await fs.mkdir(path.join(home, ".agents/skills/demo"), { recursive: true });
+      await fs.writeFile(
+        path.join(home, ".agents/skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill.\n---\n",
+      );
+
+      const result = await importCodexDir(path.join(home, ".codex"), {
+        id: "acme.home",
+      });
+      expect(
+        result.files.some((file) => file.relativePath === "atoms/skills/demo/SKILL.md"),
+      ).toBe(true);
+      expect(result.manifest.compatibility.targets.codex?.status).toBe("supported");
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("warns and downgrades when an oversized skill resource is skipped", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-oversized-skill-"));
     try {
@@ -448,9 +486,11 @@ describe("importCodexDir (I/O + round-trip)", () => {
       file.relativePath.includes("subagents"),
     )!;
     expect(descriptor.content).toContain("model: gpt-5");
-    expect(descriptor.content).not.toContain("sandbox_mode");
-    expect(descriptor.content).not.toContain("mcp_servers");
+    expect(descriptor.content).not.toContain("danger-full-access");
+    expect(descriptor.content).not.toContain("run-private-server");
     expect(descriptor.content).not.toContain("fixture-private-value");
+    expect(descriptor.content).toContain("codex_omitted_config:");
+    expect(descriptor.content).toContain("sandbox_mode");
     expect(
       result.warnings.some((warning) => /mcp_servers.*sandbox_mode/.test(warning.message)),
     ).toBe(true);
@@ -488,16 +528,40 @@ describe("importCodexDir (I/O + round-trip)", () => {
       });
       const emitted = out.files.find(
         (file) => file.path === ".codex/agents/security-reviewer.toml",
-      )!;
-      expect(emitted.content).toContain('model = "gpt-5"');
-      expect(emitted.content).not.toContain("sandbox_mode");
-      expect(emitted.content).not.toContain("mcp_servers");
-      expect(emitted.content).not.toContain("fixture-private-value");
+      );
+      expect(emitted).toBeUndefined();
+      expect(out.unsupportedAtoms).toContain(subagent.id);
       expect(
-        out.warnings.some((warning) => /mcp_servers.*sandbox_mode/.test(warning)),
+        out.warnings.some(
+          (warning) =>
+            /was not exported/.test(warning) && /mcp_servers.*sandbox_mode/.test(warning),
+        ),
+      ).toBe(true);
+
+      descriptor.codex_config = { model: "gpt-5" };
+      descriptor.codex_omitted_config = ["sandbox_mode"];
+      await fs.writeFile(descriptorPath, stringifyYaml(descriptor), "utf8");
+      const markedOut = await adapter.export({
+        manifest: result.manifest,
+        packRoot: dir,
+        resolvedAtoms: resolveAtoms({ manifest: result.manifest, profile: "all" }),
+        profile: "all",
+        target: "codex",
+      });
+      expect(
+        markedOut.files.find(
+          (file) => file.path === ".codex/agents/security-reviewer.toml",
+        ),
+      ).toBeUndefined();
+      expect(markedOut.unsupportedAtoms).toContain(subagent.id);
+      expect(
+        markedOut.warnings.some((warning) =>
+          /was not exported.*sandbox_mode/.test(warning),
+        ),
       ).toBe(true);
 
       descriptor.codex_config = "malformed";
+      delete descriptor.codex_omitted_config;
       await fs.writeFile(descriptorPath, stringifyYaml(descriptor), "utf8");
       const malformedOut = await adapter.export({
         manifest: result.manifest,

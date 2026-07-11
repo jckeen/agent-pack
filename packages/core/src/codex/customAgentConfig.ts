@@ -1,5 +1,5 @@
 const REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
-const NICKNAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+const NICKNAME_RE = /^[A-Za-z0-9 _-]+$/;
 
 export interface SanitizedCodexAgentConfig {
   config: Record<string, unknown>;
@@ -30,11 +30,9 @@ export function sanitizeCodexAgentConfig(
       key === "nickname_candidates" &&
       Array.isArray(value) &&
       value.length > 0 &&
-      value.length <= 10 &&
       value.every(
         (candidate) => typeof candidate === "string" && NICKNAME_RE.test(candidate),
-      ) &&
-      new Set(value).size === value.length
+      )
     ) {
       config[key] = value;
     } else {

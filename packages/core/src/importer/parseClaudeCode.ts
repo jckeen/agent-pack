@@ -208,6 +208,15 @@ export function parseClaudeCode(files: Map<string, string>): ParsedClaudeCode {
         ...mcpServers,
         ...parseMcpServers(obj["mcpServers"], warnings, settingsPath),
       ];
+      const unsupportedKeys = Object.keys(obj)
+        .filter((key) => !["$schema", "hooks", "mcpServers"].includes(key))
+        .sort();
+      if (unsupportedKeys.length > 0) {
+        warnings.push({
+          source: settingsPath,
+          message: `Unsupported Claude Code settings skipped: ${unsupportedKeys.join(", ")}.`,
+        });
+      }
     } catch (err) {
       warnings.push({
         source: settingsPath,

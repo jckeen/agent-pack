@@ -60,8 +60,10 @@ configuration stays scoped to that repository.
 
 Imported custom agents preserve exact instructions and inert model/nickname
 preferences. Sandbox, MCP, skills, provider, and unknown custom-agent settings
-are omitted with warnings because they can carry executable configuration or
-credentials and must not bypass AgentPack's permission gates.
+are removed with a value-free refusal marker because they can carry executable
+configuration or credentials. An affected agent is reported as unsupported and
+is not exported, preventing inherited parent settings from silently widening
+its permissions.
 
 ## Cursor
 

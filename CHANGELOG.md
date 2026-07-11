@@ -13,8 +13,8 @@
   ambiguous current/legacy skill copies are rejected instead of overwritten,
   and Codex custom-agent instructions plus inert model/nickname settings
   survive the round trip. Sandbox, MCP, skills, provider, and unknown settings
-  are omitted with warnings so they cannot bypass permission gates or leak
-  credentials.
+  are removed with a value-free refusal marker; affected agents are not
+  exported, so inherited parent settings cannot silently widen permissions.
 - The standard and personal-config sync guide document the distinction between
   native-source fidelity and compiled target output.
 

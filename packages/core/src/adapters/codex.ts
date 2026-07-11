@@ -359,15 +359,23 @@ export const codexAdapter = defineAdapter({
           : {};
       const { config: codexConfig, omittedKeys } =
         sanitizeCodexAgentConfig(unsafeCodexConfig);
+      const importedOmittedKeys = Array.isArray(descriptor?.["codex_omitted_config"])
+        ? (descriptor?.["codex_omitted_config"] as unknown[]).filter(
+            (key): key is string => typeof key === "string",
+          )
+        : [];
+      const unsafeKeys = [...new Set([...omittedKeys, ...importedOmittedKeys])].sort();
       if (hasMalformedCodexConfig) {
         warnings.push(
           `Subagent \`${atom.id}\` has malformed codex_config; expected a mapping and omitted it.`,
         );
       }
-      if (omittedKeys.length > 0) {
+      if (unsafeKeys.length > 0) {
         warnings.push(
-          `Subagent \`${atom.id}\` omitted security-sensitive or unsupported Codex config: ${omittedKeys.join(", ")}.`,
+          `Subagent \`${atom.id}\` was not exported because security-sensitive or unsupported Codex config cannot be preserved safely: ${unsafeKeys.join(", ")}.`,
         );
+        unsupported.push(atom.id);
+        continue;
       }
       const tomlTable = {
         ...codexConfig,
