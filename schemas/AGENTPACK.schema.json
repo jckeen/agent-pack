@@ -82,7 +82,6 @@
           "type",
           "name",
           "description",
-          "path",
           "risk_level"
         ],
         "properties": {
@@ -127,8 +126,167 @@
             "items": {
               "type": "string"
             }
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Inline default body — alternative to `path` (#133)."
+          },
+          "variants": {
+            "type": "object",
+            "description": "Per-target source/body overrides keyed by target platform; the atom keeps one id while each target compiles its own variant (#133).",
+            "properties": {
+              "claude-code": {
+                "type": "object",
+                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "body"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              },
+              "codex": {
+                "type": "object",
+                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "body"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              },
+              "cursor": {
+                "type": "object",
+                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "body"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              },
+              "chatgpt": {
+                "type": "object",
+                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "body"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              },
+              "generic": {
+                "type": "object",
+                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "body"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
-        }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "path"
+            ]
+          },
+          {
+            "required": [
+              "body"
+            ]
+          },
+          {
+            "required": [
+              "variants"
+            ]
+          }
+        ]
       }
     },
     "exports": {

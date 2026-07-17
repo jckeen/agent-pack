@@ -15,6 +15,7 @@ import {
   signing,
   validateManifest,
   type AgentPackManifest,
+  type Atom,
 } from "@agentpack/core";
 
 import { getToken } from "../lib/credentials.js";
@@ -299,39 +300,61 @@ async function collectFiles(
   const realPack = await fs.realpath(packRoot);
   for (const resolved of allAtoms) {
     const atom = resolved.atom;
-    if (!atom.path) continue;
-    // #162: same containment + symlink trust boundary the adapters use —
-    // `..`/absolute paths and symlinks escaping the pack root throw here.
-    const { target: abs, lstat } = await resolveInsidePack(packRoot, atom);
-    if (lstat === null) continue; // missing on disk — skip, as before
-    if (lstat.isSymbolicLink()) {
-      // Same tightening as readAtomFile: refuse symlinks at the atom path
-      // outright, even ones whose realpath stays inside the pack.
-      throw new AtomPathEscapeError(atom.id, atom.path);
-    }
-    if (lstat.isFile()) {
-      const bytes = await fs.readFile(abs);
-      out.push({
-        path: path.relative(packRoot, abs).split(path.sep).join("/"),
-        sha256: sha256OfBuffer(bytes),
-        bytes: bytes.length,
-        atomId: atom.id,
-        absPath: abs,
-      });
-    } else if (lstat.isDirectory()) {
-      for await (const file of walkFiles(abs, atom.path, realPack, atom.id)) {
-        const bytes = await fs.readFile(file);
-        out.push({
-          path: path.relative(packRoot, file).split(path.sep).join("/"),
-          sha256: sha256OfBuffer(bytes),
-          bytes: bytes.length,
-          atomId: atom.id,
-          absPath: file,
-        });
-      }
+    // A published pack must ship every target variant's file (#133), not just
+    // the default source — installers resolve variants from the same tree.
+    // Every source (default AND variant) goes through the same #162 gate.
+    const sources = [
+      atom.path,
+      ...Object.values(atom.variants ?? {}).map((v) => v.path),
+    ].filter((p): p is string => typeof p === "string");
+    for (const source of sources) {
+      await collectAtomSource(out, packRoot, realPack, atom, source);
     }
   }
   return dedupe(out);
+}
+
+async function collectAtomSource(
+  out: PublishFile[],
+  packRoot: string,
+  realPack: string,
+  atom: Atom,
+  sourcePath: string,
+): Promise<void> {
+  // #162: same containment + symlink trust boundary the adapters use —
+  // `..`/absolute paths and symlinks escaping the pack root throw here. One
+  // gate for every manifest-declared source, variant paths included (#133).
+  const { target: abs, lstat } = await resolveInsidePack(packRoot, {
+    ...atom,
+    path: sourcePath,
+  });
+  if (lstat === null) return; // missing on disk — skip, as before
+  if (lstat.isSymbolicLink()) {
+    // Same tightening as readAtomFile: refuse symlinks at the atom path
+    // outright, even ones whose realpath stays inside the pack.
+    throw new AtomPathEscapeError(atom.id, sourcePath);
+  }
+  if (lstat.isFile()) {
+    const bytes = await fs.readFile(abs);
+    out.push({
+      path: path.relative(packRoot, abs).split(path.sep).join("/"),
+      sha256: sha256OfBuffer(bytes),
+      bytes: bytes.length,
+      atomId: atom.id,
+      absPath: abs,
+    });
+  } else if (lstat.isDirectory()) {
+    for await (const file of walkFiles(abs, sourcePath, realPack, atom.id)) {
+      const bytes = await fs.readFile(file);
+      out.push({
+        path: path.relative(packRoot, file).split(path.sep).join("/"),
+        sha256: sha256OfBuffer(bytes),
+        bytes: bytes.length,
+        atomId: atom.id,
+        absPath: file,
+      });
+    }
+  }
 }
 
 function dedupe(files: PublishFile[]): PublishFile[] {

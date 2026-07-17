@@ -225,6 +225,26 @@ const atomPathSchema = z
     },
   );
 
+/**
+ * One per-target variant (#133): exactly one of `path` (pack-relative file,
+ * same trust rules as `atom.path`) or `body` (inline content). `.strict()`
+ * so a typo (`bodyy`, `file`) fails loudly instead of silently compiling the
+ * default body.
+ */
+const atomVariantSchema = z
+  .object({
+    path: atomPathSchema.optional(),
+    body: z.string().min(1).optional(),
+  })
+  .strict()
+  .refine((v) => (v.path !== undefined) !== (v.body !== undefined), {
+    message: "atom variant must set exactly one of `path` or `body`",
+  });
+
+const atomVariantsSchema = z
+  .partialRecord(targetPlatformSchema, atomVariantSchema)
+  .optional();
+
 const baseAtomFields = {
   id: z
     .string()
@@ -248,10 +268,15 @@ const baseAtomFields = {
   type: atomTypeSchema,
   name: z.string().min(1),
   description: z.string().min(1),
-  path: atomPathSchema,
+  // Optional only when `variants` is present (#133) — enforced by the
+  // superRefine on the atom object below, so pre-variants manifests keep
+  // getting the same "path required" failure they always did.
+  path: atomPathSchema.optional(),
+  body: z.string().min(1).optional(),
   risk_level: riskLevelSchema,
   permissions: z.array(z.string()).optional(),
   platforms: atomPlatformsSchema,
+  variants: atomVariantsSchema,
 };
 
 // Atom schema is permissive on type-specific extras so the example pack's
@@ -261,7 +286,25 @@ const atomSchema = z
   .object({
     ...baseAtomFields,
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((atom, ctx) => {
+    if (atom.path !== undefined && atom.body !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["body"],
+        message: "atom must not set both `path` and `body` — pick one default source",
+      });
+    }
+    const hasVariants = Object.keys(atom.variants ?? {}).length > 0;
+    if (atom.path === undefined && atom.body === undefined && !hasVariants) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["path"],
+        message:
+          "atom must declare a `path` (or `body`), or at least one `variants` entry (#133)",
+      });
+    }
+  });
 
 const exportsSchema = z
   .object({

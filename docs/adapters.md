@@ -6,7 +6,7 @@ Adapters compile AgentPack atoms into platform-native outputs. The shared contra
 
 Every adapter MUST:
 
-1. Accept resolved atoms (output of `resolveAtoms`).
+1. Accept resolved atoms (output of `resolveAtoms`). Target-variant selection ([#133](https://github.com/jckeen/agent-pack/issues/133)) happens **before** the adapter boundary — the planner runs `selectAtomVariants` so each atom arrives with the target's `path`/`body` already swapped in and no `variants` map. Adapters stay variant-unaware; they read every atom source through `readAtomFile`/`readAtomDirectory`, which also resolve inline `body` content.
 2. Generate target-native files in `AdapterOutputFile[]` form.
 3. Return warnings for atoms it cannot fully map; return their IDs in `unsupportedAtoms`.
 4. Avoid false claims about platform support. When the platform's surface is unstable or undocumented, mark output conservatively.

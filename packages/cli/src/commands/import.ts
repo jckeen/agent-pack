@@ -14,6 +14,7 @@ import {
   writeImport,
   type FoldChange,
   type ImportResult,
+  type TargetPlatform,
 } from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 
@@ -23,6 +24,16 @@ const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]*\.[a-z0-9][a-z0-9._-]*$/i;
 
 const SOURCES = ["claude", "claude-code", "codex", "chatgpt-gpt"] as const;
 type Source = (typeof SOURCES)[number];
+
+// Which TargetPlatform a fold source's content belongs to (#133): the fold
+// drops the existing pack's variant for THIS target (the fresh import owns it
+// now) while preserving every other runtime's variant.
+const SOURCE_TARGET: Record<Source, TargetPlatform> = {
+  claude: "claude-code",
+  "claude-code": "claude-code",
+  codex: "codex",
+  "chatgpt-gpt": "chatgpt",
+};
 
 async function readSource(p: string): Promise<string> {
   if (p === "-") {
@@ -209,6 +220,7 @@ async function runFoldInto(
       existing,
       packDir,
       apply: !diffOnly,
+      sourceTarget: SOURCE_TARGET[from],
     });
     for (const w of result.warnings) {
       const where = w.line > 0 ? `line ${w.line}: ` : "";

@@ -31,6 +31,12 @@ export interface ExportMcpbResult {
   skippedServers: string[];
   /** The manifest.json object embedded in the bundle (parsed). */
   manifest: McpbManifest;
+  /**
+   * Export-level warnings, e.g. bundled servers that declare target variants
+   * (#133): `.mcpb` bundling reads only the atom's manifest fields and does
+   * not run the planner's variant selection.
+   */
+  warnings: string[];
 }
 
 /** MCPB manifest schema (spec v0.3) — the subset AgentPack emits. */
@@ -143,6 +149,12 @@ export async function exportMcpb(options: ExportMcpbOptions): Promise<ExportMcpb
     serverNames: stdioServers.map((a) => mcpSlug(a)),
     skippedServers: stdioServers.slice(1).map((a) => mcpSlug(a)),
     manifest,
+    warnings: stdioServers
+      .filter((a) => Object.keys(a.variants ?? {}).length > 0)
+      .map(
+        (a) =>
+          `Atom \`${a.id}\` declares target variants, which \`pack mcpb\` does not resolve — the bundle uses only the atom's manifest fields.`,
+      ),
   };
 }
 

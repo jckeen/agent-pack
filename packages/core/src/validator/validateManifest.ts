@@ -14,9 +14,7 @@ function expandAtomGlob(pattern: string, atomIds: string[]): string[] {
   if (!pattern.includes("*")) return atomIds.includes(pattern) ? [pattern] : [];
   if (pattern === "*") return atomIds;
   const [prefix, suffix = ""] = pattern.split("*", 2) as [string, string?];
-  return atomIds.filter(
-    (id) => id.startsWith(prefix ?? "") && id.endsWith(suffix ?? ""),
-  );
+  return atomIds.filter((id) => id.startsWith(prefix ?? "") && id.endsWith(suffix ?? ""));
 }
 
 /**
@@ -78,6 +76,37 @@ export function validateManifest(input: unknown): ValidationResult {
         message: `Atom id prefix \`${prefix}\` does not match declared type \`${atom.type}\`.`,
         severity: "error",
       });
+    }
+    // Target variants (#133): a variant whose path equals the atom's default
+    // path is a no-op — the author probably meant to point at a per-target
+    // file and would otherwise silently ship the default everywhere.
+    for (const [variantTarget, variant] of Object.entries(atom.variants ?? {})) {
+      if (variant?.path !== undefined && variant.path === atom.path) {
+        warnings.push({
+          code: "atom.variant_duplicates_default",
+          path: `atoms[${idx}].variants.${variantTarget}`,
+          message: `Atom \`${atom.id}\` variant for \`${variantTarget}\` points at the atom's default path \`${atom.path}\` — a no-op variant.`,
+          severity: "warning",
+        });
+      }
+    }
+    // A variant-only atom (no default `path`/`body`) is dropped at install
+    // time for every declared compatibility target it has no variant for
+    // (#133) — surface the gap so the author sees it before a user does.
+    const variantKeys = Object.keys(atom.variants ?? {});
+    if (variantKeys.length > 0 && atom.path === undefined && atom.body === undefined) {
+      const uncovered = Object.entries(manifest.compatibility?.targets ?? {})
+        .filter(([, decl]) => decl.status !== "unsupported")
+        .map(([t]) => t)
+        .filter((t) => !variantKeys.includes(t));
+      if (uncovered.length > 0) {
+        warnings.push({
+          code: "atom.variant_target_gap",
+          path: `atoms[${idx}].variants`,
+          message: `Atom \`${atom.id}\` has no default body and no variant for declared target(s) ${uncovered.join(", ")} — installs there will report it unsupported.`,
+          severity: "warning",
+        });
+      }
     }
     // Permission category sanity — warn on unknown categories (we don't
     // hard-fail because future categories may be added by downstream
@@ -161,7 +190,10 @@ export function validateManifest(input: unknown): ValidationResult {
   // surface engine — but surfacing the gap helps reviewers spot drift.
   const hookAtoms = manifest.atoms.filter((a) => a.type === "hook");
   if (hookAtoms.length > 0) {
-    if (!manifest.permissions?.shell || manifest.permissions.shell.execution === "forbidden") {
+    if (
+      !manifest.permissions?.shell ||
+      manifest.permissions.shell.execution === "forbidden"
+    ) {
       warnings.push({
         code: "permission.declared_shell_missing",
         path: "permissions.shell",
@@ -175,7 +207,10 @@ export function validateManifest(input: unknown): ValidationResult {
     const env = (a as { env?: Record<string, unknown> }).env;
     return env && Object.keys(env).length > 0;
   });
-  if (mcpWithEnv.length > 0 && (manifest.permissions?.secrets?.required ?? []).length === 0) {
+  if (
+    mcpWithEnv.length > 0 &&
+    (manifest.permissions?.secrets?.required ?? []).length === 0
+  ) {
     warnings.push({
       code: "permission.declared_secrets_missing",
       path: "permissions.secrets.required",

@@ -59,6 +59,7 @@ export {
 } from "./parser/loadManifest.js";
 export { validateManifest } from "./validator/validateManifest.js";
 export { resolveAtoms, UnknownProfileError } from "./planner/resolveAtoms.js";
+export { selectAtomVariants, type VariantSelection } from "./planner/selectAtomVariants.js";
 export { summarizePermissions } from "./permissions/summarizePermissions.js";
 export { computeRisk } from "./risk/computeRisk.js";
 export {

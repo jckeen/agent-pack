@@ -98,6 +98,13 @@ export interface ExportChatResult {
   report: ChatPortabilityEntry[];
   /** Relative paths of every file written into outDir. */
   writtenFiles: string[];
+  /**
+   * Export-level warnings (in addition to each skill's own `warnings`), e.g.
+   * variant-only atoms this exporter cannot resolve (#133): `pack chat` does
+   * not run the planner's target-variant selection, so such atoms degrade to
+   * a description fallback or are skipped — loudly, never silently.
+   */
+  warnings: string[];
 }
 
 /**
@@ -170,7 +177,10 @@ export async function exportChat(options: ExportChatOptions): Promise<ExportChat
   }
 
   // ---------- 2. connectors.json ----------
-  const connectors = await buildConnectors(resolved, loaded.packRoot);
+  const { connectors, warnings: connectorWarnings } = await buildConnectors(
+    resolved,
+    loaded.packRoot,
+  );
   if (connectors.length > 0) {
     const doc: ChatConnectorsDoc = {
       pack: loaded.manifest.metadata.id,
@@ -201,7 +211,26 @@ export async function exportChat(options: ExportChatOptions): Promise<ExportChat
     connectors,
     report,
     writtenFiles: written.sort(),
+    warnings: connectorWarnings,
   };
+}
+
+/**
+ * True when an atom has ONLY target variants — no default `path`/`body`
+ * (#133). `pack chat`/`pack mcpb` bypass the planner's variant selection, so
+ * these atoms have no source this exporter can read; callers must degrade
+ * LOUDLY (explicit warning) instead of pretending the source is missing.
+ */
+function isVariantOnly(atom: Atom): boolean {
+  return (
+    Object.keys(atom.variants ?? {}).length > 0 &&
+    atom.path === undefined &&
+    atom.body === undefined
+  );
+}
+
+function variantLimitationWarning(atom: Atom, consequence: string): string {
+  return `Atom \`${atom.id}\` declares target variants, which \`pack chat\` does not resolve — ${consequence}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +289,9 @@ async function compileNativeSkill(
       `# ${atom.name}\n\n${atom.description}`,
     );
     warnings.push(
-      `Skill directory \`${atom.path}\` has no SKILL.md; synthesized a minimal one from the atom description.`,
+      isVariantOnly(atom)
+        ? variantLimitationWarning(atom, "synthesized SKILL.md from the atom description")
+        : `Skill directory \`${atom.path ?? "(none)"}\` has no SKILL.md; synthesized a minimal one from the atom description.`,
     );
   }
 
@@ -305,7 +336,9 @@ async function compileOnInvokeSkill(
     skillName: name,
     kind: "on-invoke",
     zipBytes: zipSync({ [`${name}/SKILL.md`]: strToU8(content) }),
-    warnings: [],
+    warnings: isVariantOnly(atom)
+      ? [variantLimitationWarning(atom, "compiled the atom description instead")]
+      : [],
   };
 }
 
@@ -356,12 +389,18 @@ function ruleLines(parsed: Record<string, unknown> | null): string[] {
 async function buildConnectors(
   resolved: ResolvedAtom[],
   packRoot: string,
-): Promise<ChatConnector[]> {
+): Promise<{ connectors: ChatConnector[]; warnings: string[] }> {
   const connectors: ChatConnector[] = [];
+  const warnings: string[] = [];
   for (const r of resolved) {
     if (r.atom.type !== "mcp_server") continue;
     const a = r.atom as McpAtom;
     if (hasCodexOnlyMcpConfig(a)) continue;
+    if (isVariantOnly(a)) {
+      // No default descriptor to read — skip LOUDLY, naming the true reason.
+      warnings.push(variantLimitationWarning(a, "skipped from connectors.json"));
+      continue;
+    }
     const body = await parseAtomYaml(packRoot, a);
     if (!body) continue;
     const combined = { ...body, ...a } as Record<string, unknown>;
@@ -395,7 +434,7 @@ async function buildConnectors(
       install_recipe: installRecipe(a, auth, requiredSecrets),
     });
   }
-  return connectors;
+  return { connectors, warnings };
 }
 
 /** Read auth scheme + scopes from the atom body yaml when present. */
