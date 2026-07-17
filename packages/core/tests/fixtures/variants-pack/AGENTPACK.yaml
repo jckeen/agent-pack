@@ -1,0 +1,39 @@
+agentpack: "1.0"
+metadata:
+  id: agentpack.variants-fixture
+  name: Variants Fixture
+  slug: variants-fixture
+  description: Fixture pack exercising target-specific atom variants (#133).
+  version: 0.1.0
+  publisher: agentpack
+compatibility:
+  targets:
+    claude-code: { status: supported }
+    codex: { status: supported }
+    generic: { status: supported }
+profiles:
+  full:
+    description: Everything.
+    include: ["*"]
+atoms:
+  - id: "instruction:release-workflow"
+    type: instruction
+    name: "Release Workflow"
+    description: "One shared release workflow with per-target bodies."
+    path: atoms/instructions/release-workflow.md
+    risk_level: low
+    variants:
+      claude-code:
+        path: atoms/instructions/release-workflow.claude-code.md
+      codex:
+        path: atoms/instructions/release-workflow.codex.md
+      generic:
+        body: "GENERIC-BODY: Antigravity/generic release flow — run the checks, then tag."
+  - id: "instruction:claude-only-notes"
+    type: instruction
+    name: "Claude Only Notes"
+    description: "Guidance that only exists as a Claude Code variant (no default body)."
+    risk_level: low
+    variants:
+      claude-code:
+        path: atoms/instructions/claude-only-notes.claude-code.md

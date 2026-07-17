@@ -235,7 +235,11 @@ export async function resolveInsidePack(
   packRoot: string,
   atom: Atom,
 ): Promise<{ target: string; lstat: Awaited<ReturnType<typeof fs.lstat>> | null }> {
+  // Variant-only atoms may carry no default `path` (#133) — treat as cleanly
+  // missing, same as ENOENT. The planner withholds such atoms from adapters
+  // when no variant matches; this guard keeps direct adapter use safe too.
   const rel = atom.path;
+  if (rel === undefined) return { target: packRoot, lstat: null };
   if (path.isAbsolute(rel)) throw new AtomPathEscapeError(atom.id, rel);
   // Reject `..` segments early — even if the resolved path would stay inside,
   // forbidding `..` keeps the trust boundary obvious and prevents
@@ -280,15 +284,19 @@ export async function resolveInsidePack(
 }
 
 /**
- * Read the contents of an atom's `path` field. Path is resolved against the
- * pack root and rejected if it escapes via `..`, absolute paths, or symlinks.
+ * Read an atom's body. An inline `body` (default or swapped in by variant
+ * selection, #133) wins outright — no disk involved — so adapters resolve
+ * every atom source through this one helper and stay variant-unaware.
+ * Otherwise the `path` field is resolved against the pack root and rejected
+ * if it escapes via `..`, absolute paths, or symlinks.
  *
- * Returns the file contents on success, or `null` only when the path is
- * cleanly missing (ENOENT). Any other read error throws — silent fallback
- * to `null` for permission/IO errors would let exports look complete while
- * shipping degenerate output.
+ * Returns the contents on success, or `null` only when the path is cleanly
+ * missing (ENOENT) or the atom has neither `body` nor `path`. Any other read
+ * error throws — silent fallback to `null` for permission/IO errors would
+ * let exports look complete while shipping degenerate output.
  */
 export async function readAtomFile(packRoot: string, atom: Atom): Promise<string | null> {
+  if (typeof atom.body === "string") return atom.body;
   const { target, lstat } = await resolveInsidePack(packRoot, atom);
   if (lstat === null) return null;
   // Refuse symlinks at the atom path itself. resolveInsidePack already
@@ -297,7 +305,7 @@ export async function readAtomFile(packRoot: string, atom: Atom): Promise<string
   // symlinks at the atom path outright. Packs that need to share content
   // should use real files or copy in build.
   if (lstat.isSymbolicLink()) {
-    throw new AtomPathEscapeError(atom.id, atom.path);
+    throw new AtomPathEscapeError(atom.id, atom.path!);
   }
   if (!lstat.isFile()) return null;
   try {
@@ -305,7 +313,7 @@ export async function readAtomFile(packRoot: string, atom: Atom): Promise<string
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT") return null;
-    throw new AtomReadError(atom.id, atom.path, e);
+    throw new AtomReadError(atom.id, atom.path!, e);
   }
 }
 
@@ -350,7 +358,9 @@ export async function resolveSubagentBody(
   const raw = await readAtomFile(packRoot, atom);
   if (raw == null || raw.trim() === "") return { instructions: atom.description };
 
-  if (/\.(md|markdown)$/i.test(atom.path)) {
+  // Inline bodies (#133) have no filename to sniff; treat them as markdown —
+  // Claude Code's native agent format — so frontmatter still parses.
+  if (atom.path === undefined || /\.(md|markdown)$/i.test(atom.path)) {
     let body = raw;
     let description: string | undefined;
     let tools: string | undefined;
@@ -431,10 +441,15 @@ export async function readAtomDirectory(
   packRoot: string,
   atom: Atom,
 ): Promise<Array<{ relPath: string; content: string }>> {
+  // An inline `body` (#133) maps to a single-entry SKILL.md — the canonical
+  // entry file for directory-backed atom types.
+  if (typeof atom.body === "string") {
+    return [{ relPath: "SKILL.md", content: atom.body }];
+  }
   const { target: root, lstat } = await resolveInsidePack(packRoot, atom);
   if (lstat === null) return [];
   if (lstat.isSymbolicLink()) {
-    throw new AtomPathEscapeError(atom.id, atom.path);
+    throw new AtomPathEscapeError(atom.id, atom.path!);
   }
   if (!lstat.isDirectory()) {
     if (lstat.isFile()) {
@@ -442,7 +457,7 @@ export async function readAtomDirectory(
         const content = await fs.readFile(root, "utf8");
         return [{ relPath: path.basename(root), content }];
       } catch (err) {
-        throw new AtomReadError(atom.id, atom.path, err as NodeJS.ErrnoException);
+        throw new AtomReadError(atom.id, atom.path!, err as NodeJS.ErrnoException);
       }
     }
     return [];
@@ -466,7 +481,7 @@ export async function readAtomDirectory(
         isSymlink: e.isSymbolicLink(),
       }));
     } catch (err) {
-      throw new AtomReadError(atom.id, atom.path, err as NodeJS.ErrnoException);
+      throw new AtomReadError(atom.id, atom.path!, err as NodeJS.ErrnoException);
     }
     for (const entry of entries) {
       if (entry.isSymlink) continue; // refuse symlinks
@@ -476,7 +491,7 @@ export async function readAtomDirectory(
       const realAbs = await fs.realpath(abs).catch(() => abs);
       const containment = path.relative(realPack, realAbs);
       if (containment.startsWith("..") || path.isAbsolute(containment)) {
-        throw new AtomPathEscapeError(atom.id, atom.path);
+        throw new AtomPathEscapeError(atom.id, atom.path!);
       }
       const next = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDir) {
@@ -486,7 +501,7 @@ export async function readAtomDirectory(
           const content = await fs.readFile(abs, "utf8");
           results.push({ relPath: next, content });
         } catch (err) {
-          throw new AtomReadError(atom.id, atom.path, err as NodeJS.ErrnoException);
+          throw new AtomReadError(atom.id, atom.path!, err as NodeJS.ErrnoException);
         }
       }
     }

@@ -155,15 +155,45 @@ export interface DependenciesBlock {
   }>;
 }
 
+/**
+ * One target-specific source for an atom (#133). Exactly one of:
+ *  - `path` — a pack-relative file compiled for that target INSTEAD of the
+ *    atom's default `path`/`body`. Same trust rules as `atom.path` (relative,
+ *    no `..`, no `~`, symlink-checked at read time).
+ *  - `body` — inline content compiled verbatim, no file behind it.
+ */
+export interface AtomVariant {
+  path?: string;
+  body?: string;
+}
+
 export interface AtomBase {
   id: string;
   type: AtomType;
   name: string;
   description: string;
-  path: string;
+  /**
+   * Default on-disk source for the atom, relative to the pack root. Optional
+   * only when `variants` is declared (#133): a variant-only atom has no
+   * default body, and planning it for a target with no matching variant
+   * surfaces the atom as unsupported for that target. At most one of
+   * `path` / `body` may be set.
+   */
+  path?: string;
+  /** Inline default body — alternative to `path` (#133). */
+  body?: string;
   risk_level: RiskLevel;
   permissions?: string[];
   platforms?: Partial<Record<TargetPlatform, CompatibilityStatus>>;
+  /**
+   * Per-target source/body overrides (#133). The atom keeps ONE id — the
+   * planner selects the matching variant for the install target BEFORE the
+   * adapter runs (adapters never see this map), falling back to the default
+   * `path`/`body` when no variant matches. No variant AND no default →
+   * the atom is reported via the plan's `unsupportedAtoms` + warnings and
+   * `observedFidelity` degrades to `partial` (#134 channel).
+   */
+  variants?: Partial<Record<TargetPlatform, AtomVariant>>;
 }
 
 export interface CommandAtom extends AtomBase {

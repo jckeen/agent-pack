@@ -10,6 +10,7 @@ import type {
 import { computeRisk } from "../risk/computeRisk.js";
 import { summarizePermissions } from "../permissions/summarizePermissions.js";
 import { resolveAtoms } from "./resolveAtoms.js";
+import { selectAtomVariants } from "./selectAtomVariants.js";
 
 export interface CreateInstallPlanOptions {
   manifest: AgentPackManifest;
@@ -46,11 +47,11 @@ export class UnsupportedTargetError extends Error {
  * Compiler-observed fidelity for a target (#134): what the adapter actually
  * achieved, independent of what the manifest claims.
  *
- * Invariant: adapter-reported unsupported atoms can NEVER coexist with a
- * derived `supported` result — any dropped atom or adapter warning downgrades
- * the observation to `partial`. Only adapter output feeds this; plan-level
- * warnings (risk summaries, secret requirements) are consent surface, not
- * fidelity evidence.
+ * Invariant: reported unsupported atoms can NEVER coexist with a derived
+ * `supported` result — any dropped atom or compile-stage warning downgrades
+ * the observation to `partial`. Only compiler observations feed this
+ * (adapter output plus variant selection, #133); plan-level warnings (risk
+ * summaries, secret requirements) are consent surface, not fidelity evidence.
  */
 export function deriveObservedFidelity(
   adapterWarnings: readonly string[],
@@ -93,13 +94,23 @@ export async function createInstallPlan(
   const resolved = resolveAtoms({ manifest, profile, onlyAtoms });
   const permissions = summarizePermissions(manifest, resolved);
   const risk = computeRisk(manifest, resolved, permissions);
+  // Target-variant selection (#133) happens HERE, before the adapter boundary:
+  // adapters receive ordinary atoms with the target's source already swapped
+  // in and never see the `variants` map. Atoms with no matching variant and no
+  // default body are withheld from the adapter and reported as unsupported —
+  // the same structured channel adapter-dropped atoms use (#134).
+  const variantSelection = selectAtomVariants(resolved, target);
   const adapterResult = await adapter.export({
     manifest,
     packRoot,
-    resolvedAtoms: resolved,
+    resolvedAtoms: variantSelection.atoms,
     profile,
     target,
   });
+  const unsupportedAtoms = [
+    ...variantSelection.unsupportedAtoms,
+    ...adapterResult.unsupportedAtoms,
+  ];
 
   const warnings: string[] = [];
   if (authored && (authored.status === "partial" || authored.status === "experimental")) {
@@ -124,6 +135,7 @@ export async function createInstallPlan(
     warnings.push(...risk.reasons);
   }
 
+  warnings.push(...variantSelection.warnings);
   warnings.push(...adapterResult.warnings);
 
   for (const s of permissions.secrets) {
@@ -143,15 +155,16 @@ export async function createInstallPlan(
     permissions,
     warnings,
     files: adapterResult.files as AdapterOutputFile[],
-    unsupportedAtoms: adapterResult.unsupportedAtoms,
+    unsupportedAtoms,
     // Two distinct compatibility surfaces (#134): the author's claim as
     // written, and what the compiler observed doing the export. Derivation
-    // uses ADAPTER warnings only — the merged `warnings` list above carries
+    // uses COMPILER observations only — variant-selection warnings (#133) and
+    // adapter warnings — while the merged `warnings` list above also carries
     // consent items (risk summary, secrets) that say nothing about fidelity.
     ...(authored ? { authoredCompatibility: authored.status } : {}),
     observedFidelity: deriveObservedFidelity(
-      adapterResult.warnings,
-      adapterResult.unsupportedAtoms,
+      [...variantSelection.warnings, ...adapterResult.warnings],
+      unsupportedAtoms,
     ),
   };
 }
