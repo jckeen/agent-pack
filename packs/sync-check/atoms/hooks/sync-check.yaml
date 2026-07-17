@@ -1,0 +1,16 @@
+id: sync-check
+name: Sync Check Nudge
+events:
+  claude-code:
+    - SessionStart
+handler:
+  kind: shell
+  command: sh ${CLAUDE_PROJECT_DIR}/.claude/hooks/sync-check.sh
+  script_path: atoms/hooks/scripts/sync-check.sh
+  timeout: 15
+permissions:
+  - shell.execution
+  - network.access
+risk_level: high
+warnings:
+  - "Runs a read-only `agentpack update --check` at session start. Never applies updates; silent offline."
