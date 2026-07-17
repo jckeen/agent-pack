@@ -12,6 +12,7 @@ import {
   publisherMembers,
   publishers,
 } from "./db";
+import { validateRegistryAuthEnv } from "./auth-env";
 
 /**
  * NextAuth v5 (beta-31) configuration. GitHub OAuth is the only provider in
@@ -65,6 +66,17 @@ function buildAuth(): AuthSurface {
     };
   }
 
+  // DB present → the registry is active: refuse to start on empty OAuth
+  // creds or a missing/short AUTH_SECRET (#63 B2 + S1) instead of silently
+  // initializing a provider that can never sign in. Throws with the full
+  // list of problems; never returns null here since DATABASE_URL is set.
+  const authEnv = validateRegistryAuthEnv();
+  if (!authEnv) {
+    throw new Error(
+      "[registry/auth] invariant violation: DB initialized without DATABASE_URL",
+    );
+  }
+
   const config: NextAuthConfig = {
     // NextAuth beta-31 + Drizzle adapter 1.11.2 intentionally accept a
     // permissive table-shape on the adapter argument — adapter typing across
@@ -79,11 +91,11 @@ function buildAuth(): AuthSurface {
     } as any),
     providers: [
       GitHub({
-        clientId: process.env["GITHUB_ID"] ?? "",
-        clientSecret: process.env["GITHUB_SECRET"] ?? "",
+        clientId: authEnv.githubId,
+        clientSecret: authEnv.githubSecret,
       }),
     ],
-    secret: process.env["AUTH_SECRET"],
+    secret: authEnv.authSecret,
     session: { strategy: "database" },
     callbacks: {
       async session({ session, user }) {
@@ -94,10 +106,7 @@ function buildAuth(): AuthSurface {
           const rows = await db
             .select({ slug: publishers.slug })
             .from(publisherMembers)
-            .innerJoin(
-              publishers,
-              eq(publisherMembers.publisherId, publishers.id)
-            )
+            .innerJoin(publishers, eq(publisherMembers.publisherId, publishers.id))
             .where(eq(publisherMembers.userId, user.id));
           enriched.publisherSlugs = rows.map((r) => r.slug);
         } catch (err) {
