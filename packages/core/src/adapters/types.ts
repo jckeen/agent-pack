@@ -225,8 +225,13 @@ export class AtomReadError extends Error {
  *  - `atom.path` must not contain `..` traversal that escapes the pack root.
  *  - The on-disk realpath of `atom.path` must remain inside `packRoot`'s realpath.
  *  - Direct symlinks AT `atom.path` that point outside the pack root are rejected.
+ *
+ * Exported as the single trust boundary for manifest-declared paths: every
+ * consumer that turns `atom.path` into filesystem reads (adapters, exports,
+ * `agentpack publish`) must resolve through this gate — one gate, not two
+ * implementations (#162).
  */
-async function resolveInsidePack(
+export async function resolveInsidePack(
   packRoot: string,
   atom: Atom,
 ): Promise<{ target: string; lstat: Awaited<ReturnType<typeof fs.lstat>> | null }> {

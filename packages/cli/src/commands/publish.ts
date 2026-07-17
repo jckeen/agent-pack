@@ -6,16 +6,20 @@ import type { Command } from "commander";
 import pc from "picocolors";
 
 import {
+  AtomPathEscapeError,
   DEFAULT_REGISTRY_URL,
   ExitCode,
   loadManifest,
   resolveAtoms,
+  resolveInsidePack,
   signing,
+  validateManifest,
   type AgentPackManifest,
 } from "@agentpack/core";
 
 import { getToken } from "../lib/credentials.js";
 import { confirm } from "../lib/prompt.js";
+import { renderValidation } from "../lib/render.js";
 
 interface PresignedUpload {
   path: string;
@@ -70,6 +74,19 @@ export function registerPublish(program: Command): void {
           const source = pathArg ?? process.cwd();
           const loaded = await loadManifest(source);
           const manifest = loaded.manifest;
+
+          // #162: refuse to publish an invalid manifest. This also runs the
+          // schema-level atom-path refinements (no `..`, no absolute, no `~`)
+          // before any file collection or network IO.
+          const validation = validateManifest(manifest);
+          if (!validation.valid) {
+            console.error(renderValidation(validation));
+            console.error(
+              pc.red("\nRefusing to publish an invalid manifest. Fix the errors above."),
+            );
+            process.exit(ExitCode.Generic);
+          }
+
           const manifestBytes = Buffer.from(loaded.rawYaml, "utf-8");
           const manifestSha256 = sha256OfBuffer(manifestBytes);
 
@@ -279,17 +296,20 @@ async function collectFiles(
 ): Promise<PublishFile[]> {
   const out: PublishFile[] = [];
   const allAtoms = resolveAtoms({ manifest, profile: "full" });
+  const realPack = await fs.realpath(packRoot);
   for (const resolved of allAtoms) {
     const atom = resolved.atom;
     if (!atom.path) continue;
-    const abs = path.resolve(packRoot, atom.path);
-    let stat;
-    try {
-      stat = await fs.stat(abs);
-    } catch {
-      continue;
+    // #162: same containment + symlink trust boundary the adapters use —
+    // `..`/absolute paths and symlinks escaping the pack root throw here.
+    const { target: abs, lstat } = await resolveInsidePack(packRoot, atom);
+    if (lstat === null) continue; // missing on disk — skip, as before
+    if (lstat.isSymbolicLink()) {
+      // Same tightening as readAtomFile: refuse symlinks at the atom path
+      // outright, even ones whose realpath stays inside the pack.
+      throw new AtomPathEscapeError(atom.id, atom.path);
     }
-    if (stat.isFile()) {
+    if (lstat.isFile()) {
       const bytes = await fs.readFile(abs);
       out.push({
         path: path.relative(packRoot, abs).split(path.sep).join("/"),
@@ -298,8 +318,8 @@ async function collectFiles(
         atomId: atom.id,
         absPath: abs,
       });
-    } else if (stat.isDirectory()) {
-      for await (const file of walkFiles(abs)) {
+    } else if (lstat.isDirectory()) {
+      for await (const file of walkFiles(abs, atom.path, realPack, atom.id)) {
         const bytes = await fs.readFile(file);
         out.push({
           path: path.relative(packRoot, file).split(path.sep).join("/"),
@@ -323,12 +343,35 @@ function dedupe(files: PublishFile[]): PublishFile[] {
   });
 }
 
-async function* walkFiles(root: string): AsyncGenerator<string> {
+/**
+ * Walk a directory atom, refusing symlinks at any depth: publishing must fail
+ * loudly rather than follow a link outside the pack or silently ship an
+ * incomplete pack. Each yielded file is re-asserted (via realpath) to stay
+ * inside the pack root, mirroring `readAtomDirectory`'s mid-walk guard.
+ */
+async function* walkFiles(
+  root: string,
+  rel: string,
+  realPack: string,
+  atomId: string,
+): AsyncGenerator<string> {
   const entries = await fs.readdir(root, { withFileTypes: true });
   for (const e of entries) {
     const full = path.join(root, e.name);
-    if (e.isDirectory()) yield* walkFiles(full);
-    else if (e.isFile()) yield full;
+    const entryRel = `${rel}/${e.name}`;
+    if (e.isSymbolicLink()) {
+      throw new AtomPathEscapeError(atomId, entryRel);
+    }
+    if (e.isDirectory()) {
+      yield* walkFiles(full, entryRel, realPack, atomId);
+    } else if (e.isFile()) {
+      const realAbs = await fs.realpath(full).catch(() => full);
+      const containment = path.relative(realPack, realAbs);
+      if (containment.startsWith("..") || path.isAbsolute(containment)) {
+        throw new AtomPathEscapeError(atomId, entryRel);
+      }
+      yield full;
+    }
   }
 }
 
