@@ -104,6 +104,7 @@ export {
   wrapInstructionBlock,
   readAtomFile,
   readAtomDirectory,
+  resolveInsidePack,
   AtomPathEscapeError,
   AtomReadError,
 } from "./adapters/types.js";
