@@ -147,6 +147,75 @@ describe("fold preserves another runtime's variant (#133 AC4)", () => {
     }
   });
 
+  it("carries a deleted atom forward as variant-only when a foreign variant exists", async () => {
+    // Regression (#133 review): the atom's section was deleted from the
+    // Claude-side live config, so the fresh import no longer contains it at
+    // all. Its codex variant is another runtime's content — the fold must
+    // carry the atom forward (variant-only) and keep the variant file, not
+    // sweep both as stale.
+    const { packDir, existing } = await makeExistingPack();
+    try {
+      const result = importClaudeMd(
+        "# Fold Variants\n\n## Other Notes\n\nUnrelated fresh content.\n",
+        { id: existing.metadata.id, source: "claude-code" },
+      );
+      const { changes } = await foldImportInto({
+        result,
+        existing,
+        packDir,
+        apply: false,
+        sourceTarget: "claude-code",
+      });
+
+      const atom = foldedAtom(changes);
+      // Carried forward as a variant-only atom: identity intact, codex
+      // variant preserved, no default source (the source runtime deleted it).
+      expect(atom.variants?.codex).toEqual({ path: CODEX_VARIANT_PATH });
+      expect(atom.path).toBeUndefined();
+      expect(atom.body).toBeUndefined();
+      // The source target's own variant is superseded (deleted at source).
+      expect(atom.variants?.["claude-code"]).toBeUndefined();
+      // The codex variant FILE survives; default + claude-code files are stale.
+      expect(changes.find((c) => c.path === CODEX_VARIANT_PATH)).toBeUndefined();
+      expect(
+        changes.find((c) => c.path === "atoms/instructions/release-workflow.md")?.kind,
+      ).toBe("removed");
+      expect(changes.find((c) => c.path === CLAUDE_VARIANT_PATH)?.kind).toBe("removed");
+    } finally {
+      await fs.rm(packDir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops a deleted atom entirely when only the source target's variant existed", async () => {
+    const { packDir, existing } = await makeExistingPack();
+    try {
+      // Reduce the existing atom to ONLY a claude-code variant.
+      existing.atoms[0]!.variants = {
+        "claude-code": { path: CLAUDE_VARIANT_PATH },
+      };
+      const result = importClaudeMd(
+        "# Fold Variants\n\n## Other Notes\n\nUnrelated fresh content.\n",
+        { id: existing.metadata.id, source: "claude-code" },
+      );
+      const { changes } = await foldImportInto({
+        result,
+        existing,
+        packDir,
+        apply: false,
+        sourceTarget: "claude-code",
+      });
+      const manifestChange = changes.find((c) => c.path === "AGENTPACK.yaml");
+      const merged = parseYaml(manifestChange!.after!) as AgentPackManifest;
+      // Nothing foreign remained — the atom is gone, its files stale.
+      expect(
+        merged.atoms.find((a) => a.id === "instruction:release-workflow"),
+      ).toBeUndefined();
+      expect(changes.find((c) => c.path === CLAUDE_VARIANT_PATH)?.kind).toBe("removed");
+    } finally {
+      await fs.rm(packDir, { recursive: true, force: true });
+    }
+  });
+
   it("preserves all variants when the fold has no declared source target", async () => {
     const { packDir, existing } = await makeExistingPack();
     try {

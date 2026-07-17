@@ -173,11 +173,11 @@ export async function foldImportInto(params: {
   // sweep below never deletes them.
   const existingById = new Map(existing.atoms.map((a) => [a.id.toLowerCase(), a]));
   const preservedVariantPaths = new Set<string>();
-  const foldedAtoms: Atom[] = result.manifest.atoms.map((atom) => {
-    const prior = existingById.get(atom.id.toLowerCase());
-    if (!prior?.variants) return atom;
+  const preserveForeignVariants = (
+    prior: Atom,
+  ): Partial<Record<TargetPlatform, AtomVariant>> => {
     const preserved: Partial<Record<TargetPlatform, AtomVariant>> = {};
-    for (const [target, variant] of Object.entries(prior.variants) as Array<
+    for (const [target, variant] of Object.entries(prior.variants ?? {}) as Array<
       [TargetPlatform, AtomVariant]
     >) {
       if (target === sourceTarget) continue; // superseded by the fresh import
@@ -186,8 +186,29 @@ export async function foldImportInto(params: {
         preservedVariantPaths.add(variant.path.split(/[\\/]+/).join("/"));
       }
     }
+    return preserved;
+  };
+  const foldedAtoms: Atom[] = result.manifest.atoms.map((atom) => {
+    const prior = existingById.get(atom.id.toLowerCase());
+    if (!prior?.variants) return atom;
+    const preserved = preserveForeignVariants(prior);
     return Object.keys(preserved).length > 0 ? { ...atom, variants: preserved } : atom;
   });
+  // An atom that disappeared from the fold source may still carry OTHER
+  // runtimes' variants — content the source runtime cannot regenerate and the
+  // fold must not destroy. Carry it forward as a variant-only atom (a valid
+  // shape since #133): the prior atom minus its default `path`/`body` (the
+  // source runtime owned and deleted that content). If nothing remains after
+  // dropping the source target's own variant, the atom really is gone.
+  const freshIds = new Set(result.manifest.atoms.map((a) => a.id.toLowerCase()));
+  for (const prior of existing.atoms) {
+    if (freshIds.has(prior.id.toLowerCase())) continue;
+    if (!prior.variants || Object.keys(prior.variants).length === 0) continue;
+    const preserved = preserveForeignVariants(prior);
+    if (Object.keys(preserved).length === 0) continue;
+    const { path: _path, body: _body, variants: _variants, ...identity } = prior;
+    foldedAtoms.push({ ...identity, variants: preserved } as Atom);
+  }
   const merged: AgentPackManifest = {
     ...result.manifest,
     atoms: foldedAtoms,
