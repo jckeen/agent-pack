@@ -292,15 +292,18 @@ export interface AdapterOutputFile {
   action: "create" | "modify";
   notes?: string[];
   /**
-   * Declared by the emitting adapter when the target runtime EXECUTES
-   * directives embedded in this file's content — e.g. Claude Code runs
-   * `!`…`` (bang-bash) lines in `.claude/commands/*.md` / `.claude/agents/*.md`
-   * bodies as shell the moment the user invokes the command/agent. The
-   * install-time exec-consent gate content-scans exactly the files marked
-   * true (#119); because the flag rides the file object, it survives path
-   * remapping (e.g. `--scope user`'s `.claude/X` → `X`) where a path regex
-   * would silently detach. Outputs the runtime merely READS as instructions
-   * (CLAUDE.md, AGENTS.md, skills, config JSON) must not set it.
+   * Stamped by `defineAdapter` from the adapter's REQUIRED `execSurfaces`
+   * declaration: true when the target runtime EXECUTES directives embedded
+   * in this file's content — e.g. Claude Code runs `!`…`` (bang-bash) lines
+   * in `.claude/commands/*.md` / `.claude/agents/*.md` bodies as shell the
+   * moment the user invokes the command/agent. The install-time exec-consent
+   * gate content-scans exactly the files marked true (#119); because the
+   * flag rides the file object, it survives path remapping (e.g. `--scope
+   * user`'s `.claude/X` → `X`) where a path regex would silently detach.
+   * Outputs the runtime merely READS as instructions (CLAUDE.md, AGENTS.md,
+   * skills, config JSON) are stamped false. Optional in the type only because
+   * hand-built AdapterOutputFile literals predate it; every adapter built via
+   * `defineAdapter` emits it explicitly.
    */
   execCapable?: boolean;
 }

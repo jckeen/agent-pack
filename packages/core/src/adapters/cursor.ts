@@ -20,6 +20,10 @@ function renderRuleMdc(atom: Atom, body: string): string {
 
 export const cursorAdapter = defineAdapter({
   target: "cursor",
+  // No exec-capable outputs (#119): commands/subagents surface as
+  // DESCRIPTIONS in AGENTS.md only — no body is emitted and Cursor executes
+  // nothing this adapter installs.
+  execSurfaces: () => false,
   async build(options: AdapterExportOptions) {
     const { manifest, packRoot, resolvedAtoms } = options;
     const files: AdapterOutputFile[] = [];
@@ -52,9 +56,6 @@ export const cursorAdapter = defineAdapter({
         : atom.description;
       sections.push(`## Skill: ${atom.name}\n\n_(${atom.id})_\n\n${body}\n`);
     }
-    // Commands/subagents surface as DESCRIPTIONS in AGENTS.md only — no body
-    // is emitted and Cursor executes nothing from it, so no output of this
-    // adapter is `execCapable` (#119).
     for (const atom of byType.get("command") ?? []) {
       sections.push(`## Command: ${atom.name}\n\n_(${atom.id})_\n\n${atom.description}\n`);
     }

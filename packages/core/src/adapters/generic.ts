@@ -17,6 +17,11 @@ import {
 
 export const genericAdapter = defineAdapter({
   target: "generic",
+  // No exec-capable outputs (#119): SKILL.md consumers (e.g. Antigravity)
+  // read skills as instructions — the #119 audit found no consumer that
+  // executes Claude-style `!`…`` bang-bash — and command bodies are never
+  // emitted at all (only LISTED in README-agent.md).
+  execSurfaces: () => false,
   async build(options: AdapterExportOptions) {
     const { manifest, packRoot, resolvedAtoms } = options;
     const files: AdapterOutputFile[] = [];
@@ -49,11 +54,6 @@ export const genericAdapter = defineAdapter({
 
     // ---------- skills/ ----------
     // Emitted skill folders conform to the Agent Skills spec (agentskills.io).
-    // Not `execCapable` (#119): generic consumers (e.g. Antigravity) read
-    // SKILL.md as instructions; no known consumer executes Claude-style
-    // `!`…`` bang-bash directives. Command atoms are only LISTED in
-    // README-agent.md — their bodies are never emitted — so this adapter
-    // declares no exec-capable surface at all.
     for (const atom of byType.get("skill") ?? []) {
       const slug = normalizeSkillSlug(atom.id.split(":")[1] ?? atom.name);
       const entries = await readAtomDirectory(packRoot, atom);

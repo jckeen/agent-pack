@@ -143,10 +143,12 @@ describe("adapter exec-capable surface declarations (#119)", () => {
     expect(command?.execCapable).toBe(true);
     expect(agent?.execCapable).toBe(true);
     // Every OTHER output (CLAUDE.md, settings, skills, …) is read, not
-    // preprocessed — it must not widen the content-scan surface.
+    // preprocessed — it must not widen the content-scan surface. The stamp is
+    // an explicit `false` (defineAdapter answers for every file), never a
+    // forgotten `undefined`.
     for (const f of files) {
       if (f.path === command!.path || f.path === agent!.path) continue;
-      expect(f.execCapable, `unexpected execCapable on ${f.path}`).toBeFalsy();
+      expect(f.execCapable, `unexpected execCapable on ${f.path}`).toBe(false);
     }
     // Guard against a vacuous gate: the flagged files really carry the
     // bang-bash bodies the gate content-scans for.
@@ -168,20 +170,24 @@ describe("adapter exec-capable surface declarations (#119)", () => {
   });
 
   it.each(TARGET_PLATFORMS.filter((t) => t !== "claude-code"))(
-    "%s declares no exec-capable surface, even where command bodies are emitted verbatim",
+    "%s declares no exec-capable surface (explicit false on every file), even where command bodies are emitted verbatim",
     async (target) => {
       const files = await exportFiles(target);
+      expect(files.length).toBeGreaterThan(0);
       for (const f of files) {
-        expect(f.execCapable, `unexpected execCapable on ${target}:${f.path}`).toBeFalsy();
+        // Explicit `false`, not merely falsy: defineAdapter stamps every
+        // emitted file from the adapter's required `execSurfaces` declaration,
+        // so an adapter that never answered the exec question cannot exist.
+        expect(f.execCapable, `unexpected execCapable on ${target}:${f.path}`).toBe(false);
       }
     },
   );
 
-  it("codex ships the bang-bash command body verbatim in SKILL.md yet does not flag it (verified: Codex does not execute bang-bash)", async () => {
+  it("codex ships the bang-bash command body verbatim in SKILL.md yet does not flag it (#119 audit found no evidence Codex executes bang-bash)", async () => {
     const files = await exportFiles("codex");
     const skill = files.find((f) => f.path === ".agents/skills/deploy/SKILL.md");
     expect(skill).toBeDefined();
     expect(BANG_BASH.test(skill!.content)).toBe(true);
-    expect(skill!.execCapable).toBeFalsy();
+    expect(skill!.execCapable).toBe(false);
   });
 });
