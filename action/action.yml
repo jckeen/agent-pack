@@ -1,0 +1,101 @@
+# AgentPack pack-repo CI action (sync S4, docs/sync-design.md §5).
+#
+# Composite action for personal/team pack repos: validate the pack on every
+# push, re-emit the Claude Code plugin, and (eventually) open dependabot-style
+# update PRs against registered consumer repos. Reference it as
+# `jckeen/agent-pack/action@master` — the AgentPack CLI is not on npm yet, so
+# the action builds the CLI from this repo's source (the action checkout GitHub
+# already places at $GITHUB_ACTION_PATH).
+name: "AgentPack pack CI"
+description: >-
+  Validate an AgentPack and re-emit its Claude Code plugin. Builds the
+  agentpack CLI from the action repo's source — no npm package required.
+
+inputs:
+  pack-dir:
+    description: "Directory containing AGENTPACK.yaml, relative to the workspace."
+    required: false
+    default: "."
+  export-plugin:
+    description: "Also compile the pack to a Claude Code plugin directory (`agentpack pack plugin`)."
+    required: false
+    default: "true"
+  plugin-out:
+    description: "Output directory for the compiled plugin, relative to the workspace."
+    required: false
+    default: "dist-plugin"
+  profile:
+    description: "Install profile to compile (defaults to the pack's exports.default_profile)."
+    required: false
+    default: ""
+  update-consumers:
+    description: >-
+      NOT YET IMPLEMENTED (tracked in jckeen/agent-pack#113). Newline-separated
+      `owner/repo` consumer repos to open dependabot-style `agentpack update`
+      PRs against. Setting this fails the run with a clear error rather than
+      silently doing nothing.
+    required: false
+    default: ""
+
+outputs:
+  plugin-dir:
+    description: "Absolute path of the compiled plugin directory (empty when export-plugin is false)."
+    value: ${{ steps.plugin.outputs.plugin-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Refuse unimplemented inputs
+      if: inputs.update-consumers != ''
+      shell: bash
+      run: |
+        echo "::error::update-consumers is not implemented yet (jckeen/agent-pack#113):" \
+             "the consumer-PR lane (checkout consumer, agentpack update, open a PR whose" \
+             "diff is exactly the update plan's files + lockfile) has not shipped." \
+             "Remove the input, or run 'agentpack update' in the consumer repo directly."
+        exit 1
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+
+    # The CLI is not published to npm — build it from the action repo's own
+    # source. pnpm version pinned to the repo's packageManager field.
+    - name: Build agentpack CLI from source
+      shell: bash
+      run: |
+        set -euo pipefail
+        repo_root="$(cd "${GITHUB_ACTION_PATH}/.." && pwd)"
+        npm install -g pnpm@9.15.4
+        cd "$repo_root"
+        pnpm install --frozen-lockfile
+        pnpm --filter @agentpack/core build
+        pnpm --filter @agentpack/cli build
+        echo "AGENTPACK_CLI=$repo_root/packages/cli/dist/index.js" >> "$GITHUB_ENV"
+
+    # Inputs cross into shell via env, never inline interpolation — a pack-dir
+    # containing shell metacharacters must not become code.
+    - name: Validate pack
+      shell: bash
+      env:
+        PACK_DIR: ${{ inputs.pack-dir }}
+      run: |
+        set -euo pipefail
+        node "$AGENTPACK_CLI" validate "$PACK_DIR"
+
+    - name: Export Claude Code plugin
+      id: plugin
+      if: inputs.export-plugin == 'true'
+      shell: bash
+      env:
+        PACK_DIR: ${{ inputs.pack-dir }}
+        PLUGIN_OUT: ${{ inputs.plugin-out }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        set -euo pipefail
+        args=(pack plugin "$PACK_DIR" --out "$PLUGIN_OUT")
+        if [ -n "$PROFILE" ]; then
+          args+=(--profile "$PROFILE")
+        fi
+        node "$AGENTPACK_CLI" "${args[@]}"
+        echo "plugin-dir=$(cd "$PLUGIN_OUT" && pwd)" >> "$GITHUB_OUTPUT"
