@@ -17,6 +17,7 @@ import {
   parseGitId,
   planInstall,
   applyInstall,
+  countIncompleteInstalls,
   recoverIncomplete,
   signing,
   type GitSource,
@@ -408,13 +409,27 @@ export function registerInstall(program: Command): void {
             );
             process.exit(2);
           }
-          // Run recovery sweep on every install — if a previous install
+          // Run recovery sweep on every real install — if a previous install
           // crashed, this is when we clean up. Idempotent on clean state.
-          try {
-            await recoverIncomplete(options.project);
-          } catch {
-            // Non-fatal: directory may not exist yet (first install). Plan
-            // will validate projectRoot below.
+          // Under --dry-run the sweep must NOT run: recovery writes (roll-
+          // forward commit rows, rollback unlinks/restores), which would break
+          // the dry run's zero-mutation contract (#123) — probe read-only and
+          // surface pending recovery as a warning instead.
+          let pendingRecovery = 0;
+          if (options.dryRun) {
+            try {
+              pendingRecovery = await countIncompleteInstalls(options.project);
+            } catch {
+              // Non-fatal: directory may not exist yet (first install). Plan
+              // will validate projectRoot below.
+            }
+          } else {
+            try {
+              await recoverIncomplete(options.project);
+            } catch {
+              // Non-fatal: directory may not exist yet (first install). Plan
+              // will validate projectRoot below.
+            }
           }
           const plan = await planInstall({
             source,
@@ -469,10 +484,22 @@ export function registerInstall(program: Command): void {
           if (options.dryRun) {
             if (options.json) {
               console.log(
-                JSON.stringify({ ...planJson(), installed: false, dryRun: true }),
+                JSON.stringify({
+                  ...planJson(),
+                  installed: false,
+                  dryRun: true,
+                  pendingRecovery,
+                }),
               );
             } else {
               console.log(pc.dim("\n(--dry-run) No files were written."));
+              if (pendingRecovery > 0) {
+                console.log(
+                  pc.yellow(
+                    `⚠ ${pendingRecovery} incomplete install(s) pending crash recovery — skipped under --dry-run; recovery runs on the next real install.`,
+                  ),
+                );
+              }
             }
             // Surface conflicts through the exit code so a probing agent can
             // detect them without parsing prose — same code the real install
