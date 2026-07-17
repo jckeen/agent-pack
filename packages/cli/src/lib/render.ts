@@ -33,10 +33,14 @@ export function renderValidation(result: ValidationResult): string {
     lines.push(pc.red(`✗ Manifest is invalid (${result.errors.length} error(s)):`));
   }
   for (const err of result.errors) {
-    lines.push(`  ${pc.red("•")} ${pc.bold(err.code)} at ${pc.dim(err.path || "(root)")}: ${err.message}`);
+    lines.push(
+      `  ${pc.red("•")} ${pc.bold(err.code)} at ${pc.dim(err.path || "(root)")}: ${err.message}`,
+    );
   }
   for (const w of result.warnings) {
-    lines.push(`  ${pc.yellow("•")} ${pc.bold(w.code)} at ${pc.dim(w.path || "(root)")}: ${w.message}`);
+    lines.push(
+      `  ${pc.yellow("•")} ${pc.bold(w.code)} at ${pc.dim(w.path || "(root)")}: ${w.message}`,
+    );
   }
   return lines.join("\n");
 }
@@ -49,10 +53,9 @@ export function renderPermissionSummary(p: PermissionSummary): string {
     critical: [],
   };
   for (const entry of p.flat) {
-    const line = `  • ${pc.bold(entry.category)}: ${entry.description}` +
-      (entry.atomIds.length
-        ? pc.dim(` (atoms: ${entry.atomIds.join(", ")})`)
-        : "");
+    const line =
+      `  • ${pc.bold(entry.category)}: ${entry.description}` +
+      (entry.atomIds.length ? pc.dim(` (atoms: ${entry.atomIds.join(", ")})`) : "");
     grouped[entry.riskLevel]!.push(line);
   }
   const lines: string[] = [];
@@ -93,6 +96,11 @@ export function renderInstallPlan(plan: InstallPlan): string {
   lines.push(
     header(`${plan.packId}@${plan.packVersion}`) +
       `  →  target: ${pc.cyan(plan.target)}   profile: ${pc.cyan(plan.profile)}   risk: ${riskBadge(plan.riskLevel)}`,
+  );
+  // Authored claim vs compiler-observed result (#134) — reported separately
+  // so the manifest's claim never masks what the adapter actually achieved.
+  lines.push(
+    `Compatibility: authored ${plan.authoredCompatibility ?? "(undeclared)"} · observed ${plan.observedFidelity}`,
   );
   lines.push("");
   lines.push(pc.bold(`Atoms (${plan.atoms.length})`));

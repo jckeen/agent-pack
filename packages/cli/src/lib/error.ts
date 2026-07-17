@@ -1,5 +1,10 @@
 import pc from "picocolors";
-import { ExitCode, UnknownProfileError, exitCodeForError } from "@agentpack/core";
+import {
+  ExitCode,
+  UnknownProfileError,
+  UnsupportedTargetError,
+  exitCodeForError,
+} from "@agentpack/core";
 import { NonInteractiveError } from "./prompt.js";
 
 /**
@@ -9,8 +14,10 @@ import { NonInteractiveError } from "./prompt.js";
  * `at /node_modules/...` frames.
  *
  * Exit-code mapping (see `Plans/PROTOCOL.md` § 5):
- *   - Usage errors (NonInteractiveError, UnknownProfileError) → 2: the caller
- *     forgot `--yes` in a script/agent context or named an unknown profile.
+ *   - Usage errors (NonInteractiveError, UnknownProfileError,
+ *     UnsupportedTargetError) → 2: the caller forgot `--yes` in a script/agent
+ *     context, named an unknown profile, or targeted a platform the pack
+ *     declares unsupported (#134).
  *   - Domain errors are mapped by `exitCodeForError`: NotFound → 8,
  *     IntegrityError → 7, Conflict → 9. This means `verify` of an uninstalled
  *     pack exits 8 and a cache integrity failure exits 7, rather than every
@@ -27,8 +34,14 @@ export function failCleanly(err: unknown): never {
     console.error(pc.dim(err.stack ?? ""));
   }
   // CLI-layer usage errors exit 2 regardless of any domain mapping — a bad
-  // invocation is a caller mistake, not a runtime domain failure.
-  if (err instanceof NonInteractiveError || err instanceof UnknownProfileError) {
+  // invocation is a caller mistake, not a runtime domain failure. An
+  // authored-unsupported target (#134) sits in the same family: the caller
+  // asked for a target the pack explicitly refuses, like an unknown profile.
+  if (
+    err instanceof NonInteractiveError ||
+    err instanceof UnknownProfileError ||
+    err instanceof UnsupportedTargetError
+  ) {
     process.exit(ExitCode.UsageError);
   }
   process.exit(exitCodeForError(err));
