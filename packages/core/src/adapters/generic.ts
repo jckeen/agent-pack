@@ -17,6 +17,11 @@ import {
 
 export const genericAdapter = defineAdapter({
   target: "generic",
+  // No exec-capable outputs (#119): SKILL.md consumers (e.g. Antigravity)
+  // read skills as instructions — the #119 audit found no consumer that
+  // executes Claude-style `!`…`` bang-bash — and command bodies are never
+  // emitted at all (only LISTED in README-agent.md).
+  execSurfaces: () => false,
   async build(options: AdapterExportOptions) {
     const { manifest, packRoot, resolvedAtoms } = options;
     const files: AdapterOutputFile[] = [];

@@ -562,6 +562,17 @@ export function atomsByType(resolved: ResolvedAtom[]): Map<string, Atom[]> {
 
 export interface AdapterBaseInit {
   target: TargetPlatform;
+  /**
+   * REQUIRED exec-surface declaration (#119): does the target runtime EXECUTE
+   * directives embedded in this emitted file's content (e.g. Claude Code
+   * bang-bash in command/agent bodies)? `defineAdapter` stamps the answer
+   * onto every emitted file as `execCapable`, which the install-time
+   * exec-consent gate content-scans. Because the field is required, a new
+   * adapter cannot compile until its author answers the exec question
+   * explicitly — `() => false` is the valid "this target executes nothing it
+   * installs" answer. Optional-and-forgotten would be fail-open (#152 review).
+   */
+  execSurfaces(file: AdapterOutputFile): boolean;
   build(options: AdapterExportOptions): Promise<{
     files: AdapterOutputFile[];
     warnings: string[];
@@ -591,6 +602,11 @@ export function defineAdapter(init: AdapterBaseInit): AgentPackAdapter {
         seen.add(f.path);
         return true;
       });
+      // Stamp the adapter's exec-surface declaration onto every emitted file.
+      // Any inline `execCapable` set by build() is deliberately overridden:
+      // one authority per adapter, so the flag cannot drift between emission
+      // sites and the declaration (#119).
+      for (const f of deduped) f.execCapable = init.execSurfaces(f);
       return {
         target: init.target,
         files: deduped,
