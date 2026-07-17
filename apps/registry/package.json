@@ -29,7 +29,7 @@
     "@aws-sdk/s3-request-presigner": "3.1085.0",
     "@neondatabase/serverless": "1.1.0",
     "drizzle-orm": "0.45.2",
-    "next": "15.5.18",
+    "next": "16.2.10",
     "next-auth": "5.0.0-beta.31",
     "postgres": "3.4.9",
     "react": "19.2.7",
