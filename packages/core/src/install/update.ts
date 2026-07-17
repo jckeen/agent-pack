@@ -491,7 +491,6 @@ export function computeExecDelta(input: {
   // scope so project-scope packs emitting a top-level `hooks/` dir for some
   // other target don't false-positive.
   const userScope = input.priorManifest.scope === "user";
-
   // Per-target launch-config classifier (see the doc comment above for why a
   // path match survives #153 for this category only). Scoped to the recorded
   // target so one target's layout can never classify another's files.
@@ -518,13 +517,17 @@ export function computeExecDelta(input: {
       case "codex":
         // config.toml carries MCP command lines; hooks.json declares shell
         // commands run after edits (security review, sync S2 — a changed
-        // codex MCP command must re-consent).
+        // codex MCP command must re-consent). The user layout (#132) maps
+        // them to root-level `config.toml` / `hooks.json` under ~/.codex —
+        // same surfaces, reachable only under a recorded user scope.
         if ((shipsMcp || forRemoval) && /(^|\/)\.codex\/config\.toml$/.test(p)) {
           return true;
         }
+        if ((shipsMcp || forRemoval) && userScope && p === "config.toml") return true;
         if ((shipsHooks || forRemoval) && /(^|\/)\.codex\/hooks\.json$/.test(p)) {
           return true;
         }
+        if ((shipsHooks || forRemoval) && userScope && p === "hooks.json") return true;
         return false;
       case "cursor":
         return (shipsMcp || forRemoval) && /(^|\/)\.cursor\/mcp\.json$/.test(p);
