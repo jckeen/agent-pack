@@ -14,7 +14,7 @@ const serveMock = vi.fn();
 vi.mock("@hono/node-server", () => ({ serve: serveMock }));
 
 const EXAMPLE = path.resolve(__dirname, "../../../examples/pr-quality");
-const VALID_TOKEN = "test-token-minimum-16chars";
+const VALID_TOKEN = "test-token-of-at-least-32-characters";
 
 const ORIGINAL_TOKEN = process.env["AGENTPACK_CONNECTOR_TOKEN"];
 const ORIGINAL_PORT = process.env["AGENTPACK_CONNECTOR_PORT"];
