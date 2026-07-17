@@ -49,6 +49,48 @@ acknowledges the imported pack's authored `partial` compatibility claim
 ([#134](https://github.com/jckeen/agent-pack/issues/134)) — drop it once you
 have exercised the target and promoted the status to `supported`.
 
+### User scope beyond Claude Code (#132)
+
+`--scope user` also works for `--target codex` and `--target generic`, each
+rooted at that runtime's own user config directory — files, state
+(`<root>/.agentpack/`), and `<root>/AGENTPACK.lock` all stay inside one root,
+so `verify --all --project <root>`, `update --scope user`, and
+`uninstall --scope user` work identically across runtimes. Per-runtime path
+mapping (adapter project layout → user layout):
+
+**Codex — root `~/.codex`** (the same home-style layout
+`import --from codex ~/.codex` reads back, closing the loop):
+
+| Adapter output (project layout) | User-scope location                                                                                                                                                                                                                                                                           |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENTS.md`                     | `~/.codex/AGENTS.md` (marker-merged with your own content)                                                                                                                                                                                                                                    |
+| `.codex/config.toml`            | `~/.codex/config.toml` — **deep-merged**: model, `[projects."…"]` trust levels, and unrelated `[mcp_servers.*]` entries survive; a colliding key refuses without `--force`, and `--force` wins only the collided keys. The merge rewrites the file canonically, so comments are not preserved |
+| `.codex/hooks.json`             | `~/.codex/hooks.json` (JSON deep-merged)                                                                                                                                                                                                                                                      |
+| `.codex/agents/<slug>.toml`     | `~/.codex/agents/<slug>.toml`                                                                                                                                                                                                                                                                 |
+| `.agents/skills/…`              | `~/.codex/skills/…` (Codex's user-level skills dir; the `AGENTS.md` skill index is rewritten to match)                                                                                                                                                                                        |
+
+**Antigravity — `--target generic`, root `~/.gemini/config`.** There is no
+dedicated Antigravity adapter, deliberately: Antigravity's global
+customization root ("Global Discovery", verified against agy 1.1.3) reads
+standalone `AGENTS.md` rule files and Agent-Skills `skills/` folders directly
+in `~/.gemini/config/` — byte-for-byte the layout the generic adapter already
+emits, so the mapping is the identity:
+
+| Adapter output                      | User-scope location                                             |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `AGENTS.md`                         | `~/.gemini/config/AGENTS.md` (marker-merged)                    |
+| `skills/<slug>/…`                   | `~/.gemini/config/skills/<slug>/…`                              |
+| `agentpack.json`, `README-agent.md` | same names in the root — reference metadata Antigravity ignores |
+
+Your own `GEMINI.md`, `mcp_config.json`, and hand-placed skills in that root
+are never touched. Any other runtime that defines a user-level home for
+generic output would get its own documented root; none is known today.
+
+`update --scope user` / `uninstall <packId> --scope user` scan all three
+roots and act on whichever have AgentPack state, so one command keeps a
+Claude + Codex + Antigravity workstation in sync. Targets other than these
+three refuse `--scope user` as a usage error.
+
 **3. Evolve from the pack side** — edit atoms in the pack repo, commit, push.
 Every other machine pulls the change through the gated update path:
 
@@ -80,15 +122,16 @@ automatic — your commit is the consent point for content that propagates to
 every machine.
 
 **Leaving user scope:** `agentpack uninstall <packId> --scope user --yes`
-removes the pack's compiled files from `~/.claude` — created files deleted,
-merged files (your `CLAUDE.md`, `settings.json`) surgically un-merged so your
-own content stays. Audit state (`~/.claude/.agentpack/` history/backups and
-`~/.claude/AGENTPACK.lock`) is retained, as in project scope.
+removes the pack's compiled files from every user root that has it — created
+files deleted, merged files (your `CLAUDE.md`, `settings.json`,
+`~/.codex/config.toml`) surgically un-merged so your own content stays. Audit
+state (`<root>/.agentpack/` history/backups and `<root>/AGENTPACK.lock`) is
+retained, as in project scope.
 
-**Drift check:** `agentpack verify --all --project ~/.claude` reports any
-tracked file that drifted from the lockfile (exit 2). A deliberate improvement
-gets folded back (step 4); an accident gets restored by re-running `update` or
-`install`.
+**Drift check:** `agentpack verify --all --project <root>` (e.g. `~/.claude`,
+`~/.codex`, `~/.gemini/config`) reports any tracked file that drifted from the
+lockfile (exit 2). A deliberate improvement gets folded back (step 4); an
+accident gets restored by re-running `update` or `install`.
 
 ## Project scope: teammates and CI
 
