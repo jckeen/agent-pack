@@ -100,3 +100,43 @@ jobs:
           node packages/cli/dist/index.js install examples/pr-quality \
             --target generic --profile safe --project "$B" --yes
           diff "$A/AGENTPACK.lock" "$B/AGENTPACK.lock"
+
+  # Sync S4 (#113): the pack-repo composite action must not rot silently —
+  # run its validate + plugin-export lanes against the example pack, exactly
+  # as a consumer pack repo referencing `jckeen/agent-pack/action@master` would.
+  action-smoke:
+    name: pack-repo action (validate + plugin export)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run the action against examples/pr-quality
+        id: action
+        uses: ./action
+        with:
+          pack-dir: examples/pr-quality
+          plugin-out: ${{ runner.temp }}/action-smoke-plugin
+          profile: safe
+
+      - name: Assert plugin output shape
+        run: |
+          set -euo pipefail
+          out="${{ steps.action.outputs.plugin-dir }}"
+          test -n "$out"
+          test -f "$out/.claude-plugin/plugin.json"
+          test -d "$out/skills"
+
+      - name: Assert update-consumers fails fast (documented stub)
+        id: stub
+        continue-on-error: true
+        uses: ./action
+        with:
+          pack-dir: examples/pr-quality
+          export-plugin: "false"
+          update-consumers: |
+            example-org/consumer-repo
+
+      - name: Stub must have failed
+        run: test "${{ steps.stub.outcome }}" = "failure"

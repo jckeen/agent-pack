@@ -955,3 +955,20 @@ Phase S3 of `docs/sync-design.md`: `--scope user` installs/updates against `~/.c
 - **Mapping in the plan layer, fed by the adapter** — the remap runs once in `planInstall` before hashing, instead of forking the adapter's emit paths; downstream engines stay scope-blind because every stored path is already projectRoot-relative to `~/.claude`.
 - **Scope recorded in the install manifest, not the lockfile** — the lockfile stays a function of pack content; the per-machine manifest carries the layout decision `update` must replay.
 - **`~/.claude.json` is out of bounds** — merging AgentPack output into Claude Code's live user/project state file is a data-loss risk with no verify story; the ceiling is documented and warned instead.
+
+## Sync S4 — triggers (2026-07-17, #113)
+
+Phase S4 of `docs/sync-design.md`: the two sanctioned notifiers around the `agentpack update` primitive — a SessionStart nudge pack (pull) and a pack-repo CI action (push). No daemons, no auto-apply. Workflow doc: `docs/sync-triggers.md`.
+
+### Sync-S4 ISCs
+
+- [x] ISC-354: first-party `agentpack.sync-check` pack (`packs/sync-check/`) — one Claude Code SessionStart hook atom with a bundled script (`sh ${CLAUDE_PROJECT_DIR}/.claude/hooks/sync-check.sh`, allow-listed via `permissions.shell.commands`, #90 bundling) running `agentpack update --check --quiet` at project scope plus `--scope user` when `~/.claude/.agentpack` exists. OFFLINE-SILENT contract: exit 10 prints the one-line nudge; every other path (missing binary, dead network, hung server under a bounded `timeout`, no installs, up to date) prints nothing and exits 0.
+- [x] ISC-355: e2e gate (CI-runnable, no network) in `packages/cli/tests/sync-check-hook.cli.test.ts` on the S1 mock-GitHub harness with a throwaway HOME + PATH shim: install the pack + a git-fixture pack into a throwaway project, run the hook script directly — silent + zero-writes when current (tree-snapshot-asserted), nudge when the fixture's SHA advances, and silent exit-0 for connection-refused, missing-binary, hung-server (1s timeout), and empty-project paths. Install without `--allow-exec` refuses (unsigned exec-bearing pack, unchanged gate).
+- [x] ISC-356: pack-repo CI composite action (`action/`, referenced as `jckeen/agent-pack/action@master`) — `agentpack validate` then optional `agentpack pack plugin` (`export-plugin`/`plugin-out`/`profile` inputs, `plugin-dir` output), building the CLI from the action repo's own source (nothing on npm required); inputs cross into shell via `env`, never inline `${{ }}` interpolation. Exercised on every push by the `action-smoke` CI job against `examples/pr-quality`.
+- [x] ISC-357: consumer-update-PR lane declared, not faked — the `update-consumers` input exists but fails fast with a clear error pointing at #113; the "PR diff is exactly the update plan's files + lockfile" gate remains open there.
+
+### Sync-S4 decisions
+
+- **The nudge ships as a pack, not a CLI feature** — installing/removing/updating the notifier goes through the same consent, lockfile, and verify machinery as any pack, and the hook script is reviewable pack content.
+- **Silent-on-error over informative-on-error** — a session-start hook that prints failures becomes noise in every terminal the moment a laptop goes offline; the only signal worth interrupting a session for is exit 10.
+- **Action builds from source** — pinning the action to a ref of this repo IS the version pin; publishing the CLI to npm later only swaps the build step.

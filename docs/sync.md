@@ -121,9 +121,11 @@ version on their next pull.
 ## Triggers (no daemons)
 
 `agentpack update` is always the primitive; everything else is a notifier. The
-recommended nudge is a SessionStart hook running
-`agentpack update --check --quiet` (exit 10 = updates available); pack-repo CI
-regenerating the plugin and opening update PRs is the S4 phase of
-[`sync-design.md`](./sync-design.md). There is deliberately no file-watcher or
-resident process, and no flag combination auto-applies exec-bearing updates —
-consent is `--allow-exec` at a terminal or a PR review, never absent.
+shipped S4 notifiers are documented in [`sync-triggers.md`](./sync-triggers.md):
+the first-party [`agentpack.sync-check`](../packs/sync-check/README.md) pack (a
+SessionStart hook running `agentpack update --check --quiet`; exit 10 = updates
+available, silent on every failure path) and the pack-repo CI action
+([`action/`](../action/README.md): validate + plugin re-emit on push). There is
+deliberately no file-watcher or resident process, and no flag combination
+auto-applies exec-bearing updates — consent is `--allow-exec` at a terminal or
+a PR review, never absent.
