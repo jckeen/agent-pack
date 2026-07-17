@@ -72,6 +72,7 @@ function makeAdapter(config?: {
   const target = config?.target ?? "generic";
   const adapter: AgentPackAdapter = {
     target,
+    execSurfaces: () => false,
     export: async () => {
       calls += 1;
       return {

@@ -398,6 +398,7 @@ describe("applyUpdate", () => {
 describe("computeExecDelta", () => {
   const manifestStub = {
     atomIds: ["instruction:house", "hook:existing"],
+    target: "claude-code",
   } as unknown as Parameters<typeof computeExecDelta>[0]["priorManifest"];
 
   it("flags an exec atom id absent from the prior manifest as added", () => {
@@ -408,20 +409,22 @@ describe("computeExecDelta", () => {
         { id: "hook:existing", type: "hook" },
         { id: "hook:new-hook", type: "hook" },
       ],
-      writtenPaths: [],
+      writtenFiles: [],
       removedPaths: [],
-      writtenContents: new Map(),
     });
     expect(delta.addedExecAtoms).toEqual(["hook:new-hook"]);
   });
 
-  it("flags written exec-surface files (hooks dir, mcp config, settings.json with hook atoms)", () => {
+  it("flags written launch-config surfaces (hooks dir, mcp config, settings.json with hook atoms)", () => {
     const delta = computeExecDelta({
       priorManifest: manifestStub,
       atomTypes: [{ id: "hook:existing", type: "hook" }],
-      writtenPaths: [".claude/hooks/check.sh", ".claude/settings.json", "AGENTS.md"],
+      writtenFiles: [
+        { path: ".claude/hooks/check.sh", content: "#!/bin/sh\n", execCapable: false },
+        { path: ".claude/settings.json", content: "{}", execCapable: false },
+        { path: "AGENTS.md", content: "# hi\n", execCapable: false },
+      ],
       removedPaths: [".mcp.json"],
-      writtenContents: new Map(),
     });
     expect(delta.execSurfaceWrites).toContain(".claude/hooks/check.sh");
     expect(delta.execSurfaceWrites).toContain(".claude/settings.json");
@@ -429,15 +432,18 @@ describe("computeExecDelta", () => {
     expect(delta.execSurfaceWrites).not.toContain("AGENTS.md");
   });
 
-  it("flags a written command/agent body containing a bang-bash directive", () => {
+  it("flags a written adapter-stamped exec-capable body containing a bang-bash directive", () => {
     const delta = computeExecDelta({
       priorManifest: manifestStub,
       atomTypes: [],
-      writtenPaths: [".claude/commands/deploy.md"],
+      writtenFiles: [
+        {
+          path: ".claude/commands/deploy.md",
+          content: "Run !`rm -rf` on invocation",
+          execCapable: true,
+        },
+      ],
       removedPaths: [],
-      writtenContents: new Map([
-        [".claude/commands/deploy.md", "Run !`rm -rf` on invocation"],
-      ]),
     });
     expect(delta.execSurfaceWrites).toContain(".claude/commands/deploy.md");
   });
@@ -446,9 +452,11 @@ describe("computeExecDelta", () => {
     const delta = computeExecDelta({
       priorManifest: manifestStub,
       atomTypes: [{ id: "instruction:house", type: "instruction" }],
-      writtenPaths: ["AGENTS.md", "skills/notes/SKILL.md"],
+      writtenFiles: [
+        { path: "AGENTS.md", content: "# hi\n", execCapable: false },
+        { path: "skills/notes/SKILL.md", content: "# notes\n", execCapable: false },
+      ],
       removedPaths: [],
-      writtenContents: new Map(),
     });
     expect(delta.addedExecAtoms).toHaveLength(0);
     expect(delta.execSurfaceWrites).toHaveLength(0);
@@ -533,11 +541,16 @@ describe("S2 security hardening (review round)", () => {
 describe("computeExecDelta — codex surfaces", () => {
   it("flags .codex/config.toml (MCP command lines) as an exec surface", () => {
     const delta = computeExecDelta({
-      priorManifest: { atomIds: ["mcp_server:x"] } as never,
+      priorManifest: { atomIds: ["mcp_server:x"], target: "codex" } as never,
       atomTypes: [{ id: "mcp_server:x", type: "mcp_server" }],
-      writtenPaths: [".codex/config.toml"],
+      writtenFiles: [
+        {
+          path: ".codex/config.toml",
+          content: '[mcp_servers.x]\ncommand = "node"\n',
+          execCapable: false,
+        },
+      ],
       removedPaths: [],
-      writtenContents: new Map(),
     });
     expect(delta.execSurfaceWrites).toContain(".codex/config.toml");
   });

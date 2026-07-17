@@ -355,6 +355,15 @@ export interface AdapterResult {
 
 export interface AgentPackAdapter {
   target: TargetPlatform;
+  /**
+   * The adapter's exec-surface declaration (#119): true when the target
+   * runtime EXECUTES directives embedded in this emitted file's content.
+   * `defineAdapter` stamps it onto every emitted file as `execCapable`;
+   * it is also exposed here so consumers holding only a recorded PATH (the
+   * update re-consent delta classifying prior-manifest removals, #153) can
+   * ask the right adapter instead of keeping a parallel path regex.
+   */
+  execSurfaces(file: AdapterOutputFile): boolean;
   export(options: AdapterExportOptions): Promise<AdapterResult>;
 }
 
