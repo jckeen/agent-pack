@@ -7,6 +7,7 @@
 import type {
   AdapterOutputFile,
   AtomType,
+  CompatibilityStatus,
   PermissionSummary,
   ProfileName,
   RiskLevel,
@@ -293,6 +294,13 @@ export interface InstallPlanV2 {
   permissions: PermissionSummary;
   warnings: string[];
   unsupportedAtoms: string[];
+  /**
+   * Authored compatibility claim for this target, copied from the Phase 1
+   * plan (#134). Absent when the manifest declares nothing for the target.
+   */
+  authoredCompatibility?: CompatibilityStatus;
+  /** Compiler-observed fidelity — see `InstallPlan.observedFidelity` (#134). */
+  observedFidelity: CompatibilityStatus;
   /** Absolute path. NOT stored in committed files. */
   projectRoot: string;
   /** Files that will be CREATED (no existing path on disk). */

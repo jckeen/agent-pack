@@ -115,20 +115,20 @@ pnpm dev
 
 The manifest is `AGENTPACK.yaml`. Each pack is composed of **atoms** — the smallest installable unit:
 
-| Atom type      | Compiles to (examples)                                                             |
-| -------------- | ---------------------------------------------------------------------------------- |
-| `instruction`  | `CLAUDE.md`, `AGENTS.md`, `project-instructions.md`, generic instruction docs      |
-| `rule`         | `.cursor/rules/*.mdc`, scoped sections in `CLAUDE.md` / `AGENTS.md`                |
+| Atom type      | Compiles to (examples)                                                              |
+| -------------- | ----------------------------------------------------------------------------------- |
+| `instruction`  | `CLAUDE.md`, `AGENTS.md`, `project-instructions.md`, generic instruction docs       |
+| `rule`         | `.cursor/rules/*.mdc`, scoped sections in `CLAUDE.md` / `AGENTS.md`                 |
 | `skill`        | `.claude/skills/<name>/`, `.agents/skills/<name>/`, `skills/<name>/` (Agent Skills) |
-| `hook`         | `.claude/settings.json` hooks, `.codex/hooks.json` (high risk by policy)           |
-| `command`      | `.claude/commands/*.md` slash commands, skill folders, MCP tool stubs              |
-| `subagent`     | `.claude/agents/*.md`, `.codex/agents/*.toml`                                      |
-| `mcp_server`   | `.claude/settings.json#mcpServers`, `.codex/config.toml`, `.cursor/mcp.json`       |
-| `plugin`       | ChatGPT Apps SDK skeleton, editor plugin metadata                                  |
-| `workflow`     | section in `CLAUDE.md` / `AGENTS.md`                                               |
-| `context_pack` | exported context bundle (sensitivity declared)                                     |
-| `template`     | starter docs / configs / checklists                                                |
-| `eval`         | regression prompts, behavioral checks                                              |
+| `hook`         | `.claude/settings.json` hooks, `.codex/hooks.json` (high risk by policy)            |
+| `command`      | `.claude/commands/*.md` slash commands, skill folders, MCP tool stubs               |
+| `subagent`     | `.claude/agents/*.md`, `.codex/agents/*.toml`                                       |
+| `mcp_server`   | `.claude/settings.json#mcpServers`, `.codex/config.toml`, `.cursor/mcp.json`        |
+| `plugin`       | ChatGPT Apps SDK skeleton, editor plugin metadata                                   |
+| `workflow`     | section in `CLAUDE.md` / `AGENTS.md`                                                |
+| `context_pack` | exported context bundle (sensitivity declared)                                      |
+| `template`     | starter docs / configs / checklists                                                 |
+| `eval`         | regression prompts, behavioral checks                                               |
 
 Install profiles (**safe → standard → full → enterprise**) let you opt into risk explicitly. The CLI shows risk, permissions, secrets, and the exact file plan before any export touches disk.
 
@@ -169,7 +169,7 @@ agentpack pack mcpb examples/pr-quality --profile full --out dist-mcpb
 #   → open dist-mcpb/pr-quality.mcpb in Claude Desktop, or upload it in Cowork connector settings
 
 # Run a remote MCP connector that reaches every surface (prototype; auth-by-default)
-AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 24) \
+AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 32) \
   node packages/connector/dist/serve.js examples/pr-quality
 #   → add the /mcp URL as a Custom Connector in claude.ai or Desktop (Bearer = the token)
 ```
@@ -249,7 +249,7 @@ Full reference: [`docs/cli.md`](./docs/cli.md).
 | Target          | Output surface                                                                                                                        |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | **claude-code** | `CLAUDE.md`, `.claude/skills/*`, `.claude/commands/*`, `.claude/agents/*`, `.claude/settings.json` (hooks), `.mcp.json` (MCP servers) |
-| **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.agents/skills/*`, `.codex/agents/*.toml`                                     |
+| **codex**       | `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json`, `.agents/skills/*`, `.codex/agents/*.toml`                                    |
 | **cursor**      | `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursor/mcp.json`                                                                                |
 | **chatgpt**     | `project-instructions.md`, `app-manifest.json`, `mcp-server/` skeleton (export-only)                                                  |
 | **generic**     | `AGENTS.md`, `skills/*`, `README-agent.md`, `agentpack.json`                                                                          |

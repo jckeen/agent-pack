@@ -1,0 +1,118 @@
+# Release: publish @agentpack/core + @agentpack/cli to npm.
+#
+# DORMANT until an operator pushes a tag matching v* (e.g. `git tag v1.0.0 &&
+# git push origin v1.0.0`). Nothing here runs on push/PR/schedule.
+#
+# OPERATOR PREREQUISITES (before the first tag):
+#   1. Create the `@agentpack` scope on npmjs.com (or own it).
+#   2. Configure npm Trusted Publishing for BOTH packages
+#      (npmjs.com → package → Settings → Trusted Publisher):
+#        repository: jckeen/agent-pack, workflow: release.yml
+#      This uses GitHub Actions OIDC (`id-token: write` below) — no NPM_TOKEN
+#      secret exists or is referenced anywhere in this workflow. Trusted
+#      publishing requires npm CLI >= 11.5.1, hence the npm upgrade step.
+#   3. Set the real release version in packages/{core,cli}/package.json first;
+#      the version-match guard below refuses to publish a tag that doesn't
+#      equal the package.json versions (e.g. tagging v1.0.0 on 0.7.0-dev).
+#
+# Publish order: core before cli (cli depends on core; the tarball pins the
+# exact version, so core must exist on the registry when cli lands).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for npm trusted publishing (provenance)
+
+jobs:
+  release:
+    name: verify + publish (npm, provenance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Doc truth (.doc-contract)
+        run: ./scripts/check-doc-truth.sh
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Guard — tag matches package versions
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          for pkg in packages/core packages/cli; do
+            V="$(node -p "require('./$pkg/package.json').version")"
+            if [ "$V" != "$TAG" ]; then
+              echo "::error::$pkg version $V does not match tag v$TAG — bump package.json before tagging."
+              exit 1
+            fi
+          done
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Same verify pipeline as ci.yml — build first (CLI tests subprocess-run
+      # the compiled binary), then typecheck, lint, tests, registry suite,
+      # and the CLI smoke. The dist/ published below is the one verified here.
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test (with coverage)
+        run: pnpm test:coverage
+
+      - name: Test registry app
+        run: pnpm --filter @agentpack/registry test
+
+      - name: Smoke CLI (validate example pack)
+        run: |
+          node packages/cli/dist/index.js validate examples/pr-quality
+          node packages/cli/dist/index.js plan examples/pr-quality \
+            --target claude-code --profile safe
+          node packages/cli/dist/index.js pack export examples/pr-quality \
+            --target generic --profile safe --out /tmp/release-smoke
+          test -f /tmp/release-smoke/AGENTS.md
+
+      # npm trusted publishing (OIDC → provenance) needs npm >= 11.5.1;
+      # Node 22 bundles npm 10.x.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest && npm --version
+
+      # `npm publish` does not understand the workspace: protocol — pack with
+      # pnpm (which rewrites workspace:* to the exact version) and publish the
+      # tarball with npm for --provenance support.
+      - name: Publish @agentpack/core
+        working-directory: packages/core
+        run: |
+          set -euo pipefail
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+          npm publish "$RUNNER_TEMP/agentpack-core-${GITHUB_REF_NAME#v}.tgz" \
+            --provenance --access public
+
+      - name: Publish @agentpack/cli
+        working-directory: packages/cli
+        run: |
+          set -euo pipefail
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+          npm publish "$RUNNER_TEMP/agentpack-cli-${GITHUB_REF_NAME#v}.tgz" \
+            --provenance --access public

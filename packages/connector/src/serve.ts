@@ -8,14 +8,14 @@ import { createApp } from "./server.js";
 /**
  * Minimal launcher: `agentpack-connector <pack-path>`.
  *
- *   AGENTPACK_CONNECTOR_TOKEN (required) — bearer secret, ≥16 chars.
+ *   AGENTPACK_CONNECTOR_TOKEN (required) — bearer secret, ≥32 chars.
  *   AGENTPACK_CONNECTOR_PORT  (default 8787) — listen port.
  *   AGENTPACK_CONNECTOR_ALLOWED_HOSTS (optional, comma-separated) —
  *     additional hostnames for DNS-rebinding allowlist beyond the defaults
  *     (localhost, 127.0.0.1, [::1]).
  *
  * The server refuses to start if AGENTPACK_CONNECTOR_TOKEN is absent or
- * shorter than 16 characters (auth-by-default, fail-closed).
+ * shorter than 32 characters (auth-by-default, fail-closed).
  */
 async function main(): Promise<void> {
   // Fail fast before binding if the token is missing or too short.

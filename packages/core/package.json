@@ -1,9 +1,32 @@
 {
   "name": "@agentpack/core",
   "version": "0.7.0-dev",
-  "private": true,
   "description": "AgentPack core: schema, parser, validator, permissions, risk, planner, adapters.",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jckeen/agent-pack.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/jckeen/agent-pack#readme",
+  "bugs": {
+    "url": "https://github.com/jckeen/agent-pack/issues"
+  },
+  "keywords": [
+    "agentpack",
+    "agents",
+    "ai-agents",
+    "agent-configuration",
+    "claude-code",
+    "codex",
+    "cursor",
+    "schema",
+    "sigstore",
+    "mcp"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -28,7 +51,8 @@
   "files": [
     "dist",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

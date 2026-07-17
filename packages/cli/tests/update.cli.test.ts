@@ -621,6 +621,9 @@ describe("sync S3 — install/update --scope user (e2e gate for #112)", () => {
         "user",
         "--yes",
         "--allow-exec",
+        // Imported packs author their own target as `partial` ("still require
+        // manual verification"), so the #134 acknowledgement gate applies.
+        "--allow-partial-target",
       ],
       { HOME: homeB },
     );
@@ -711,6 +714,9 @@ describe("sync S3 — install/update --scope user (e2e gate for #112)", () => {
         "user",
         "--yes",
         "--allow-exec",
+        // Imported packs author their own target as `partial` ("still require
+        // manual verification"), so the #134 acknowledgement gate applies.
+        "--allow-partial-target",
       ],
       { HOME: homeB },
     );
@@ -786,6 +792,9 @@ describe("sync S3 — install/update --scope user (e2e gate for #112)", () => {
         "user",
         "--yes",
         "--allow-exec",
+        // Imported packs author their own target as `partial` ("still require
+        // manual verification"), so the #134 acknowledgement gate applies.
+        "--allow-partial-target",
       ],
       { HOME: homeB },
     );

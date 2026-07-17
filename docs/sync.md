@@ -35,7 +35,7 @@ a target only after reviewing and exercising its exported behavior.
 **2. Install everywhere** — on each machine:
 
 ```bash
-agentpack install github:me/my-agentpack --target claude-code --scope user --yes --allow-exec
+agentpack install github:me/my-agentpack --target claude-code --scope user --yes --allow-exec --allow-partial-target
 ```
 
 `--scope user` roots the install at `~/.claude` with user-layout paths
@@ -44,7 +44,10 @@ deep-merged with your existing settings, hook scripts at `~/.claude/hooks/`
 invoked via `$HOME/.claude/…`). Install state lives at `~/.claude/.agentpack/`
 — no project is touched. `--allow-exec` is required because the pack ships
 hooks and the git source is unsigned — that consent is per-machine and
-re-required on every exec-bearing update, by design.
+re-required on every exec-bearing update, by design. `--allow-partial-target`
+acknowledges the imported pack's authored `partial` compatibility claim
+([#134](https://github.com/jckeen/agent-pack/issues/134)) — drop it once you
+have exercised the target and promoted the status to `supported`.
 
 **3. Evolve from the pack side** — edit atoms in the pack repo, commit, push.
 Every other machine pulls the change through the gated update path:
