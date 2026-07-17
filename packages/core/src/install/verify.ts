@@ -3,7 +3,7 @@ import type { VerifyResult } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
 import { resolveAgentpackPaths, fromRelative } from "./paths.js";
 import { readInstallManifest } from "./manifest.js";
-import { parseLockfile } from "./lockfile.js";
+import { parseLockfileDocument, lockfileEntryChecksum } from "./lockfile.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 import { readHistory, verifyChain } from "./history.js";
 import { extractMarkerSpan, jsonFragmentIntact } from "./merge.js";
@@ -26,26 +26,30 @@ export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> 
   const ws = await resolveAgentpackPaths(opts.projectRoot);
   const manifest = await readInstallManifest(ws, opts.packId);
 
-  // Cross-check: lockfile checksum recorded at install vs. current lockfile
-  // bytes. A drift here means the user mutated AGENTPACK.lock manually.
-  // AGENTPACK.lock is single-pack and replaced wholesale by every install, so
-  // the check only applies when the on-disk lockfile still belongs to the
-  // pack being verified — a FOREIGN pack's lockfile is the expected state of
-  // a multi-pack project, not drift (it would otherwise false-positive for
-  // every pack but the most recently installed one).
+  // Cross-check: lockfile checksum recorded at install vs. this pack's entry
+  // in the current (multi-pack, #114) lockfile. The per-pack checksum hashes
+  // the entry rendered as a standalone v1 document, so another pack's
+  // install/uninstall never shifts it, and manifests written by pre-v2 CLIs
+  // (which hashed the whole single-pack v1 file — the same bytes) stay valid.
+  // A lockfile with NO entry for this pack is the expected legacy state of a
+  // multi-pack project whose lockfile was last written single-pack, not
+  // drift.
   const lockfileRaw = await fs.readFile(ws.lockfilePath, "utf8").catch(() => "");
   let lockfileDrift = false;
+  let lockfileActual = "<missing>";
   if (lockfileRaw !== "") {
     try {
-      const currentLockfile = parseLockfile(lockfileRaw);
-      if (currentLockfile.packId === manifest.packId) {
-        const currentLockfileSha = sha256Hex(lockfileRaw);
-        lockfileDrift = currentLockfileSha !== manifest.lockfileChecksum;
+      const doc = parseLockfileDocument(lockfileRaw);
+      const entry = doc.packs[manifest.packId];
+      if (entry) {
+        lockfileActual = lockfileEntryChecksum(entry);
+        lockfileDrift = lockfileActual !== manifest.lockfileChecksum;
       }
     } catch {
       // Unparseable lockfile bytes are a tamper/corruption signal for
       // whichever pack is being verified — can't attribute ownership.
       lockfileDrift = true;
+      lockfileActual = sha256Hex(lockfileRaw);
     }
   }
 
@@ -100,7 +104,7 @@ export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> 
     drift.push({
       path: "AGENTPACK.lock",
       expected: manifest.lockfileChecksum,
-      actual: lockfileRaw === "" ? "<missing>" : sha256Hex(lockfileRaw),
+      actual: lockfileActual,
     });
   }
 

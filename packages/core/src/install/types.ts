@@ -107,8 +107,11 @@ export interface LockfileDependencyEntry {
 }
 
 /**
- * AGENTPACK.lock — committed to git, deterministic across machines.
- * No timestamps, no absolute paths, no machine-specific values.
+ * Single-pack lockfile document — the legacy (pre-#114) on-disk shape of
+ * AGENTPACK.lock, and still the standalone rendering of one pack's lock:
+ * install plans carry a LockfileV1, and the per-pack checksum recorded in
+ * the install manifest hashes this form. Deterministic across machines —
+ * no timestamps, no absolute paths, no machine-specific values.
  */
 export interface LockfileV1 {
   lockfileVersion: 1;
@@ -131,6 +134,28 @@ export interface LockfileV1 {
   signatures: LockfileSignatures;
   /** Provenance for git/registry installs (sync S1). Absent on local-path installs. */
   source?: LockfileSource;
+}
+
+/**
+ * One pack's entry inside a v2 lockfile — exactly the v1 lockfile fields
+ * minus the version discriminator. A v1 document read from disk is
+ * interpreted as a single-entry v2 (`packs: { [packId]: entry }`), and an
+ * entry renders back to a byte-identical standalone v1 document, so per-pack
+ * checksums recorded by older CLIs stay valid across the migration.
+ */
+export type LockfilePackEntry = Omit<LockfileV1, "lockfileVersion">;
+
+/**
+ * AGENTPACK.lock, lockfileVersion 2 (#114) — multi-pack. Committed to git,
+ * deterministic across machines. Every install upserts its own entry under
+ * `packs[packId]`; uninstall removes only its entry (the file itself is
+ * deleted when the last entry goes — the lockfile describes the currently
+ * installed set, history.jsonl is the audit trail).
+ */
+export interface LockfileV2 {
+  lockfileVersion: 2;
+  /** Keyed by packId; each entry's `packId` must equal its key. */
+  packs: Record<string, LockfilePackEntry>;
 }
 
 /**
@@ -170,7 +195,13 @@ export interface InstallManifestV1 {
     fragment: string;
     fragmentSha256: string;
   }>;
-  /** sha256 of the lockfile bytes at install time. */
+  /**
+   * sha256 of THIS pack's lock rendered as a standalone v1 document
+   * (`serializeLockfile`). Stable across other packs' installs and across
+   * the v1 → v2 on-disk migration: for a v1 file this equals the whole-file
+   * hash older CLIs recorded; for a v2 file, verify reconstructs the
+   * standalone rendering from the pack's entry.
+   */
   lockfileChecksum: string;
   /** Static: was this install reversible at the time we made it? */
   rollbackable: boolean;

@@ -7,7 +7,7 @@ import pc from "picocolors";
 import {
   listInstallManifests,
   loadPolicy,
-  parseLockfile,
+  parseLockfileDocument,
   resolveAgentpackPaths,
   signing,
   verifyInstall,
@@ -71,9 +71,10 @@ export function registerVerify(program: Command): void {
         }
         const sigChecking = options.sig || options.sigIfPresent || options.strict;
         if (options.all && sigChecking) {
-          // AGENTPACK.lock is single-pack: with --all there is no per-pack
-          // signature to check, and pretending otherwise would report the
-          // last-installed pack's signature for every pack.
+          // Signature verification stays single-pack for now: the v2
+          // lockfile (#114) records signatures per pack entry, but the
+          // aggregate exit-code semantics of --all --sig are unspecified —
+          // keep requiring an explicit packId.
           console.error(
             pc.red("✗ --sig/--sig-if-present/--strict require a single packId."),
           );
@@ -232,7 +233,7 @@ type SigCheck = SigOk | SigUnsigned | SigInvalid;
 
 async function checkLockfileSignature(
   projectRoot: string,
-  _packId: string,
+  packId: string,
   _strict: boolean,
   expectedSigner?: string,
   allowedSigners?: readonly string[],
@@ -249,14 +250,25 @@ async function checkLockfileSignature(
       detail: (err as Error).message,
     };
   }
+  // Multi-pack lockfile (#114): the signature and manifest checksum are
+  // per-pack, read from THIS pack's entry — never from whichever pack
+  // happened to be installed last.
   let lockfile;
   try {
-    lockfile = parseLockfile(raw);
+    const doc = parseLockfileDocument(raw);
+    lockfile = doc.packs[packId];
   } catch (err) {
     return {
       code: "invalid",
       reason: "lockfile_invalid",
       detail: (err as Error).message,
+    };
+  }
+  if (!lockfile) {
+    return {
+      code: "invalid",
+      reason: "lockfile_missing_pack",
+      detail: `AGENTPACK.lock has no entry for ${packId} — re-install to record one`,
     };
   }
   const manifestSig = lockfile.signatures?.manifest;

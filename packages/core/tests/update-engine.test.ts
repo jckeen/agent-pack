@@ -16,7 +16,7 @@ import {
   readInstallManifest,
   readHistory,
   verifyChain,
-  parseLockfile,
+  parseLockfileDocument,
 } from "../src/install/index.js";
 import {
   planUpdate,
@@ -269,10 +269,10 @@ describe("applyUpdate", () => {
     expect(manifest.previousPackVersion).toBe("0.1.0");
     expect(manifest.updatedAt).toBeTruthy();
 
-    const lock = parseLockfile(
+    const lock = parseLockfileDocument(
       await fs.readFile(path.join(project, "AGENTPACK.lock"), "utf8"),
     );
-    expect(lock.packVersion).toBe("0.2.0");
+    expect(lock.packs["fixture.update-pack"]?.packVersion).toBe("0.2.0");
 
     // WAL: update_begin + update_commit recorded, chain intact.
     const entries = await readHistory(ws);

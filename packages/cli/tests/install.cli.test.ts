@@ -230,7 +230,7 @@ describe("agentpack install (CLI)", () => {
     expect(install.stdout).toContain("Installed");
 
     const lockBytes = await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8");
-    expect(lockBytes).toContain('"lockfileVersion": 1');
+    expect(lockBytes).toContain('"lockfileVersion": 2');
 
     const verify = await run(["verify", "agentpack.pr-quality", "--project", dir]);
     expect(verify.code).toBe(0);

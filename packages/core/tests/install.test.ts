@@ -9,7 +9,7 @@ import {
   uninstall,
   readHistory,
   verifyChain,
-  parseLockfile,
+  parseLockfileDocument,
   resolveAgentpackPaths,
   readInstallManifest,
 } from "../src/install/index.js";
@@ -152,8 +152,12 @@ describe("applyInstall", () => {
       generator: GEN,
     });
     await applyInstall({ plan });
-    const lock = parseLockfile(await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8"));
-    expect(lock.packId).toBe("agentpack.pr-quality");
+    // On-disk lockfile is the multi-pack v2 document (#114).
+    const lock = parseLockfileDocument(
+      await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8"),
+    );
+    expect(Object.keys(lock.packs)).toEqual(["agentpack.pr-quality"]);
+    expect(lock.packs["agentpack.pr-quality"]?.packId).toBe("agentpack.pr-quality");
     const ws = await resolveAgentpackPaths(dir);
     const manifest = await readInstallManifest(ws, plan.packId);
     expect(manifest.created.length).toBeGreaterThan(0);

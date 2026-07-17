@@ -4,8 +4,14 @@ import type { InstallManifestV1 } from "./types.js";
 import type { AgentpackPaths } from "./paths.js";
 import { resolveAgentpackPaths, fromRelative, realpathContained } from "./paths.js";
 import { readInstallManifest, deleteInstallManifest } from "./manifest.js";
-import { recordHistory, newHistoryId } from "./history.js";
+import { recordHistory, newHistoryId, withProjectLock } from "./history.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
+import {
+  parseLockfileDocument,
+  removeLockfileEntry,
+  serializeLockfileDocument,
+} from "./lockfile.js";
+import { atomicWriteFile } from "./atomic.js";
 import {
   extractMarkerSpan,
   removeMarkerSpan,
@@ -29,12 +35,28 @@ export interface UninstallOptions {
   actor?: { type: "cli" | "ci" | "agent"; id?: string };
 }
 
+/**
+ * What happened to AGENTPACK.lock (#114, multi-pack v2):
+ *   • `entry-removed` — this pack's entry was removed; other packs remain.
+ *   • `file-removed` — this pack's entry was the last one; the file is gone
+ *     (the lockfile describes the currently installed set; history.jsonl is
+ *     the audit trail).
+ *   • `not-tracked` — no lockfile, or it has no entry for this pack (e.g. a
+ *     legacy single-pack lockfile owned by another pack) — left untouched.
+ *   • `unrecognized-left-in-place` — the lockfile exists but could not be
+ *     parsed; uninstall proceeds and leaves it for the user to inspect.
+ */
+export type LockfileUninstallOutcome =
+  "entry-removed" | "file-removed" | "not-tracked" | "unrecognized-left-in-place";
+
 export interface UninstallResult {
   packId: string;
   /** Project-relative paths the uninstall removed (files we created). */
   removed: string[];
   /** Project-relative paths restored from backup. */
   restored: string[];
+  /** What happened to this pack's AGENTPACK.lock entry. */
+  lockfile: LockfileUninstallOutcome;
   /**
    * Project-relative paths where uninstall noticed user edits and (without
    * --force) refused to act. With --force, these are also removed/restored.
@@ -63,12 +85,13 @@ export class UninstallConflictError extends Error {
  *   2. For every `backups[]` entry: restore the backup over the current file
  *      IF the current file's sha256 matches the manifest's recorded `modified`
  *      sha256 (proof the user hasn't edited since).
- *   3. Delete the install manifest at `.agentpack/installed/<packId>.json`.
- *   4. Append `uninstall` history entry.
+ *   3. Remove this pack's entry from AGENTPACK.lock (multi-pack v2, #114);
+ *      when the last entry goes, delete the file — the lockfile describes
+ *      the currently installed set, history.jsonl keeps the audit trail.
+ *   4. Delete the install manifest at `.agentpack/installed/<packId>.json`.
+ *   5. Append `uninstall` history entry.
  *
  * Files where the user has edited since install are surfaced as conflicts.
- * The lockfile (`AGENTPACK.lock`) at projectRoot is NOT deleted by this — the
- * user owns it; deleting on uninstall would erase audit history.
  */
 export async function uninstall(opts: UninstallOptions): Promise<UninstallResult> {
   const ws = await resolveAgentpackPaths(opts.projectRoot);
@@ -229,10 +252,38 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
     }
   }
 
-  // 3. Delete install manifest.
+  // 3. Remove this pack's entry from AGENTPACK.lock. The read-modify-write
+  // runs under the project lock so it can't race a concurrent install's
+  // lockfile merge (the same serialization applyInstall uses). Runs BEFORE
+  // the manifest delete so a failure here leaves the install re-runnable.
+  const lockfileOutcome = await withProjectLock(
+    ws,
+    async (): Promise<UninstallResult["lockfile"]> => {
+      const raw = await fs.readFile(ws.lockfilePath, "utf8").catch(() => undefined);
+      if (raw === undefined) return "not-tracked";
+      let doc;
+      try {
+        doc = parseLockfileDocument(raw);
+      } catch {
+        // A corrupt lockfile must not brick uninstall — leave it in place and
+        // report the outcome so the caller can surface it.
+        return "unrecognized-left-in-place";
+      }
+      if (!doc.packs[opts.packId]) return "not-tracked";
+      const next = removeLockfileEntry(doc, opts.packId);
+      if (next === null) {
+        await fs.unlink(ws.lockfilePath);
+        return "file-removed";
+      }
+      await atomicWriteFile(ws.lockfilePath, serializeLockfileDocument(next));
+      return "entry-removed";
+    },
+  );
+
+  // 4. Delete install manifest.
   await deleteInstallManifest(ws, opts.packId);
 
-  // 4. History entry.
+  // 5. History entry.
   await recordHistory(ws, {
     id: newHistoryId(),
     action: "uninstall",
@@ -249,10 +300,13 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
         : `uninstalled with ${conflicts.length} conflict(s) under --force`,
   });
 
-  return { packId: opts.packId, removed, restored, conflicts };
+  return { packId: opts.packId, removed, restored, conflicts, lockfile: lockfileOutcome };
 }
 
-export async function pruneEmptyParents(projectRoot: string, startAbs: string): Promise<void> {
+export async function pruneEmptyParents(
+  projectRoot: string,
+  startAbs: string,
+): Promise<void> {
   let cur = path.dirname(startAbs);
   while (cur !== projectRoot && cur.startsWith(projectRoot)) {
     try {

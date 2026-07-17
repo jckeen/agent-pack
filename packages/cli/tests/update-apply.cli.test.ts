@@ -308,8 +308,8 @@ describe("sync S2 — update apply path (e2e gate for #111)", () => {
     expect(v.code, v.stderr + v.stdout).toBe(0);
 
     const lock = JSON.parse(await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8"));
-    expect(lock.source.resolvedSha).toBe(SHA_V2);
-    expect(lock.packVersion).toBe("0.2.0");
+    expect(lock.packs[PACK_ID].source.resolvedSha).toBe(SHA_V2);
+    expect(lock.packs[PACK_ID].packVersion).toBe("0.2.0");
 
     const manifest = JSON.parse(
       await fs.readFile(path.join(dir, `.agentpack/installed/${PACK_ID}.json`), "utf8"),
@@ -443,7 +443,7 @@ describe("sync S2 — update apply path (e2e gate for #111)", () => {
     expect(moved.code, moved.stderr + moved.stdout).toBe(0);
     expect(await fs.readFile(path.join(dir, "AGENTS.md"), "utf8")).toContain("House v2");
     const lock = JSON.parse(await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8"));
-    expect(lock.source.resolvedSha).toBe(SHA_V2);
-    expect(lock.source.requestedRef).toBe(SHA_V2);
+    expect(lock.packs[PACK_ID].source.resolvedSha).toBe(SHA_V2);
+    expect(lock.packs[PACK_ID].source.requestedRef).toBe(SHA_V2);
   });
 });

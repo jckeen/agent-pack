@@ -106,7 +106,8 @@ test -f "$INSTALL_ROOT/CLAUDE.md" || { red "expected CLAUDE.md not written"; exi
 green "  ✓ install wrote files + lockfile"
 
 note "▸ Step 5/6: verify lockfile checksums against registry"
-LOCKFILE_CHECKSUM=$(jq -r '.manifestChecksum' "$INSTALL_ROOT/AGENTPACK.lock")
+# Lockfile v2 (#114): per-pack entries under .packs, keyed by packId.
+LOCKFILE_CHECKSUM=$(jq -r '.packs["agentpack-smoke.pr-quality"].manifestChecksum' "$INSTALL_ROOT/AGENTPACK.lock")
 REGISTRY_CHECKSUM=$(curl -s "$REGISTRY_URL/api/v1/packs/agentpack-smoke/pr-quality/versions/$PUBLISHED_VERSION" | \
   jq -r '.manifestChecksum // empty')
 if [[ "$LOCKFILE_CHECKSUM" != "$REGISTRY_CHECKSUM" || -z "$LOCKFILE_CHECKSUM" ]]; then

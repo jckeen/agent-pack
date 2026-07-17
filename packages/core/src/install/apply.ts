@@ -17,7 +17,13 @@ import {
   writeInstallManifest,
 } from "./manifest.js";
 import { recordHistory, newHistoryId, withProjectLock } from "./history.js";
-import { serializeLockfile, lockfileChecksum } from "./lockfile.js";
+import {
+  lockfileChecksum,
+  parseLockfileDocument,
+  serializeLockfileDocument,
+  upsertLockfileEntry,
+} from "./lockfile.js";
+import { atomicWriteFile } from "./atomic.js";
 import { pruneEmptyParents } from "./uninstall.js";
 import { sha256Hex, normalizeForHash } from "./checksum.js";
 
@@ -68,7 +74,9 @@ export interface ApplyInstallResult {
  *   2. For every `modified` and `conflict` (under --force) target, copy the
  *      existing file to `.agentpack/backups/<packId>/<ts>.<nonce>/...`.
  *   3. Write every staged file atomically (write to .tmp, fsync, rename).
- *   4. Write AGENTPACK.lock at projectRoot.
+ *   4. Merge this pack's entry into AGENTPACK.lock (multi-pack v2, #114) at
+ *      projectRoot — other packs' entries are preserved; a v1 file is
+ *      upgraded to v2 by this write.
  *   5. Write `.agentpack/installed/<packId>.json`.
  *   6. WAL: write `install_commit` history entry.
  *
@@ -112,6 +120,25 @@ async function applyInstallLocked(
         `Installing it again for \`${plan.target}\` would orphan the \`${existing.target}\` files. ` +
         `Uninstall first (\`agentpack uninstall ${plan.packId}\`) or use a separate project directory per target.`,
     );
+  }
+
+  // Read + parse any existing lockfile BEFORE the WAL begin entry — a v2
+  // lockfile is multi-pack (#114), so this install MERGES its entry into the
+  // document instead of replacing it. Parsing up front means a corrupt or
+  // unrecognized lockfile fails the install with zero writes, instead of
+  // silently dropping other packs' entries mid-apply. We hold the project
+  // lock, so the file cannot change between this read and the step-4 write.
+  const priorLockRaw = await fs.readFile(ws.lockfilePath, "utf8").catch(() => undefined);
+  let priorLockDoc: import("./types.js").LockfileV2 | null = null;
+  if (priorLockRaw !== undefined) {
+    try {
+      priorLockDoc = parseLockfileDocument(priorLockRaw);
+    } catch (err) {
+      throw new Error(
+        `Refusing to install: the existing AGENTPACK.lock could not be read (${err instanceof Error ? err.message : String(err)}). ` +
+          `It may describe other installed packs. Fix the file, or delete it if it is expendable, then re-run.`,
+      );
+    }
   }
 
   // Compute the backup dir BEFORE the WAL begin entry so the begin row can
@@ -317,10 +344,11 @@ async function applyInstallLocked(
       removalRestore.push({ abs, rel: action.path });
     }
 
-    // 4. AGENTPACK.lock — back up any existing lockfile first (it may belong
-    // to a previously-installed pack; a failed install must restore it).
-    const priorLock = await fs.readFile(ws.lockfilePath, "utf8").catch(() => undefined);
-    if (priorLock !== undefined) {
+    // 4. AGENTPACK.lock — merge this pack's entry into the (v2) document,
+    // preserving every other installed pack's entry. A v1 lockfile read
+    // above is upgraded to v2 by this write. Back up the existing bytes
+    // first (a failed install must restore them).
+    if (priorLockRaw !== undefined) {
       const lockBackupRel = path.posix.join(
         ".agentpack",
         "backups",
@@ -331,14 +359,16 @@ async function applyInstallLocked(
       const lockBackupAbs = path.resolve(ws.projectRoot, lockBackupRel);
       await realpathContained(ws.projectRoot, lockBackupAbs);
       await fs.mkdir(path.dirname(lockBackupAbs), { recursive: true });
-      await fs.writeFile(lockBackupAbs, priorLock, "utf8");
+      await fs.writeFile(lockBackupAbs, priorLockRaw, "utf8");
       backups.push({
         original: toRelative(ws.projectRoot, ws.lockfilePath),
         backupPath: lockBackupRel,
-        originalSha256: sha256Hex(normalizeForHash(priorLock)),
+        originalSha256: sha256Hex(normalizeForHash(priorLockRaw)),
       });
     }
-    const lockBytes = serializeLockfile(plan.lockfile);
+    const lockBytes = serializeLockfileDocument(
+      upsertLockfileEntry(priorLockDoc, plan.lockfile),
+    );
     await atomicWriteFile(ws.lockfilePath, lockBytes);
     writtenAbsolute.push(ws.lockfilePath);
     writtenRelative.push(toRelative(ws.projectRoot, ws.lockfilePath));
@@ -507,42 +537,6 @@ function plannedFilesFromPlan(
 
 function sanitizePack(packId: string): string {
   return packId.replace(/[/\\]/g, "_");
-}
-
-async function atomicWriteFile(
-  target: string,
-  content: string,
-  flag: "w" | "wx" = "w",
-): Promise<void> {
-  const tmp = `${target}.tmp-${randomBytes(6).toString("hex")}`;
-  // Write the full content to a temp file and fsync it so a crash can never
-  // expose a partially-written file at a user-visible path. The temp file's
-  // distinctive `.tmp-<nonce>` name is never something recovery treats as a
-  // staged install file, so an orphaned temp after a crash is inert.
-  const fh = await fs.open(tmp, "wx");
-  try {
-    await fh.writeFile(content, "utf8");
-    await fh.sync();
-  } finally {
-    await fh.close();
-  }
-  try {
-    if (flag === "wx") {
-      // Create-only: hardlink claims `target` atomically and fails with EEXIST
-      // if a file was planted between plan and apply — preserving the O_EXCL
-      // guarantee — while the temp file holds the fully-fsynced bytes, so the
-      // create is never partial on disk. See security-reviewer finding #8.
-      await fs.link(tmp, target);
-      await fs.unlink(tmp);
-    } else {
-      // Replace existing content via atomic rename.
-      await fs.rename(tmp, target);
-    }
-  } catch (err) {
-    // On failure, clean up the temp file rather than leave it behind.
-    await fs.unlink(tmp).catch(() => {});
-    throw err;
-  }
 }
 
 /**
