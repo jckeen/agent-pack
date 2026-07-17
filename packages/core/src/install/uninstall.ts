@@ -17,6 +17,8 @@ import {
   removeMarkerSpan,
   removeJsonFragment,
   jsonFragmentIntact,
+  removeTomlFragment,
+  tomlFragmentIntact,
 } from "./merge.js";
 
 export interface UninstallOptions {
@@ -175,14 +177,21 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
         }
         continue;
       }
-      // strategy === "json"
-      if (!jsonFragmentIntact(current, merge.fragment) && !opts.force) {
+      // strategy === "json" | "toml" — same surgical un-merge, per-format
+      // parse/serialize.
+      const isToml = merge.strategy === "toml";
+      const fragmentIntact = isToml
+        ? tomlFragmentIntact(current, merge.fragment)
+        : jsonFragmentIntact(current, merge.fragment);
+      if (!fragmentIntact && !opts.force) {
         pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
         continue;
       }
-      const remainder = removeJsonFragment(current, merge.fragment);
+      const remainder = isToml
+        ? removeTomlFragment(current, merge.fragment)
+        : removeJsonFragment(current, merge.fragment);
       if (remainder === null) {
-        // Current content is no longer valid JSON — only act under force.
+        // Current content is no longer valid JSON/TOML — only act under force.
         if (!opts.force) {
           pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
         }
@@ -191,7 +200,13 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
       if (remainder === "" && !isModified) {
         actions.push({ kind: "unlink", abs, rel: entry.path });
       } else if (remainder === "") {
-        actions.push({ kind: "write", abs, rel: entry.path, content: "{}\n" });
+        // An empty TOML document is the empty string; JSON needs `{}`.
+        actions.push({
+          kind: "write",
+          abs,
+          rel: entry.path,
+          content: isToml ? "" : "{}\n",
+        });
       } else {
         actions.push({ kind: "write", abs, rel: entry.path, content: remainder });
       }

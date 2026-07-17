@@ -80,7 +80,7 @@ export const installManifestSchema = z.object({
             (p) => !/^[A-Za-z]:[\\/]/.test(p),
             "merges[].path must be project-relative",
           ),
-        strategy: z.enum(["marker", "json"]),
+        strategy: z.enum(["marker", "json", "toml"]),
         fragment: z.string(),
         fragmentSha256: z.string().regex(/^[a-f0-9]{64}$/),
       }),

@@ -100,6 +100,12 @@ export {
 } from "./history.js";
 
 export { planInstall, diffPlan } from "./plan.js";
+export {
+  USER_SCOPE_TARGETS,
+  userScopeRoot,
+  allUserScopeRoots,
+  mapOutputToUserScope,
+} from "./userScope.js";
 export { applyInstall } from "./apply.js";
 export type { ApplyInstallOptions, ApplyInstallResult } from "./apply.js";
 export { uninstall, UninstallConflictError } from "./uninstall.js";

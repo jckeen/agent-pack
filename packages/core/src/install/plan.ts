@@ -14,11 +14,14 @@ import {
   mergeMarkerFile,
   mergeJsonConfig,
   forceMergeJsonConfig,
+  mergeTomlConfig,
+  forceMergeTomlConfig,
   JSON_MERGE_PATHS,
+  TOML_MERGE_PATHS,
   type MergeRecord,
 } from "./merge.js";
 import { readInstallManifest, InstallManifestNotFoundError } from "./manifest.js";
-import { mapClaudeCodeOutputToUserScope } from "../adapters/claudeCode.js";
+import { mapOutputToUserScope, USER_SCOPE_TARGETS } from "./userScope.js";
 
 const BEGIN_MARKER = /<!--\s*BEGIN AGENTPACK:\s*([\w.\-/]+)\s*-->/;
 
@@ -35,10 +38,12 @@ export interface PlanInstallOptions {
   /** User's project root — where the install will land. */
   projectRoot: string;
   /**
-   * Install scope (sync S3, #112). `"user"` roots the install at `~/.claude`
-   * (the caller passes that as `projectRoot`) and remaps the claude-code
-   * adapter's project-layout paths to their user-layout equivalents
-   * (`.claude/X` → `X`). Only `claude-code` supports it.
+   * Install scope (sync S3, #112; Codex + generic in #132). `"user"` roots
+   * the install at the target's user config dir (the caller passes that as
+   * `projectRoot` — see `userScopeRoot`) and remaps the adapter's
+   * project-layout paths to their user-layout equivalents. Supported for
+   * `claude-code` (~/.claude), `codex` (~/.codex), and `generic`
+   * (~/.gemini/config — the Antigravity global customization root).
    */
   scope?: "project" | "user";
   /** Generator versions stamped into the lockfile. */
@@ -88,16 +93,21 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
     // classification all agree on the mapped paths/content. verify, uninstall,
     // and update then work unchanged — everything stays projectRoot-relative.
     if (opts.scope === "user") {
-      if (opts.target !== "claude-code") {
+      if (!USER_SCOPE_TARGETS.includes(opts.target)) {
         throw new Error(
-          `--scope user is only supported for the claude-code target (got \`${opts.target}\`).`,
+          `--scope user is only supported for targets ${USER_SCOPE_TARGETS.join(", ")} (got \`${opts.target}\`).`,
         );
       }
       for (const f of planFiles) {
-        const mapped = mapClaudeCodeOutputToUserScope(f);
-        if (mapped.path === ".mcp.json") {
+        const mapped = mapOutputToUserScope(opts.target, f);
+        if (opts.target === "claude-code" && mapped.path === ".mcp.json") {
           result.plan.warnings.push(
             "User scope: `.mcp.json` is written under ~/.claude for reference, but Claude Code reads USER-scope MCP servers from ~/.claude.json — register them there yourself (AgentPack never edits ~/.claude.json).",
+          );
+        }
+        if (opts.target === "codex" && mapped.path === "config.toml") {
+          result.plan.warnings.push(
+            "User scope: pack entries deep-merge into ~/.codex/config.toml (your existing settings survive), but the merge rewrites the file canonically — comments in it are not preserved.",
           );
         }
         f.path = mapped.path;
@@ -150,11 +160,13 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
           // only our span/entries instead of deleting their file.
           if (isMarkerBlock(plannedContent)) recordMerge("marker");
           else if (JSON_MERGE_PATHS.has(f.path)) recordMerge("json");
+          else if (TOML_MERGE_PATHS.has(f.path)) recordMerge("toml");
           break;
         case "unchanged":
           unchanged.push(f);
           if (isMarkerBlock(plannedContent)) recordMerge("marker");
           else if (JSON_MERGE_PATHS.has(f.path)) recordMerge("json");
+          else if (TOML_MERGE_PATHS.has(f.path)) recordMerge("toml");
           break;
         case "modify":
           modified.push(f);
@@ -168,13 +180,13 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
           recordMerge(cls.strategy);
           break;
         case "conflict":
-          // JSON collision: stage the force-merge result so a --force apply
-          // (and update --theirs, which consumes this staged file) writes the
-          // deep-merge, and record the pristine fragment so verify/uninstall
-          // treat the forced write as a json merge.
+          // JSON/TOML collision: stage the force-merge result so a --force
+          // apply (and update --theirs, which consumes this staged file)
+          // writes the deep-merge, and record the pristine fragment so
+          // verify/uninstall treat the forced write as a config merge.
           if (cls.forcedContent !== undefined) {
             f.content = cls.forcedContent;
-            recordMerge("json");
+            recordMerge(TOML_MERGE_PATHS.has(f.path) ? "toml" : "json");
           }
           conflicts.push({
             file: f,
@@ -253,10 +265,14 @@ type Classification =
   | { kind: "create" }
   | { kind: "unchanged" }
   | { kind: "modify" }
-  | { kind: "merge"; strategy: "marker" | "json"; mergedContent: string }
+  | { kind: "merge"; strategy: "marker" | "json" | "toml"; mergedContent: string }
   | {
       kind: "conflict";
-      reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision";
+      reason:
+        | "no-marker-existing-content"
+        | "other-pack-marker"
+        | "json-collision"
+        | "toml-collision";
       existingSha256: string;
       otherPackId?: string;
       /**
@@ -315,6 +331,28 @@ async function classify(input: {
     return {
       kind: "conflict",
       reason: "invalidJson" in res ? "no-marker-existing-content" : "json-collision",
+      existingSha256: sha256Hex(existingNormalized),
+      ...(forced !== null ? { forcedContent: forced } : {}),
+    };
+  }
+
+  // TOML config surfaces (.codex/config.toml and its user-scope mapped form)
+  // get the same deep-merge discipline as the JSON surfaces above — the
+  // user-scope file is the runtime's REAL config (trust settings, unrelated
+  // machine entries) and must never be replaced whole (#132).
+  if (TOML_MERGE_PATHS.has(input.relPath)) {
+    const res = mergeTomlConfig(existing, input.plannedContent, input.priorFragment);
+    if (res.ok) {
+      if (normalizeForHash(res.merged) === existingNormalized) return { kind: "unchanged" };
+      return { kind: "merge", strategy: "toml", mergedContent: res.merged };
+    }
+    const forced =
+      "invalidToml" in res
+        ? null
+        : forceMergeTomlConfig(existing, input.plannedContent, input.priorFragment);
+    return {
+      kind: "conflict",
+      reason: "invalidToml" in res ? "no-marker-existing-content" : "toml-collision",
       existingSha256: sha256Hex(existingNormalized),
       ...(forced !== null ? { forcedContent: forced } : {}),
     };

@@ -30,6 +30,8 @@ import {
   removeMarkerSpan,
   removeJsonFragment,
   jsonFragmentIntact,
+  removeTomlFragment,
+  tomlFragmentIntact,
 } from "./merge.js";
 import { applyInstall, type ApplyInstallResult } from "./apply.js";
 
@@ -46,16 +48,17 @@ export interface UpdateConflict {
    * both-changed: user edited BASE content AND upstream moved it.
    * foreign-file: on-disk file was never ours (no BASE record, no marker).
    * other-pack: file carries another pack's marker.
-   * json-collision: JSON merge cannot reconcile.
+   * json-collision / toml-collision: config merge cannot reconcile.
    */
-  reason: "both-changed" | "foreign-file" | "other-pack" | "json-collision";
+  reason:
+    "both-changed" | "foreign-file" | "other-pack" | "json-collision" | "toml-collision";
   file: AdapterOutputFile;
 }
 
 export interface UpdateRemoval {
   path: string;
   /** Merge strategy recorded at install time; absent = whole-file removal. */
-  strategy?: "marker" | "json";
+  strategy?: "marker" | "json" | "toml";
 }
 
 export interface UpdatePlan {
@@ -140,8 +143,8 @@ export async function planUpdate(opts: PlanUpdateOptions): Promise<UpdatePlan> {
       conflicts.push({ path: c.file.path, reason: "other-pack", file: c.file });
       continue;
     }
-    if (c.reason === "json-collision") {
-      conflicts.push({ path: c.file.path, reason: "json-collision", file: c.file });
+    if (c.reason === "json-collision" || c.reason === "toml-collision") {
+      conflicts.push({ path: c.file.path, reason: c.reason, file: c.file });
       continue;
     }
     const cls = await classifyAgainstBase({
@@ -195,7 +198,8 @@ async function classifyAgainstBase(input: {
   packId: string;
   baseHash: string | undefined;
   baseMerge:
-    { strategy: "marker" | "json"; fragment: string; fragmentSha256: string } | undefined;
+    | { strategy: "marker" | "json" | "toml"; fragment: string; fragmentSha256: string }
+    | undefined;
   newMerge: { fragmentSha256: string } | undefined;
   foreignWithoutBase: boolean;
 }): Promise<BaseClassification> {
@@ -220,6 +224,8 @@ async function classifyAgainstBase(input: {
       localFragmentIntact =
         span !== null &&
         sha256Hex(normalizeForHash(`${span.span}\n`)) === input.baseMerge.fragmentSha256;
+    } else if (input.baseMerge.strategy === "toml") {
+      localFragmentIntact = tomlFragmentIntact(local, input.baseMerge.fragment);
     } else {
       localFragmentIntact = jsonFragmentIntact(local, input.baseMerge.fragment);
     }
@@ -344,12 +350,18 @@ export async function applyUpdate(opts: ApplyUpdateOptions): Promise<ApplyUpdate
       }
       continue;
     }
-    if (merge?.strategy === "json") {
-      if (!jsonFragmentIntact(current, merge.fragment)) {
+    if (merge?.strategy === "json" || merge?.strategy === "toml") {
+      const isToml = merge.strategy === "toml";
+      const fragmentIntact = isToml
+        ? tomlFragmentIntact(current, merge.fragment)
+        : jsonFragmentIntact(current, merge.fragment);
+      if (!fragmentIntact) {
         skippedRemovals.push(removal.path);
         continue;
       }
-      const remainder = removeJsonFragment(current, merge.fragment);
+      const remainder = isToml
+        ? removeTomlFragment(current, merge.fragment)
+        : removeJsonFragment(current, merge.fragment);
       if (remainder === null) {
         skippedRemovals.push(removal.path);
         continue;
@@ -360,7 +372,8 @@ export async function applyUpdate(opts: ApplyUpdateOptions): Promise<ApplyUpdate
         removalActions.push({
           kind: "write",
           path: removal.path,
-          content: remainder === "" ? "{}\n" : remainder,
+          // An empty TOML document is the empty string; JSON needs `{}`.
+          content: remainder === "" ? (isToml ? "" : "{}\n") : remainder,
         });
       }
       continue;
@@ -389,12 +402,20 @@ export async function applyUpdate(opts: ApplyUpdateOptions): Promise<ApplyUpdate
   // retained paths are carried forward from the prior manifest.
   const writePaths = new Set(resolvedWrites.map((f) => f.path));
   const createdPaths = new Set(up.newPlan.created.map((f) => f.path));
+  // Merge records must survive for UNCHANGED merged files too: applyInstall
+  // re-claims their ownership from the prior manifest, and without the merge
+  // record the new manifest degrades them to whole-file tracking — a shared
+  // settings.json/config.toml holding user content then reads as drift on
+  // the next verify, and uninstall loses its surgical un-merge (#132).
+  const unchangedPaths = new Set(up.newPlan.unchanged.map((f) => f.path));
   const filteredPlan: InstallPlanV2 = {
     ...up.newPlan,
     created: up.newPlan.created.filter((f) => writePaths.has(f.path)),
     modified: resolvedWrites.filter((f) => !createdPaths.has(f.path)),
     conflicts: [],
-    merges: up.newPlan.merges.filter((m) => writePaths.has(m.path)),
+    merges: up.newPlan.merges.filter(
+      (m) => writePaths.has(m.path) || unchangedPaths.has(m.path),
+    ),
   };
 
   const result = await applyInstall({

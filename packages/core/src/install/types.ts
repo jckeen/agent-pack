@@ -191,7 +191,7 @@ export interface InstallManifestV1 {
    */
   merges?: Array<{
     path: string;
-    strategy: "marker" | "json";
+    strategy: "marker" | "json" | "toml";
     fragment: string;
     fragmentSha256: string;
   }>;
@@ -349,7 +349,7 @@ export interface InstallPlanV2 {
    */
   conflicts: Array<{
     file: AdapterOutputFile;
-    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision";
+    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision" | "toml-collision";
     existingSha256: string;
     otherPackId?: string;
   }>;
@@ -361,7 +361,7 @@ export interface InstallPlanV2 {
    */
   merges: Array<{
     path: string;
-    strategy: "marker" | "json";
+    strategy: "marker" | "json" | "toml";
     fragment: string;
     fragmentSha256: string;
   }>;
@@ -398,7 +398,7 @@ export interface DiffEntry {
   diff?: string;
   /** Conflict subtype. */
   conflict?: {
-    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision";
+    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision" | "toml-collision";
     otherPackId?: string;
   };
 }

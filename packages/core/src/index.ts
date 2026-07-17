@@ -257,6 +257,10 @@ export {
   applyUpdate,
   computeExecDelta,
   UpdateConflictError,
+  USER_SCOPE_TARGETS,
+  userScopeRoot,
+  allUserScopeRoots,
+  mapOutputToUserScope,
 } from "./install/index.js";
 export type {
   CanonicalizationSpec,
