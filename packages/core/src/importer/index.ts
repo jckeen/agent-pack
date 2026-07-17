@@ -11,7 +11,12 @@ import {
   type ImportFile,
 } from "./buildManifest.js";
 import type { ParseWarning } from "./parseClaudeMd.js";
-import type { AgentPackManifest } from "../schema/types.js";
+import type {
+  AgentPackManifest,
+  Atom,
+  AtomVariant,
+  TargetPlatform,
+} from "../schema/types.js";
 
 export {
   parseClaudeMd,
@@ -127,6 +132,14 @@ export interface FoldChange {
  * and `adapters` are preserved verbatim from the existing manifest. Stale
  * files under `atoms/` (their live counterpart disappeared) are removed.
  *
+ * Target variants (#133): an existing atom's `variants` are ANOTHER runtime's
+ * content — the fold must not overwrite them just because the import source
+ * doesn't know about them. Variants are carried over onto the re-imported atom
+ * (matched by id, case-insensitive) and their files are exempt from the stale
+ * sweep. The one exception is the variant for `sourceTarget` itself: the fresh
+ * import IS that target's content now, so keeping its old variant would
+ * shadow the very content being folded in — it is dropped (file included).
+ *
  * With `apply: false` this is a pure preview — zero writes — so the CLI's
  * `--diff` can promise a mutation-free report. Review-then-commit stays the
  * consent point: git is the sync channel, this is the differ/compiler.
@@ -137,6 +150,13 @@ export async function foldImportInto(params: {
   existing: AgentPackManifest;
   packDir: string;
   apply: boolean;
+  /**
+   * The runtime the imported content came from (e.g. `claude-code` for a
+   * CLAUDE.md / `~/.claude` import). When set, that target's preserved variant
+   * is dropped — the fold's fresh content supersedes it. Omit when the source
+   * runtime is unknown; every existing variant is then preserved.
+   */
+  sourceTarget?: TargetPlatform;
 }): Promise<{
   changes: FoldChange[];
   /**
@@ -146,9 +166,31 @@ export async function foldImportInto(params: {
    */
   removalFailures: Array<{ path: string; error: string }>;
 }> {
-  const { result, existing, packDir } = params;
+  const { result, existing, packDir, sourceTarget } = params;
+  // Carry other runtimes' variants over onto the re-imported atoms (#133).
+  // Atom ids match case-insensitively (the validator enforces uniqueness on
+  // that basis). Collect the preserved variants' file paths so the stale
+  // sweep below never deletes them.
+  const existingById = new Map(existing.atoms.map((a) => [a.id.toLowerCase(), a]));
+  const preservedVariantPaths = new Set<string>();
+  const foldedAtoms: Atom[] = result.manifest.atoms.map((atom) => {
+    const prior = existingById.get(atom.id.toLowerCase());
+    if (!prior?.variants) return atom;
+    const preserved: Partial<Record<TargetPlatform, AtomVariant>> = {};
+    for (const [target, variant] of Object.entries(prior.variants) as Array<
+      [TargetPlatform, AtomVariant]
+    >) {
+      if (target === sourceTarget) continue; // superseded by the fresh import
+      preserved[target] = variant;
+      if (variant.path !== undefined) {
+        preservedVariantPaths.add(variant.path.split(/[\\/]+/).join("/"));
+      }
+    }
+    return Object.keys(preserved).length > 0 ? { ...atom, variants: preserved } : atom;
+  });
   const merged: AgentPackManifest = {
     ...result.manifest,
+    atoms: foldedAtoms,
     metadata: existing.metadata,
     compatibility: existing.compatibility,
     profiles: existing.profiles,
@@ -188,7 +230,8 @@ export async function foldImportInto(params: {
 
   // Stale atom files: anything under atoms/ the fresh import no longer emits.
   // Confined to atoms/ so a pack repo's own files (README, .github/, tests)
-  // are never candidates for deletion.
+  // are never candidates for deletion. Preserved variant files (#133) are
+  // another runtime's content the import source cannot regenerate — exempt.
   const atomsDir = path.join(root, "atoms");
   const stale: string[] = [];
   async function walk(dir: string): Promise<void> {
@@ -203,7 +246,7 @@ export async function foldImportInto(params: {
       if (e.isDirectory()) await walk(abs);
       else {
         const rel = path.relative(root, abs).split(path.sep).join("/");
-        if (!generatedPaths.has(rel)) stale.push(rel);
+        if (!generatedPaths.has(rel) && !preservedVariantPaths.has(rel)) stale.push(rel);
       }
     }
   }
