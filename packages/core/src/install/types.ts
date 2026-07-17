@@ -207,9 +207,9 @@ export interface InstallManifestV1 {
   rollbackable: boolean;
   rollbackBlockers?: string[];
   /**
-   * Mirror of the lockfile's provenance block (sync S1). The per-pack source
-   * of truth for `agentpack update` — the lockfile is single-pack and may
-   * belong to a different pack after a later install.
+   * Mirror of the lockfile's provenance block (sync S1). The per-machine
+   * source of truth for `agentpack update` — the committed lockfile (multi-
+   * pack since #114) may be absent or stale on this machine.
    */
   source?: LockfileSource;
   /** ISO-8601 timestamp of the last `agentpack update` apply (sync S2). */

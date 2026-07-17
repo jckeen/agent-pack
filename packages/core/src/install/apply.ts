@@ -427,9 +427,9 @@ async function applyInstallLocked(
       ].filter((m, i, arr) => arr.findIndex((x) => x.path === m.path) === i),
       lockfileChecksum: lockfileChecksum(plan.lockfile),
       rollbackable: true,
-      // Mirror the lockfile's provenance (sync S1): the lockfile is
-      // single-pack and may be replaced by a later install, so the manifest
-      // is the per-pack source of truth for `agentpack update`.
+      // Mirror the lockfile's provenance (sync S1): the manifest stays the
+      // per-machine source of truth for `agentpack update` (the committed
+      // lockfile may be absent or stale on this machine).
       ...(plan.lockfile.source ? { source: plan.lockfile.source } : {}),
       // Baseline for the policy `update.maxRiskEscalation` gate (sync S2).
       riskLevel: plan.riskLevel,
