@@ -79,6 +79,12 @@ config while preserving your packaging (`metadata`, `profiles`, `exports`,
 automatic — your commit is the consent point for content that propagates to
 every machine.
 
+**Leaving user scope:** `agentpack uninstall <packId> --scope user --yes`
+removes the pack's compiled files from `~/.claude` — created files deleted,
+merged files (your `CLAUDE.md`, `settings.json`) surgically un-merged so your
+own content stays. Audit state (`~/.claude/.agentpack/` history/backups and
+`~/.claude/AGENTPACK.lock`) is retained, as in project scope.
+
 **Drift check:** `agentpack verify --all --project ~/.claude` reports any
 tracked file that drifted from the lockfile (exit 2). A deliberate improvement
 gets folded back (step 4); an accident gets restored by re-running `update` or

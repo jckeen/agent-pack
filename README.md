@@ -42,8 +42,8 @@ The governance is the durable part — the thing the platforms are slowest to bu
 git clone https://github.com/jckeen/agent-pack
 cd agent-pack
 pnpm install
-pnpm build
-pnpm test                                  # full suite — see STATUS.md for current count
+pnpm --filter @agentpack/cli... build      # builds only the CLI + its deps (skips the registry app)
+pnpm test                                  # optional: full suite — see STATUS.md for current count
 
 # expose the freshly-built CLI on your PATH for the rest of this quickstart:
 alias agentpack="node $(pwd)/packages/cli/dist/index.js"
@@ -56,6 +56,8 @@ agentpack install github:jckeen/agent-pack@master#examples/pr-quality \
   --target claude-code --profile safe \
   --project ./my-project --yes
 ```
+
+`./my-project` doesn't need to exist — a missing `--project` directory is created as part of the consented install (never under `--dry-run`).
 
 The CLI fetches the manifest from `raw.githubusercontent.com` at the named ref, derives the file list from `AGENTPACK.yaml`, materializes everything into a tmpdir, and runs the same WAL-protected install pipeline used for local paths. Lockfile, history, verify, and rollback all work identically.
 
