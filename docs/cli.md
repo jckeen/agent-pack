@@ -135,7 +135,7 @@ agentpack pack mcpb [path] [--profile <profile>] [--out <dir>] [--only <ids>] [-
 
 Compiles a pack's **stdio `mcp_server` atom** into a `.mcpb` ([MCP Bundle](https://blog.modelcontextprotocol.io/posts/2025-11-20-adopting-mcpb/)) — a ZIP with a root `manifest.json` (spec `manifest_version: "0.3"`) for **one-click local MCP install** on Claude Cowork and Desktop. This is the portable path for _local_ stdio servers there; the adapters' `.mcp.json`/connector output covers project-scoped and remote (http/sse) servers.
 
-The same gates as `.mcp.json` apply: a server must be declared in `permissions.mcp.servers`, and shell-escape command shapes are refused. Required secrets (atom `env` entries marked `required`) become `user_config` fields wired into the manifest's `mcp_config.env` via `${user_config.KEY}` substitution — credentials are prompted at install time, never baked into the bundle. An `.mcpb` manifest describes a single server; if a pack has several eligible servers the first is bundled and the rest are reported.
+The same gates as `.mcp.json` apply: a server must be declared in `permissions.mcp.servers`, and shell-escape command shapes are refused. Required secrets (atom `env` entries marked `required`) become `user_config` fields wired into the manifest's `mcp_config.env` via `${user_config.KEY}` substitution — credentials are prompted at install time, never baked into the bundle. An `.mcpb` manifest describes a single server; if a pack has several eligible servers the first is bundled and the rest are reported. Target variants ([#133](https://github.com/jckeen/agent-pack/issues/133)) are **not** resolved here — `.mcpb` bundling reads only the atom's manifest fields, and the command warns when a bundled server declares variants.
 
 ### `agentpack pack chat`
 
@@ -143,7 +143,7 @@ The same gates as `.mcp.json` apply: a server must be declared in `permissions.m
 agentpack pack chat [path] [--profile <profile>] [--out <dir>] [--only <ids>] [--no-strict]
 ```
 
-Compiles a pack into **claude.ai (Claude Chat)** install artifacts written to `--out` (default `dist-chat`): uploadable skill ZIPs (native skills plus on-invoke bridges for `instruction`/`rule`/`command` atoms), a `connectors.json` recipe for remote MCP servers, a `project-instructions.md`, and an install `README.md`. Chat has no bundle format, so this fans the pack into copy-paste install steps. The command reports native vs on-invoke skill counts and warns that on-invoke skills apply **only when invoked** — there is no ambient instruction loader in Chat — and lists any atoms not portable to Chat.
+Compiles a pack into **claude.ai (Claude Chat)** install artifacts written to `--out` (default `dist-chat`): uploadable skill ZIPs (native skills plus on-invoke bridges for `instruction`/`rule`/`command` atoms), a `connectors.json` recipe for remote MCP servers, a `project-instructions.md`, and an install `README.md`. Chat has no bundle format, so this fans the pack into copy-paste install steps. The command reports native vs on-invoke skill counts and warns that on-invoke skills apply **only when invoked** — there is no ambient instruction loader in Chat — and lists any atoms not portable to Chat. Target variants ([#133](https://github.com/jckeen/agent-pack/issues/133)) are **not** resolved by this exporter: an atom with a default `path`/`body` compiles that default, while a variant-only atom degrades to its description (skills) or is skipped (`connectors.json`) with an explicit warning naming the reason.
 
 ### `agentpack import <path>`
 
