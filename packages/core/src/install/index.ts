@@ -96,5 +96,5 @@ export { verifyInstall } from "./verify.js";
 export type { VerifyOptions } from "./verify.js";
 export { rollback } from "./rollback.js";
 export type { RollbackOptions, RollbackResult } from "./rollback.js";
-export { recoverIncomplete } from "./recovery.js";
+export { countIncompleteInstalls, recoverIncomplete } from "./recovery.js";
 export type { RecoveryResult } from "./recovery.js";

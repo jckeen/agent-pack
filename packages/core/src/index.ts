@@ -236,6 +236,7 @@ export {
   UninstallConflictError,
   verifyInstall,
   rollback,
+  countIncompleteInstalls,
   recoverIncomplete,
   planUpdate,
   applyUpdate,
