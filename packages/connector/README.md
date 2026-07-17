@@ -29,7 +29,7 @@ instructions remain Claude-Code-only. This connector bridges what is bridgeable.
 
 ```bash
 pnpm --filter @agentpack/connector build
-AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 24) \
+AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 32) \
   node packages/connector/dist/serve.js ./examples/pr-quality
 # MCP endpoint at http://localhost:8787/mcp ; health at /healthz
 ```
@@ -41,12 +41,12 @@ Desktop settings, pointing at the `/mcp` URL, with the same token as a
 ## Authentication (required, fail-closed)
 
 The server is **auth-by-default**: it refuses to start unless
-`AGENTPACK_CONNECTOR_TOKEN` is set and ≥16 characters. There is no skip-auth
+`AGENTPACK_CONNECTOR_TOKEN` is set and ≥32 characters. There is no skip-auth
 branch — local dev uses a real token through the same verifier.
 
 | Env var                             | Required            | Purpose                                                                                                                                              |
 | ----------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENTPACK_CONNECTOR_TOKEN`         | **yes** (≥16 chars) | Bearer token. `/mcp` requests must send `Authorization: Bearer <token>`; compared in constant time. Missing/invalid → `401` with `WWW-Authenticate`. |
+| `AGENTPACK_CONNECTOR_TOKEN`         | **yes** (≥32 chars) | Bearer token. `/mcp` requests must send `Authorization: Bearer <token>`; compared in constant time. Missing/invalid → `401` with `WWW-Authenticate`. |
 | `AGENTPACK_CONNECTOR_ALLOWED_HOSTS` | no                  | Comma-separated extra Host/Origin allowlist entries (DNS-rebinding guard). Defaults always include `localhost`, `127.0.0.1`, `[::1]`.                |
 | `AGENTPACK_CONNECTOR_PORT`          | no                  | Listen port (default `8787`).                                                                                                                        |
 

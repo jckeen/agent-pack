@@ -2,11 +2,13 @@ import { timingSafeEqual } from "node:crypto";
 import type { Context, MiddlewareHandler } from "hono";
 
 /**
- * Minimum length for AGENTPACK_CONNECTOR_TOKEN. A 16-char token provides
- * ~95 bits of entropy from a random base64 source — enough for a local/remote
- * bearer secret. Operators should use 32+ chars in production.
+ * Minimum length for AGENTPACK_CONNECTOR_TOKEN. 32 chars from a random hex
+ * source (`openssl rand -hex 32` emits 64) is the production floor (#63) —
+ * the previous 16-char floor allowed tokens weak enough for an
+ * internet-reachable bearer secret. Raising it is an intentional breaking
+ * change: deployments with shorter tokens must rotate before upgrading.
  */
-export const TOKEN_MIN_LENGTH = 16;
+export const TOKEN_MIN_LENGTH = 32;
 
 /**
  * Environment variable that carries the bearer token required for every
@@ -55,7 +57,7 @@ export function validateTokenEnv(): string {
   if (token.length < TOKEN_MIN_LENGTH) {
     throw new Error(
       `[agentpack-connector] ${TOKEN_ENV_VAR} is too short (${token.length} chars, minimum ${TOKEN_MIN_LENGTH}). ` +
-        `Use a longer secret. Example: export ${TOKEN_ENV_VAR}=$(openssl rand -hex 32)`,
+        `Use a secret of at least ${TOKEN_MIN_LENGTH} characters. Example: export ${TOKEN_ENV_VAR}=$(openssl rand -hex 32)`,
     );
   }
   return token;

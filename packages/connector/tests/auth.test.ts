@@ -15,7 +15,7 @@ import { loadPackCatalog } from "../src/catalog.js";
 import { createApp } from "../src/server.js";
 
 const EXAMPLE = path.resolve(__dirname, "../../../examples/pr-quality");
-const VALID_TOKEN = "test-token-minimum-16chars";
+const VALID_TOKEN = "test-token-of-at-least-32-characters";
 
 // ── timingSafeEqual_str ──────────────────────────────────────────────────────
 
