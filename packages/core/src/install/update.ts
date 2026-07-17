@@ -21,6 +21,7 @@
 
 import * as fs from "node:fs/promises";
 import type { AdapterOutputFile, AtomType } from "../schema/types.js";
+import { getAdapter } from "../adapters/index.js";
 import type { InstallManifestV1, InstallPlanV2, HistoryActor } from "./types.js";
 import { resolveAgentpackPaths, fromRelative, realpathContained } from "./paths.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
@@ -421,14 +422,38 @@ export async function applyUpdate(opts: ApplyUpdateOptions): Promise<ApplyUpdate
  * possible; instead the gate keys off (a) exec atom ids added since the prior
  * manifest and (b) written/removed files that ARE exec surfaces — which is
  * file-precise and at least as strict as the design's atom-checksum rule.
+ *
+ * WHICH files are exec surfaces is derived from the plan/adapters, not from a
+ * global path regex (#153, extending #119/#152's install gate to updates):
+ *
+ *  - WRITES come from the fresh plan, so every staged file carries the
+ *    adapter-stamped `execCapable`. A write re-consents when that flag is set
+ *    AND the staged content carries a bang-bash directive — the exact rule
+ *    the install gate applies — so an adapter layout change or a newly
+ *    exec-capable target surface can never silently detach this gate.
+ *  - REMOVALS are prior-manifest path records with no adapter output object.
+ *    The manifest records the install's target, so the removal side asks that
+ *    target's adapter `execSurfaces` predicate to classify the recorded path.
+ *    The removed content is not in the fresh plan, so this is path-only and
+ *    conservative: a removed command/agent body re-consents whether or not it
+ *    carried a directive.
+ *  - LAUNCH-CONFIG surfaces (hook scripts/dirs, MCP configs, the settings.json
+ *    hooks block) are deliberately NOT modeled by `execCapable` — the runtime
+ *    does not execute directives embedded in their content on read; it runs
+ *    the command lines declared in them at session start. Install gates those
+ *    by atom TYPE (hook / mcp_server), but an update that changes a command
+ *    line inside an EXISTING exec atom is only visible as a write to these
+ *    paths, so a path classifier remains for exactly this category — scoped
+ *    to the manifest's recorded target, never global.
  */
 export function computeExecDelta(input: {
   priorManifest: InstallManifestV1;
   atomTypes: Array<{ id: string; type: AtomType }>;
-  writtenPaths: string[];
+  /** Fresh-plan staged file objects for every write this update performs —
+   * they carry the adapter-stamped `execCapable` (#119). */
+  writtenFiles: Array<Pick<AdapterOutputFile, "path" | "content" | "execCapable">>;
+  /** Prior-manifest recorded paths absent from the new plan. */
   removedPaths: string[];
-  /** Staged content for written paths (bang-bash detection). */
-  writtenContents: Map<string, string>;
 }): { addedExecAtoms: string[]; execSurfaceWrites: string[] } {
   const priorAtomIds = new Set(input.priorManifest.atomIds);
   const execAtoms = input.atomTypes.filter(
@@ -437,53 +462,81 @@ export function computeExecDelta(input: {
   const addedExecAtoms = execAtoms.filter((a) => !priorAtomIds.has(a.id)).map((a) => a.id);
 
   const shipsHooks = execAtoms.some((a) => a.type === "hook");
+  const shipsMcp = execAtoms.some((a) => a.type === "mcp_server");
   const BANG_BASH = /!`/;
+  const target = input.priorManifest.target;
   // User-scope installs (sync S3) drop the `.claude/` prefix: hooks live at
-  // `hooks/`, settings at `settings.json`, commands/agents at the root. Keyed
-  // off the manifest's recorded scope so project-scope packs emitting a
-  // top-level `hooks/` dir for some other target don't false-positive.
+  // `hooks/`, settings at `settings.json`. Keyed off the manifest's recorded
+  // scope so project-scope packs emitting a top-level `hooks/` dir for some
+  // other target don't false-positive.
   const userScope = input.priorManifest.scope === "user";
-  const isExecSurface = (p: string, content?: string): boolean => {
-    if (/(^|\/)\.claude\/hooks\//.test(p)) return true;
-    if (userScope && /^hooks\//.test(p)) return true;
-    if (userScope && p === "settings.json" && shipsHooks) return true;
-    if (
-      userScope &&
-      /^(commands|agents)\/[^/]+\.md$/.test(p) &&
-      content !== undefined &&
-      BANG_BASH.test(content)
-    ) {
-      return true;
+
+  // Per-target launch-config classifier (see the doc comment above for why a
+  // path match survives #153 for this category only). Scoped to the recorded
+  // target so one target's layout can never classify another's files.
+  //
+  // WRITES additionally require the NEW plan to ship the matching exec atom
+  // type: without hook/mcp_server atoms these files carry no command lines
+  // (codex's `.codex/config.toml` is emitted for EVERY pack — metadata only —
+  // and would otherwise force `--allow-exec` on every codex update). REMOVALS
+  // stay unconditional on atom types: the new plan's atom list says nothing
+  // about the exec content the PRIOR install put at the recorded path.
+  const isLaunchConfigSurface = (p: string, kind: "write" | "removal"): boolean => {
+    const forRemoval = kind === "removal";
+    switch (target) {
+      case "claude-code":
+        if ((shipsHooks || forRemoval) && /(^|\/)\.claude\/hooks\//.test(p)) return true;
+        if ((shipsHooks || forRemoval) && userScope && /^hooks\//.test(p)) return true;
+        if ((shipsMcp || forRemoval) && /(^|\/)\.mcp\.json$/.test(p)) return true;
+        // Hooks live inside settings.json next to non-exec content
+        // (permissions), so a settings write/removal only counts as an exec
+        // surface when the pack actually ships hook atoms.
+        if (shipsHooks && /(^|\/)\.claude\/settings\.json$/.test(p)) return true;
+        if (shipsHooks && userScope && p === "settings.json") return true;
+        return false;
+      case "codex":
+        // config.toml carries MCP command lines; hooks.json declares shell
+        // commands run after edits (security review, sync S2 — a changed
+        // codex MCP command must re-consent).
+        if ((shipsMcp || forRemoval) && /(^|\/)\.codex\/config\.toml$/.test(p)) {
+          return true;
+        }
+        if ((shipsHooks || forRemoval) && /(^|\/)\.codex\/hooks\.json$/.test(p)) {
+          return true;
+        }
+        return false;
+      case "cursor":
+        return (shipsMcp || forRemoval) && /(^|\/)\.cursor\/mcp\.json$/.test(p);
+      default:
+        return false;
     }
-    // Config surfaces carrying launch/command lines: MCP server configs and
-    // the codex config.toml where the codex adapter writes MCP command lines
-    // (security review, sync S2 — a changed codex MCP command must re-consent).
-    if (
-      /(^|\/)(\.mcp\.json|\.cursor\/mcp\.json|\.codex\/hooks\.json|\.codex\/config\.toml)$/.test(
-        p,
-      )
-    ) {
-      return true;
-    }
-    // Hooks live inside settings.json — a settings write only counts as an
-    // exec surface when the pack actually ships hook atoms.
-    if (/(^|\/)\.claude\/settings\.json$/.test(p) && shipsHooks) return true;
-    if (
-      /(^|\/)\.claude\/(commands|agents)\/[^/]+\.md$/.test(p) &&
-      content !== undefined &&
-      BANG_BASH.test(content)
-    ) {
-      return true;
-    }
-    return false;
+  };
+
+  const adapter = getAdapter(target);
+  const removedIsExecSurface = (p: string): boolean => {
+    if (isLaunchConfigSurface(p, "removal")) return true;
+    // --scope user records the REMAPPED path (plan-time
+    // `mapClaudeCodeOutputToUserScope` strips `.claude/`), while the adapter's
+    // predicate matches its emit layout. The reverse map is ambiguous (`X` may
+    // or may not have been `.claude/X`), so ask both spellings — a false
+    // positive merely re-consents; it never fails open.
+    const candidates = userScope && !p.startsWith(".claude/") ? [p, `.claude/${p}`] : [p];
+    return candidates.some((c) =>
+      adapter.execSurfaces({ path: c, content: "", action: "create" }),
+    );
   };
 
   const execSurfaceWrites: string[] = [];
-  for (const p of input.writtenPaths) {
-    if (isExecSurface(p, input.writtenContents.get(p))) execSurfaceWrites.push(p);
+  for (const f of input.writtenFiles) {
+    if (
+      (f.execCapable === true && BANG_BASH.test(f.content)) ||
+      isLaunchConfigSurface(f.path, "write")
+    ) {
+      execSurfaceWrites.push(f.path);
+    }
   }
   for (const p of input.removedPaths) {
-    if (isExecSurface(p)) execSurfaceWrites.push(p);
+    if (removedIsExecSurface(p)) execSurfaceWrites.push(p);
   }
   return { addedExecAtoms, execSurfaceWrites };
 }

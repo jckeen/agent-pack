@@ -488,21 +488,20 @@ async function applyOne(
     const keepLocal = globToPredicate(options.keepLocal);
 
     // Freshly derived facts feed the gates: written set (clean + theirs
-    // resolutions), removals, exec delta, live channel, new risk.
-    const writtenPaths = [
-      ...update.cleanUpdates,
-      ...update.conflicts.filter((c) => theirs(c.path)).map((c) => c.path),
+    // resolutions), removals, exec delta, live channel, new risk. The staged
+    // file objects come from the fresh plan, so they carry the adapter's
+    // `execCapable` stamp — the exec delta classifies writes from that flag,
+    // not from a path regex (#153).
+    const writtenFiles = [
+      ...update.writeFiles,
+      ...update.conflicts.filter((c) => theirs(c.path)).map((c) => c.file),
     ];
-    const contentByPath = new Map<string, string>();
-    for (const f of [...update.writeFiles, ...update.conflicts.map((c) => c.file)]) {
-      contentByPath.set(f.path, f.content);
-    }
+    const writtenPaths = writtenFiles.map((f) => f.path);
     const delta = computeExecDelta({
       priorManifest: manifest,
       atomTypes: newPlan.atomTypes,
-      writtenPaths,
+      writtenFiles,
       removedPaths: update.removals.map((r) => r.path),
-      writtenContents: contentByPath,
     });
     const execDelta = delta.addedExecAtoms.length > 0 || delta.execSurfaceWrites.length > 0;
     const anyDelta = writtenPaths.length > 0 || update.removals.length > 0;

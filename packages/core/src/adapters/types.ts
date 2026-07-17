@@ -603,6 +603,9 @@ export interface AdapterBaseInit {
 export function defineAdapter(init: AdapterBaseInit): AgentPackAdapter {
   return {
     target: init.target,
+    // Exposed unchanged so path-only consumers (update re-consent removal
+    // classification, #153) share the one declaration the stamp comes from.
+    execSurfaces: init.execSurfaces,
     async export(options) {
       const result = await init.build(options);
       // Sort files by path for deterministic output.
