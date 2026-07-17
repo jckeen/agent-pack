@@ -3,6 +3,8 @@
 export type {
   CanonicalizationSpec,
   LockfileV1,
+  LockfileV2,
+  LockfilePackEntry,
   LockfileFileEntry,
   LockfileAtomEntry,
   LockfileSignatures,
@@ -49,6 +51,16 @@ export {
   lockfileChecksum,
   lockfileSchema,
   lockfileSourceSchema,
+  // Lockfile v2 (#114): multi-pack document + migration helpers.
+  lockfileV2Schema,
+  lockfilePackEntrySchema,
+  parseLockfileDocument,
+  serializeLockfileDocument,
+  upsertLockfileEntry,
+  removeLockfileEntry,
+  lockfileEntryFromV1,
+  lockfileEntryAsV1,
+  lockfileEntryChecksum,
 } from "./lockfile.js";
 
 export {
@@ -91,7 +103,11 @@ export { planInstall, diffPlan } from "./plan.js";
 export { applyInstall } from "./apply.js";
 export type { ApplyInstallOptions, ApplyInstallResult } from "./apply.js";
 export { uninstall, UninstallConflictError } from "./uninstall.js";
-export type { UninstallOptions, UninstallResult } from "./uninstall.js";
+export type {
+  UninstallOptions,
+  UninstallResult,
+  LockfileUninstallOutcome,
+} from "./uninstall.js";
 export { verifyInstall } from "./verify.js";
 export type { VerifyOptions } from "./verify.js";
 export { rollback } from "./rollback.js";

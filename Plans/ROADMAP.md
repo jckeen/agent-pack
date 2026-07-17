@@ -12,7 +12,7 @@ Phase 1 (v0.1.x) shipped the AgentPack standard: `AGENTPACK.yaml` manifest, zod 
 
 Phase 2 (v0.2.0) shipped local install/uninstall: WAL-protected `agentpack install` (begin → backup → atomic writes → commit), deterministic `AGENTPACK.lock` with per-atom and per-file SHA-256, hash-chained `.agentpack/history.jsonl`, `agentpack verify` for drift detection, `agentpack rollback` with supersession refusal, `agentpack diff` for unified-diff previews. 152 tests, 88.68% line coverage, two pre-ship CRITICAL security findings closed (TOCTOU symlink-swap, Windows-drive bypass).
 
-The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase 3 transitive resolution). The per-file SHA-256 list is what Phase 4 cosign will sign over. No `lockfileVersion: 2` bump is anticipated through Phase 7.
+The lockfile reserves slots for `signatures` (Phase 4) and `dependencies` (Phase 3 transitive resolution). The per-file SHA-256 list is what Phase 4 cosign will sign over. `lockfileVersion: 2` (#114) made the lockfile multi-pack — entries keyed by packId under `packs`, each carrying the v1 fields; v1 files are read as single-pack v2 and upgraded on the next write.
 
 ---
 

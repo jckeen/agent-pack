@@ -242,7 +242,8 @@ describe("sync S1 — provenance + update --check (e2e gate for #110)", () => {
     expect(r.code, r.stderr).toBe(0);
 
     const lock = JSON.parse(await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8"));
-    expect(lock.source).toEqual({
+    const entry = lock.packs["fixture.sync-pack"];
+    expect(entry.source).toEqual({
       kind: "github",
       id: `github:${OWNER}/${REPO}`,
       requestedRef: "main",
@@ -254,7 +255,7 @@ describe("sync S1 — provenance + update --check (e2e gate for #110)", () => {
       path.join(dir, ".agentpack/installed/fixture.sync-pack.json"),
       "utf8",
     );
-    expect(JSON.parse(manifestRaw).source).toEqual(lock.source);
+    expect(JSON.parse(manifestRaw).source).toEqual(entry.source);
   });
 
   it("update --check at the same SHA exits 0 and reports up to date", async () => {
@@ -425,7 +426,7 @@ describe("verify --all --quiet (sync S1)", () => {
       "--yes",
     ]);
     const lock = JSON.parse(await fs.readFile(path.join(dir, "AGENTPACK.lock"), "utf8"));
-    const tracked = lock.atoms[0].outputs[0].path as string;
+    const tracked = lock.packs["agentpack.pr-quality"].atoms[0].outputs[0].path as string;
     // Overwrite (not append): the first tracked output may be a marker-merged
     // file, where user content AROUND the pack's fragment is legal by design —
     // destroying the fragment is what constitutes drift.

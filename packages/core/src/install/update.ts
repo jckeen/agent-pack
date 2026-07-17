@@ -158,7 +158,7 @@ export async function planUpdate(opts: PlanUpdateOptions): Promise<UpdatePlan> {
   }
 
   // Removals: every BASE output absent from the NEW plan entirely. The
-  // manifest (not the single-pack lockfile) is the source of truth (§0).
+  // manifest (not the committed lockfile) is the source of truth (§0).
   const newPaths = new Set<string>([
     ...newPlan.created.map((f) => f.path),
     ...newPlan.modified.map((f) => f.path),

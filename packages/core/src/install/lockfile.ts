@@ -5,7 +5,13 @@ import type {
   ProfileName,
   TargetPlatform,
 } from "../schema/types.js";
-import type { LockfileV1, LockfileAtomEntry, LockfileFileEntry } from "./types.js";
+import type {
+  LockfileV1,
+  LockfileV2,
+  LockfilePackEntry,
+  LockfileAtomEntry,
+  LockfileFileEntry,
+} from "./types.js";
 import { CANONICALIZATION } from "./types.js";
 import { canonicalJson, sha256Hex, sortByPath } from "./checksum.js";
 import { REF_RE } from "../git-source/index.js";
@@ -103,6 +109,26 @@ export const lockfileSchema = z.object({
   }),
   source: lockfileSourceSchema.optional(),
 });
+
+/** One pack's entry in a v2 document — the v1 shape minus the version tag. */
+export const lockfilePackEntrySchema = lockfileSchema.omit({ lockfileVersion: true });
+
+export const lockfileV2Schema = z
+  .object({
+    lockfileVersion: z.literal(2),
+    packs: z.record(z.string().min(1), lockfilePackEntrySchema),
+  })
+  .superRefine((doc, ctx) => {
+    for (const [key, entry] of Object.entries(doc.packs)) {
+      if (entry.packId !== key) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["packs", key, "packId"],
+          message: `entry packId \`${entry.packId}\` does not match its packs key \`${key}\``,
+        });
+      }
+    }
+  });
 
 export interface BuildLockfileInput {
   packId: string;
@@ -219,6 +245,104 @@ export function parseLockfile(raw: string): LockfileV1 {
     );
   }
   return result.data as LockfileV1;
+}
+
+/** Strip the version tag off a standalone v1 document, yielding its v2 entry. */
+export function lockfileEntryFromV1(lock: LockfileV1): LockfilePackEntry {
+  const { lockfileVersion: _v, ...entry } = lock;
+  return entry;
+}
+
+/** Render a v2 entry back as a standalone single-pack v1 document. */
+export function lockfileEntryAsV1(entry: LockfilePackEntry): LockfileV1 {
+  return { lockfileVersion: 1, ...entry };
+}
+
+/**
+ * Parse AGENTPACK.lock from disk in EITHER version. A v1 document (written by
+ * a pre-#114 CLI) is interpreted as a single-pack v2 in memory; the first
+ * write after that persists the file as v2. Every reader goes through this.
+ */
+export function parseLockfileDocument(raw: string): LockfileV2 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `AGENTPACK.lock is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const version =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as { lockfileVersion?: unknown }).lockfileVersion
+      : undefined;
+  if (version === 1) {
+    const v1 = lockfileSchema.safeParse(parsed);
+    if (!v1.success) {
+      throw new Error(
+        `AGENTPACK.lock failed schema validation:\n${v1.error.issues
+          .map((i) => `  • ${i.path.join(".")}: ${i.message}`)
+          .join("\n")}`,
+      );
+    }
+    const lock = v1.data as LockfileV1;
+    return { lockfileVersion: 2, packs: { [lock.packId]: lockfileEntryFromV1(lock) } };
+  }
+  if (version === 2) {
+    const v2 = lockfileV2Schema.safeParse(parsed);
+    if (!v2.success) {
+      throw new Error(
+        `AGENTPACK.lock failed schema validation:\n${v2.error.issues
+          .map((i) => `  • ${i.path.join(".")}: ${i.message}`)
+          .join("\n")}`,
+      );
+    }
+    return v2.data as LockfileV2;
+  }
+  throw new Error(
+    `AGENTPACK.lock has unsupported lockfileVersion ${JSON.stringify(version)} — this CLI reads versions 1 and 2.`,
+  );
+}
+
+/** Serialize a v2 document to canonical on-disk bytes (same discipline as v1). */
+export function serializeLockfileDocument(doc: LockfileV2): string {
+  const canonical = canonicalJson(doc);
+  const parsed = JSON.parse(canonical) as unknown;
+  return JSON.stringify(parsed, sortedReplacer, 2) + "\n";
+}
+
+/**
+ * Upsert one pack's lock into a v2 document: installing pack B preserves pack
+ * A's entry; re-installing/updating pack A replaces only A's entry. `doc`
+ * null means no lockfile existed yet. Never mutates its input.
+ */
+export function upsertLockfileEntry(doc: LockfileV2 | null, lock: LockfileV1): LockfileV2 {
+  return {
+    lockfileVersion: 2,
+    packs: { ...(doc?.packs ?? {}), [lock.packId]: lockfileEntryFromV1(lock) },
+  };
+}
+
+/**
+ * Remove one pack's entry. Returns null when the last entry goes — the caller
+ * deletes the file (the lockfile describes the currently installed set).
+ * Never mutates its input.
+ */
+export function removeLockfileEntry(doc: LockfileV2, packId: string): LockfileV2 | null {
+  const packs = { ...doc.packs };
+  delete packs[packId];
+  if (Object.keys(packs).length === 0) return null;
+  return { lockfileVersion: 2, packs };
+}
+
+/**
+ * Per-pack lockfile checksum: sha256 of the entry rendered as a standalone
+ * v1 document. For a pack installed by a pre-#114 CLI this equals the
+ * whole-file checksum it recorded in the install manifest, so manifests
+ * survive the v1 → v2 migration unchanged.
+ */
+export function lockfileEntryChecksum(entry: LockfilePackEntry): string {
+  return lockfileChecksum(lockfileEntryAsV1(entry));
 }
 
 /**

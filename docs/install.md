@@ -85,17 +85,17 @@ existing content are restored from their backups, never deleted.
 
 `agentpack install` (and `diff`) classifies each target path:
 
-| Status      | Meaning                                                                 | Action                   |
-| ----------- | ----------------------------------------------------------------------- | ------------------------ |
-| `create`    | No file exists at this path                                             | Write                    |
-| `unchanged` | File exists; the merged result would be byte-identical                  | Skip                     |
-| `modify`    | Mergeable file, or a file carrying only our marker                      | Backup + write merged    |
-| `conflict`  | Non-mergeable file with foreign content, or a JSON key collision        | Refuse without `--force` |
+| Status      | Meaning                                                          | Action                   |
+| ----------- | ---------------------------------------------------------------- | ------------------------ |
+| `create`    | No file exists at this path                                      | Write                    |
+| `unchanged` | File exists; the merged result would be byte-identical           | Skip                     |
+| `modify`    | Mergeable file, or a file carrying only our marker               | Backup + write merged    |
+| `conflict`  | Non-mergeable file with foreign content, or a JSON key collision | Refuse without `--force` |
 
 **Marker-block merge.** Shared instruction files (`CLAUDE.md`, `AGENTS.md`,
 `project-instructions.md`) are wrapped in
 `<!-- BEGIN AGENTPACK: <pack> --> … <!-- END AGENTPACK: <pack> -->` markers,
-and the installer treats them as *shared surfaces*, not owned files:
+and the installer treats them as _shared surfaces_, not owned files:
 
 - A pre-existing user file gets the pack's block **appended** — user content
   is preserved, byte for byte.
@@ -112,7 +112,7 @@ are untouched. A same-name MCP server with different content is a
 `json-collision` conflict. Uninstall removes only the pack's entries.
 
 **Fragment-level verify.** For merged files, `agentpack verify` checks that
-the *pack's contribution* is intact — the marker span hash or the JSON
+the _pack's contribution_ is intact — the marker span hash or the JSON
 entries — so the user editing their own sections of a shared file is not
 drift, while tampering inside the pack's span is.
 
@@ -123,60 +123,79 @@ before.
 ## Lockfile shape
 
 `AGENTPACK.lock` is canonical JSON with sorted keys, pretty-printed for human
-diffability:
+diffability. Since #114 it is **multi-pack** (`lockfileVersion: 2`): every
+installed pack has its own entry under `packs`, keyed by packId, and each
+entry carries exactly the fields the old single-pack document had:
 
 ```json
 {
-  "lockfileVersion": 1,
-  "packId": "agentpack.pr-quality",
-  "packVersion": "0.1.0",
-  "target": "claude-code",
-  "profile": "safe",
-  "generator": { "cli": "0.2.0", "adapter": "0.2.0" },
-  "manifestChecksum": "<sha256 of raw AGENTPACK.yaml bytes>",
-  "canonicalization": {
-    "algorithm": "sha256",
-    "encoding": "utf-8",
-    "lineEndings": "lf"
-  },
-  "atoms": [
-    {
-      "id": "code-review",
-      "type": "skill",
-      "sourceChecksum": "<sha256 of source atom files>",
-      "contentChecksum": "<sha256 of rendered output bundle>",
-      "outputs": [
+  "lockfileVersion": 2,
+  "packs": {
+    "agentpack.pr-quality": {
+      "packId": "agentpack.pr-quality",
+      "packVersion": "0.1.0",
+      "target": "claude-code",
+      "profile": "safe",
+      "generator": { "cli": "0.2.0", "adapter": "0.2.0" },
+      "manifestChecksum": "<sha256 of raw AGENTPACK.yaml bytes>",
+      "canonicalization": {
+        "algorithm": "sha256",
+        "encoding": "utf-8",
+        "lineEndings": "lf"
+      },
+      "atoms": [
         {
-          "path": "skills/code-review/SKILL.md",
-          "sha256": "...",
-          "bytes": 1234,
-          "action": "create"
+          "id": "code-review",
+          "type": "skill",
+          "sourceChecksum": "<sha256 of source atom files>",
+          "contentChecksum": "<sha256 of rendered output bundle>",
+          "outputs": [
+            {
+              "path": "skills/code-review/SKILL.md",
+              "sha256": "...",
+              "bytes": 1234,
+              "action": "create"
+            }
+          ]
         }
-      ]
+      ],
+      "dependencies": [],
+      "signatures": {}
     }
-  ],
-  "dependencies": [],
-  "signatures": {}
+  }
 }
 ```
+
+Install **merges** its entry into the document: installing pack B preserves
+pack A's entry; re-installing or updating pack A replaces only A's entry.
+Uninstall removes only the pack's own entry and deletes the file when the
+last entry goes — the lockfile describes the currently installed set, while
+`.agentpack/history.jsonl` keeps the audit trail.
+
+**v1 migration.** A `lockfileVersion: 1` file written by an older CLI (a
+single-pack document with the entry fields at top level) is read everywhere —
+install-over, verify, update, uninstall — as a single-pack v2 in memory. The
+first write after that (next install/update) persists the file as v2. Per-pack
+checksums recorded in install manifests hash the entry rendered as a
+standalone v1 document, which for a v1 file is the whole file — so manifests
+written by older CLIs stay valid across the migration.
 
 Important: there is **no `installedAt` field** in the lockfile. Timestamps
 are non-deterministic and live in the install manifest only.
 
 Git- and registry-sourced installs additionally record an optional `source`
-provenance block (sync S1 — [`sync-design.md`](./sync-design.md)), e.g.
+provenance block per entry (sync S1 — [`sync-design.md`](./sync-design.md)),
+e.g.
 `{ "kind": "github", "id": "github:owner/repo#subpath", "requestedRef": "main",
 "resolvedSha": "<40-hex pin>", "channel": "branch" }` — every field is a
 function of the install inputs, so determinism holds. It is what
 `agentpack update --check` re-resolves. Local-path installs omit the field
-entirely, keeping their lockfiles byte-identical to pre-S1 output. The install
-manifest mirrors the same block (the lockfile is single-pack and may be
-replaced by a later install, so the per-pack manifest is update's source of
-truth).
+entirely. The install manifest mirrors the same block (it remains the
+per-machine record for update).
 
 `signatures` and `dependencies` are reserved for Phase 4 (Sigstore/cosign)
 and Phase 3 (transitive deps from a hosted registry). They're empty in
-Phase 2 but the schema slot exists to avoid a v2 bump later.
+Phase 2 but the schema slot exists.
 
 ## History format
 

@@ -112,11 +112,14 @@ export function registerUninstall(program: Command): void {
               `  • ${result.removed.length} removed, ${result.restored.length} restored, ${result.conflicts.length} conflicts.`,
             ),
           );
-          console.log(
-            pc.dim(
-              `  • AGENTPACK.lock retained (still describes ${packId} for audit/history; the install footprint is gone). Re-install or delete it manually if you want it cleared.`,
-            ),
-          );
+          // Lockfile v2 (#114): uninstall removes only this pack's entry.
+          const lockNote = {
+            "entry-removed": `AGENTPACK.lock updated (${packId} entry removed; other packs' entries retained).`,
+            "file-removed": `AGENTPACK.lock removed (${packId} was the last installed pack; history.jsonl keeps the audit trail).`,
+            "not-tracked": `AGENTPACK.lock untouched (no entry for ${packId}).`,
+            "unrecognized-left-in-place": `AGENTPACK.lock could not be parsed — left in place; inspect or delete it manually.`,
+          }[result.lockfile];
+          console.log(pc.dim(`  • ${lockNote}`));
         } catch (err) {
           if (err instanceof UninstallConflictError) {
             console.error(pc.red("✗ ") + err.message);

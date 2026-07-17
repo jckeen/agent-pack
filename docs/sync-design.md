@@ -42,10 +42,12 @@ nor `InstallManifestV1` recorded where the pack came from. An installed project 
 could not answer "where would an update come from?" **Fixed in S1 (#110):** both now
 carry the `source` block below.
 
-A second wrinkle to design around: `AGENTPACK.lock` is single-pack (top-level `packId`),
-and `applyInstall` backs up and replaces any prior lockfile. The per-pack source of truth
-for update must therefore be `.agentpack/installed/<packId>.json`, with the lockfile
-consulted only when its `packId` matches.
+A second wrinkle designed around at the time: `AGENTPACK.lock` was single-pack
+(top-level `packId`), and `applyInstall` replaced any prior lockfile — so the per-pack
+source of truth for update is `.agentpack/installed/<packId>.json`. **Resolved since
+(#114):** the lockfile is now multi-pack (`lockfileVersion: 2`, entries keyed by packId
+under `packs`; v1 files are read as single-pack v2 and upgraded on the next write). The
+install manifest remains update's per-machine source of truth.
 
 ---
 
@@ -53,7 +55,9 @@ consulted only when its `packId` matches.
 
 ### 1.1 Data model changes
 
-**Lockfile (additive, stays `lockfileVersion: 1` with an optional field):**
+**Lockfile (additive; at S1 time this stayed `lockfileVersion: 1` with an optional
+field — since #114 the same `source` block lives on each pack's entry in the v2
+document):**
 
 ```jsonc
 // LockfileV1.source? — absent on local-path installs
@@ -274,10 +278,10 @@ exists for. Rules:
 - **`plan.ts` classify semantics are shared with install.** The BASE-aware pass must be
   an update-mode layer over `classify`, not a rewrite; existing snapshot/determinism
   tests must stay green.
-- **Single-pack lockfile.** Multi-pack projects have a latent last-install-wins on
-  `AGENTPACK.lock`. Update sidesteps it by keying on install manifests, but a
-  lockfile-v2 multi-pack shape is the eventual fix — out of scope; tracked as its own
-  issue.
+- **Single-pack lockfile.** Multi-pack projects had a latent last-install-wins on
+  `AGENTPACK.lock`. Update sidestepped it by keying on install manifests. **Resolved:**
+  lockfile v2 (#114) is multi-pack — install merges its entry, uninstall removes only
+  its own, v1 files migrate on first write.
 - **Branch-channel + unsigned git = moving executable target.** Mitigated by exec
   re-consent on delta and the policy channel ceiling; fully solved only by cosign-on-tag
   (existing v0.5.1 roadmap item — sync raises its priority).
