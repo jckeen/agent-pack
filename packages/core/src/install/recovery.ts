@@ -19,6 +19,19 @@ export interface RecoveryResult {
 }
 
 /**
+ * Read-only probe: count dangling `install_begin`/`update_begin` entries
+ * without acting on them. `install --dry-run` uses this to surface pending
+ * crash recovery as a warning — the sweep itself WRITES (roll-forward commit
+ * rows, rollback unlinks/restores), which a dry run must never do (#123).
+ */
+export async function countIncompleteInstalls(projectRoot: string): Promise<number> {
+  const ws = await resolveAgentpackPaths(projectRoot);
+  const all = await readHistory(ws);
+  if (all.length === 0) return 0;
+  return findDanglingBegins(all).length;
+}
+
+/**
  * Sweep `.agentpack/history.jsonl` for `install_begin` entries that have no
  * matching `install_commit`. For each:
  *
