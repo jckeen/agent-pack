@@ -228,6 +228,9 @@ export function registerPack(program: Command): void {
               ),
             );
           }
+          for (const w of result.warnings) {
+            console.log(pc.yellow(`  ⚠ ${w}`));
+          }
           const secrets = Object.keys(result.manifest.user_config ?? {});
           if (secrets.length > 0) {
             console.log(
@@ -317,6 +320,12 @@ export function registerPack(program: Command): void {
                 `  ⚠ Not portable to Chat: ${notPortable.map((r) => r.atomId).join(", ")} (see README.md).`,
               ),
             );
+          }
+          for (const w of [
+            ...result.warnings,
+            ...result.skills.flatMap((s) => s.warnings),
+          ]) {
+            console.log(pc.yellow(`  ⚠ ${w}`));
           }
           console.log("");
           console.log(pc.dim(`Install: follow ${result.outDir}/README.md`));
