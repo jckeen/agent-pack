@@ -79,6 +79,11 @@ export function registerInstall(program: Command): void {
       false,
     )
     .option(
+      "--allow-partial-target",
+      "permit installing to a target the pack's authored compatibility declares `partial` or `experimental` (otherwise refused even with --yes)",
+      false,
+    )
+    .option(
       "--fail-on-unsupported",
       "exit non-zero instead of installing when any selected atom is dropped (target-incompatible or refused by a security gate)",
       false,
@@ -100,6 +105,7 @@ export function registerInstall(program: Command): void {
           expectedSigner?: string;
           allowCritical: boolean;
           allowExec: boolean;
+          allowPartialTarget: boolean;
           failOnUnsupported: boolean;
         },
         command: Command,
@@ -451,6 +457,11 @@ export function registerInstall(program: Command): void {
             atoms: plan.atoms,
             warnings: plan.warnings,
             unsupportedAtoms: plan.unsupportedAtoms,
+            // Two distinct compatibility surfaces (#134): the authored claim
+            // (null when the manifest declares nothing for this target) and
+            // the compiler-observed fidelity.
+            authoredCompatibility: plan.authoredCompatibility ?? null,
+            observedFidelity: plan.observedFidelity,
             files: {
               create: plan.created.map((f) => f.path),
               modify: plan.modified.map((f) => f.path),
@@ -507,6 +518,37 @@ export function registerInstall(program: Command): void {
               console.error(
                 pc.red(
                   `\n✗ Computed risk level is CRITICAL. Re-run with --allow-critical to proceed (this flag is intentionally separate from --yes).`,
+                ),
+              );
+            }
+            process.exit(ExitCode.PolicyViolation);
+          }
+
+          // Authored-compatibility gate (#134). A pack that declares this
+          // target `partial` or `experimental` is telling the user up front
+          // that the install degrades — that claim requires explicit
+          // acknowledgement, mirroring --allow-critical: a single -y (the
+          // documented CI path) must not cross it, so non-interactive runs
+          // fail closed without the flag. Undeclared targets never gate.
+          // (`unsupported` never reaches here — the planner refuses it.)
+          const degradedTarget =
+            plan.authoredCompatibility === "partial" ||
+            plan.authoredCompatibility === "experimental";
+          if (degradedTarget && !options.allowPartialTarget) {
+            if (options.json) {
+              console.log(
+                JSON.stringify({
+                  ...planJson(),
+                  installed: false,
+                  error: "partial_target_refused",
+                  hint: "re-run with --allow-partial-target (intentionally separate from --yes)",
+                }),
+              );
+            } else {
+              console.error(
+                pc.red(
+                  `\n✗ This pack declares target \`${plan.target}\` ${String(plan.authoredCompatibility).toUpperCase()}. ` +
+                    `Re-run with --allow-partial-target to acknowledge and proceed (this flag is intentionally separate from --yes).`,
                 ),
               );
             }
@@ -1034,6 +1076,11 @@ function printPlanSummary(
     ),
   );
   console.log(`Risk: ${riskBadge(plan.riskLevel)}`);
+  // Authored claim vs compiler-observed result, side by side (#134) — an
+  // authored "supported" must never mask a degraded observation.
+  console.log(
+    `Compatibility: authored ${plan.authoredCompatibility ?? "(undeclared)"} · observed ${plan.observedFidelity}`,
+  );
   console.log(pc.bold(`\nPermissions:`));
   console.log(renderPermissionSummary(plan.permissions));
   if (plan.warnings.length > 0) {

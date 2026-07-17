@@ -231,6 +231,10 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       permissions: result.plan.permissions,
       warnings: result.plan.warnings,
       unsupportedAtoms: result.plan.unsupportedAtoms,
+      ...(result.plan.authoredCompatibility !== undefined
+        ? { authoredCompatibility: result.plan.authoredCompatibility }
+        : {}),
+      observedFidelity: result.plan.observedFidelity,
       projectRoot: ws.projectRoot,
       created,
       modified,

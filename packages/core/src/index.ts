@@ -61,7 +61,11 @@ export { validateManifest } from "./validator/validateManifest.js";
 export { resolveAtoms, UnknownProfileError } from "./planner/resolveAtoms.js";
 export { summarizePermissions } from "./permissions/summarizePermissions.js";
 export { computeRisk } from "./risk/computeRisk.js";
-export { createInstallPlan } from "./planner/createInstallPlan.js";
+export {
+  createInstallPlan,
+  deriveObservedFidelity,
+  UnsupportedTargetError,
+} from "./planner/createInstallPlan.js";
 export { exportPack } from "./exports/exportPack.js";
 export { exportPlugin } from "./exports/exportPlugin.js";
 export type { ExportPluginOptions, ExportPluginResult } from "./exports/exportPlugin.js";

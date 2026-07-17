@@ -1,0 +1,57 @@
+agentpack: "1.0"
+
+metadata:
+  id: "agentpack.unsupported-target-fixture"
+  name: "Unsupported Target Fixture"
+  slug: "unsupported-target-fixture"
+  description: "Test fixture: authored compatibility declares the generic target UNSUPPORTED — planning for it must refuse before any writes (#134)."
+  version: "0.1.0"
+  license: "MIT"
+  publisher: "agentpack"
+  authors:
+    - name: "AgentPack"
+      email: "hello@agentpack.dev"
+  tags:
+    - test
+
+compatibility:
+  targets:
+    claude-code:
+      status: supported
+      notes: "Full support."
+    generic:
+      status: unsupported
+      notes: "This pack has no generic story."
+
+permissions:
+  filesystem:
+    read:
+      - "."
+  package_installation: false
+  model_provider_key_access: false
+
+security:
+  risk_level: low
+  risk_summary: "Low — instruction content only."
+  requires_review: false
+  signed: false
+
+profiles:
+  full:
+    description: "Includes the instruction."
+    include:
+      - "*"
+
+atoms:
+  - id: "instruction:house-style"
+    type: instruction
+    name: "House Style"
+    description: "A persistent instruction with no executable surface."
+    path: "atoms/instructions/house-style.md"
+    risk_level: low
+    permissions: []
+
+exports:
+  default_profile: full
+  output_dir: "dist"
+  lockfile: "AGENTPACK.lock"
