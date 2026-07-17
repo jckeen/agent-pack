@@ -990,3 +990,21 @@ The `docs/sync-design.md` §6 risk item: `AGENTPACK.lock` was single-pack and `a
 - **Uninstall deletes the file with the last entry** — the lockfile describes the *currently installed set* (reproducibility artifact: clone + install from lock); `.agentpack/history.jsonl` is the audit trail. This supersedes the Phase-2 "lockfile retained on uninstall for audit" posture.
 - **Per-pack checksum = standalone-v1 rendering** — chosen over hashing the raw v2 bytes so a pack's recorded `lockfileChecksum` is invariant under other packs' installs/uninstalls AND under the v1→v2 file migration. Trade-off accepted: verify's lockfile cross-check is now content-level for the pack's entry, not byte-level over the whole file (a hand-reordered but semantically identical v1 file no longer flags).
 - **Corrupt lockfile: install refuses, uninstall proceeds** — install merging into garbage would risk silently discarding other packs' entries, so it fails closed before any write; uninstall leaves the unreadable file in place and reports it, because a broken lockfile must not make a pack unremovable.
+
+## Target-specific atom variants — shared identity (2026-07-17, #133)
+
+One logical atom (a shared workflow) can now carry Claude-, Codex-, and generic-specific bodies behind a single id, instead of forcing lossy Claude-first compilation or duplicated atoms.
+
+### Variants ISCs
+
+- [x] ISC-363: schema — `atom.variants` map keyed by `TargetPlatform`, each entry exactly one of `path` (pack-relative, full `atom.path` trust rules) or `body` (inline). `atom.path` becomes optional only when variants are declared; an atom may alternatively declare an inline default `body` (at most one of `path`/`body`). Pre-variants manifests parse to exactly their input shape — pinned in `atom-variants-schema.test.ts`. JSON schema (`schemas/AGENTPACK.schema.json`) updated in lockstep.
+- [x] ISC-364: planner — `selectAtomVariants` runs in `createInstallPlan` BEFORE the adapter boundary: exact target match wins, else the default `path`/`body` at full fidelity, else the atom is withheld from the adapter and merged into `unsupportedAtoms` + a structured warning, degrading `observedFidelity` to `partial` through the #134 channel (no parallel signal invented). Adapters stay variant-unaware; atom identity (plan `atoms`/`atomTypes`, lockfile atom ids) is target-independent (`atom-variants-planner.test.ts`).
+- [x] ISC-365: adapter helpers — `readAtomFile`/`readAtomDirectory` resolve an inline `body` first (no disk), and tolerate pathless variant-only atoms as cleanly missing; `resolveSubagentBody` treats inline bodies as markdown.
+- [x] ISC-366: fold preservation — `foldImportInto` gains `sourceTarget`; another runtime's variants (manifest entries AND files) survive an `import --into` fold, while the fold source's own variant is superseded by the fresh content. CLI maps `--from` → source target (`atom-variants-fold.test.ts`).
+- [x] ISC-367: `agentpack validate` — new warnings `atom.variant_duplicates_default` (no-op variant) and `atom.variant_target_gap` (variant-only atom leaves a declared compatibility target uncovered); `publish` collects variant files alongside default atom sources.
+
+### Variants decisions
+
+- **Resolution point: planner, not adapters** — one selection authority feeding every adapter keeps the five adapters byte-identical for variant-free packs and makes the missing-variant signal a plan-level fact `deriveObservedFidelity` already understands.
+- **No cross-target fallback** — `generic` is a real target, not a wildcard; the only fallback is the atom's own default `path`/`body`, which is target-agnostic by construction.
+- **Workflow-type atom bodies are still not compiled by adapters** (only descriptions are); the shared-workflow fixture uses an `instruction` atom so the per-target-body proof is real. Changing workflow rendering would break the byte-identical guarantee for existing packs and stays out of #133's scope.
