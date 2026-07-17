@@ -101,7 +101,7 @@ This section tracks what is _not yet implemented in code_. As phases land, items
 - [x] ISC-34: `pack export --target claude-code --profile full` writes `.claude/settings.json` with hook block
 - [x] ISC-35: `pack export --target codex` writes `AGENTS.md`
 - [x] ISC-36: `pack export --target codex` writes `.codex/config.toml`
-- [x] ISC-37: `pack export --target codex` writes `.codex/skills/code-review/SKILL.md`
+- [x] ISC-37: `pack export --target codex` writes `.agents/skills/code-review/SKILL.md`
 - [x] ISC-38: `pack export --target codex --profile full` writes `.codex/hooks.json`
 - [x] ISC-39: `pack export --target cursor` writes `AGENTS.md`
 - [x] ISC-40: `pack export --target cursor` writes `.cursor/rules/security-review-required.mdc`
