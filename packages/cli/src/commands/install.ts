@@ -14,6 +14,7 @@ import {
   HttpRegistryClient,
   IntegrityError,
   loadPolicy,
+  LOCKFILE_NAME,
   parseGitId,
   planInstall,
   applyInstall,
@@ -166,6 +167,19 @@ export function registerInstall(program: Command): void {
             }
             options.project = userRoot;
           }
+          // #145: a --project directory that doesn't exist yet is part of the
+          // write plan, not an error. Plan against an empty stand-in dir (a
+          // nonexistent root is behaviorally an empty one), then create the
+          // real directory only AFTER consent — never under --dry-run. An
+          // existing non-directory still fails via resolveAgentpackPaths.
+          const projectAbs = path.resolve(options.project);
+          const projectMissing = (await fs.stat(projectAbs).catch(() => null)) === null;
+          let planProjectRoot = options.project;
+          if (projectMissing) {
+            planProjectRoot = await fs.mkdtemp(
+              path.join(os.tmpdir(), "agentpack-newdir-standin-"),
+            );
+          }
           let source = pack ?? process.cwd();
           // #35 fix 3: when --require-sig verifies a signature, carry the
           // verified envelope here so it gets persisted into AGENTPACK.lock's
@@ -192,9 +206,11 @@ export function registerInstall(program: Command): void {
           // the local stat-check and the registry-id branch without conflicting
           // with either.
           let isLocalDir = false;
+          let packExistsAsPath = false;
           if (pack) {
             try {
               const stat = await fs.stat(path.resolve(process.cwd(), pack));
+              packExistsAsPath = true;
               if (stat.isDirectory()) isLocalDir = true;
             } catch {
               // ENOENT — not a local directory.
@@ -218,6 +234,29 @@ export function registerInstall(program: Command): void {
           let remoteMatch: RegExpMatchArray | null = null;
           if (!isLocalDir && !gitSource && pack) {
             remoteMatch = pack.match(REMOTE_ID_RE);
+          }
+          // #147: a bare name (`agentpack install pr-quality`) matches none of
+          // the three source forms — no path separator or scheme, nothing on
+          // disk, and the registry grammar needs `publisher/pack`. Falling
+          // through would treat it as a local path and surface a raw ENOENT;
+          // guide instead.
+          if (
+            pack &&
+            !packExistsAsPath &&
+            !gitSource &&
+            !remoteMatch &&
+            !/[/\\:]/.test(pack)
+          ) {
+            console.error(
+              pc.red(
+                `✗ \`${pack}\` is not an installable source — nothing exists at that path, and bare names cannot be resolved.\n` +
+                  `  Expected one of:\n` +
+                  `    • a local pack path  e.g. ./examples/pr-quality (a directory containing AGENTPACK.yaml)\n` +
+                  `    • a git source       e.g. github:jckeen/agent-pack@master#examples/pr-quality\n` +
+                  `    • a registry id      e.g. agentpack/pr-quality@0.1.0`,
+              ),
+            );
+            process.exit(2);
           }
 
           if (gitSource) {
@@ -253,9 +292,12 @@ export function registerInstall(program: Command): void {
                 ? gitSource.ref
                 : `${gitSource.ref} → ${gitResult.resolvedSha.slice(0, 12)}`
               : `(default branch) → ${gitResult.resolvedSha.slice(0, 12)}`;
+            // "Fetched", not "Installed" — this line prints before consent
+            // (and under --dry-run); nothing has landed in the project yet
+            // (#149a).
             console.log(
               pc.dim(
-                `Installed from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}@${refLabel}${
+                `Fetched from git: ${gitSource.host}:${gitSource.owner}/${gitSource.repo}@${refLabel}${
                   gitSource.subpath ? "#" + gitSource.subpath : ""
                 }`,
               ),
@@ -437,31 +479,33 @@ export function registerInstall(program: Command): void {
               // will validate projectRoot below.
             }
           }
-          const plan = await planInstall({
-            source,
-            target: options.target,
-            // Don't pre-fill "safe": let exportPack resolve the pack's declared
-            // exports.default_profile first, so imported packs (which declare
-            // only `all`) install without an explicit --profile (#86).
-            profile: options.profile,
-            projectRoot: options.project,
-            generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
-            ...(scope === "user" ? { scope: "user" as const } : {}),
-          });
-
-          // #35 fix 3: persist the verified signature envelope into the lockfile
-          // so a later `verify --sig` recognizes the install as signed. The
-          // envelope is base64-encoded JSON, matching what `verify --sig`
-          // decodes from signatures.manifest.
-          if (verifiedSignatureB64) {
-            plan.lockfile.signatures.manifest = verifiedSignatureB64;
-          }
-
-          // Sync S1: persist provenance into the lockfile; applyInstall
-          // mirrors it into the install manifest. Absent for local paths.
-          if (sourceProvenance) {
-            plan.lockfile.source = sourceProvenance;
-          }
+          const buildPlan = async (projectRoot: string) => {
+            const built = await planInstall({
+              source,
+              target: options.target,
+              // Don't pre-fill "safe": let exportPack resolve the pack's declared
+              // exports.default_profile first, so imported packs (which declare
+              // only `all`) install without an explicit --profile (#86).
+              profile: options.profile,
+              projectRoot,
+              generator: { cli: CLI_VERSION, adapter: CLI_VERSION },
+              ...(scope === "user" ? { scope: "user" as const } : {}),
+            });
+            // #35 fix 3: persist the verified signature envelope into the lockfile
+            // so a later `verify --sig` recognizes the install as signed. The
+            // envelope is base64-encoded JSON, matching what `verify --sig`
+            // decodes from signatures.manifest.
+            if (verifiedSignatureB64) {
+              built.lockfile.signatures.manifest = verifiedSignatureB64;
+            }
+            // Sync S1: persist provenance into the lockfile; applyInstall
+            // mirrors it into the install manifest. Absent for local paths.
+            if (sourceProvenance) {
+              built.lockfile.source = sourceProvenance;
+            }
+            return built;
+          };
+          let plan = await buildPlan(planProjectRoot);
 
           const planJson = () => ({
             packId: plan.packId,
@@ -490,7 +534,16 @@ export function registerInstall(program: Command): void {
             },
           });
 
-          if (!options.json) printPlanSummary(plan);
+          if (!options.json) {
+            printPlanSummary(plan);
+            if (projectMissing && !options.dryRun) {
+              console.log(
+                pc.yellow(
+                  `\nProject directory ${options.project} does not exist — it will be created.`,
+                ),
+              );
+            }
+          }
 
           if (options.dryRun) {
             if (options.json) {
@@ -500,10 +553,18 @@ export function registerInstall(program: Command): void {
                   installed: false,
                   dryRun: true,
                   pendingRecovery,
+                  ...(projectMissing ? { projectRootMissing: true } : {}),
                 }),
               );
             } else {
               console.log(pc.dim("\n(--dry-run) No files were written."));
+              if (projectMissing) {
+                console.log(
+                  pc.dim(
+                    `Note: ${options.project} does not exist — a real install would create it; --dry-run never does.`,
+                  ),
+                );
+              }
               if (pendingRecovery > 0) {
                 console.log(
                   pc.yellow(
@@ -725,6 +786,27 @@ export function registerInstall(program: Command): void {
             }
           }
 
+          // #145: the user consented to the write plan (which announced the
+          // directory creation) — only NOW may the directory come into being.
+          // Re-plan against the real root: an empty fresh directory classifies
+          // identically to the stand-in, but the plan carries absolute paths
+          // that applyInstall writes to.
+          if (projectMissing) {
+            try {
+              await fs.mkdir(projectAbs, { recursive: true });
+            } catch (err) {
+              console.error(
+                pc.red(
+                  `✗ Could not create project directory ${projectAbs}: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
+                ),
+              );
+              process.exit(1);
+            }
+            plan = await buildPlan(options.project);
+          }
+
           const result = await applyInstall({ plan, force: options.force });
           if (options.json) {
             console.log(
@@ -743,7 +825,12 @@ export function registerInstall(program: Command): void {
               `\n✓ Installed ${plan.packId}@${plan.packVersion} (${plan.target}, ${plan.profile}).`,
             ),
           );
-          console.log(pc.dim(`  • ${result.written.length} files written.`));
+          printOrientation(plan, scope);
+          // Reconcile with the plan: `result.written` includes AGENTPACK.lock,
+          // which the plan's Create list never shows — report it separately so
+          // the counts agree (#149b).
+          const payloadWritten = result.written.filter((p) => p !== LOCKFILE_NAME);
+          console.log(pc.dim(`  • ${payloadWritten.length} files + lockfile written.`));
           if (plan.unsupportedAtoms.length > 0) {
             console.log(
               pc.yellow(
@@ -913,8 +1000,10 @@ async function fetchRemotePack(params: {
     }
   }
 
+  // "Fetched", not "Installed" — same pre-consent accuracy as the git line
+  // (#149a): at this point the pack is only materialized into a tmpdir.
   console.log(
-    pc.dim(`Installed from registry: ${params.publisher}/${params.pack}@${version}`),
+    pc.dim(`Fetched from registry: ${params.publisher}/${params.pack}@${version}`),
   );
   return {
     tmpRoot,
@@ -1091,6 +1180,83 @@ async function verifyRegistrySignature(params: {
     reason: result.reason,
     detail: result.detail,
   };
+}
+
+const RUNTIME_NAMES: Record<TargetPlatform, string> = {
+  "claude-code": "Claude Code",
+  codex: "Codex",
+  cursor: "Cursor",
+  chatgpt: "ChatGPT",
+  generic: "your agent runtime",
+};
+
+/** Where each target's adapter merges instruction/rule guidance. */
+const INSTRUCTIONS_FILE: Record<TargetPlatform, string> = {
+  "claude-code": "CLAUDE.md",
+  codex: "AGENTS.md",
+  cursor: "AGENTS.md",
+  chatgpt: "project-instructions.md",
+  generic: "AGENTS.md",
+};
+
+/**
+ * Post-install orientation (#148): what the user gained, grouped by atom kind
+ * with names, then the one line that says where to use it. Derived from the
+ * plan's resolved atoms — dropped (unsupported) atoms are never listed, and
+ * kinds that aren't present don't print. Plumbing notes come after this.
+ */
+function printOrientation(
+  plan: ReturnType<typeof planInstall> extends Promise<infer T> ? T : never,
+  scope: "project" | "user",
+): void {
+  const dropped = new Set(plan.unsupportedAtoms);
+  const slug = (id: string) => (id.includes(":") ? id.slice(id.indexOf(":") + 1) : id);
+  const byType = new Map<string, string[]>();
+  for (const a of plan.atomTypes) {
+    if (dropped.has(a.id)) continue;
+    const list = byType.get(a.type) ?? [];
+    list.push(slug(a.id));
+    byType.set(a.type, list);
+  }
+  const lines: string[] = [];
+  const add = (label: string, names: string[] | undefined) => {
+    if (names && names.length > 0) lines.push(`  ${label}: ${names.join(", ")}`);
+  };
+  add(
+    "Commands",
+    byType.get("command")?.map((s) => `/${s}`),
+  );
+  add("Skills", byType.get("skill"));
+  add("Agents", byType.get("subagent"));
+  // instruction + rule atoms both merge into the target's shared guidance file.
+  const guidance = [...(byType.get("instruction") ?? []), ...(byType.get("rule") ?? [])];
+  if (guidance.length > 0) {
+    lines.push(`  ${INSTRUCTIONS_FILE[plan.target]}: ${guidance.join(", ")} (merged)`);
+  }
+  add("Hooks", byType.get("hook"));
+  add("MCP servers", byType.get("mcp_server"));
+  const namedKinds = new Set([
+    "command",
+    "skill",
+    "subagent",
+    "instruction",
+    "rule",
+    "hook",
+    "mcp_server",
+  ]);
+  const other = [...byType.entries()]
+    .filter(([t]) => !namedKinds.has(t))
+    .flatMap(([t, names]) => names.map((n) => `${n} (${t})`));
+  if (other.length > 0) lines.push(`  Also: ${other.join(", ")}`);
+  if (lines.length === 0) return;
+  console.log("\nYou now have:");
+  for (const l of lines) console.log(l);
+  const runtime = RUNTIME_NAMES[plan.target];
+  console.log(
+    scope === "user"
+      ? `Open ${runtime} to use them — user scope applies in every project.`
+      : `Open this project in ${runtime} to use them.`,
+  );
 }
 
 function printPlanSummary(
