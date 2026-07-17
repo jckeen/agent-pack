@@ -1,13 +1,15 @@
-import os from "node:os";
-import path from "node:path";
+import { promises as fs } from "node:fs";
 
 import type { Command } from "commander";
 import pc from "picocolors";
 import {
+  allUserScopeRoots,
+  InstallManifestNotFoundError,
   uninstall,
   UninstallConflictError,
   readInstallManifest,
   resolveAgentpackPaths,
+  type InstallManifestV1,
 } from "@agentpack/core";
 import { failCleanly } from "../lib/error.js";
 import { confirm } from "../lib/prompt.js";
@@ -19,7 +21,7 @@ export function registerUninstall(program: Command): void {
     .option("--project <dir>", "target project directory", process.cwd())
     .option(
       "--scope <scope>",
-      "uninstall scope: `project` (default) or `user` — user scope targets the ~/.claude install (sync S3)",
+      "uninstall scope: `project` (default) or `user` — user scope targets the pack's user-root install(s) (~/.claude, ~/.codex, ~/.gemini/config)",
       "project",
     )
     .option("-y, --yes", "skip confirmation prompt", false)
@@ -48,78 +50,109 @@ export function registerUninstall(program: Command): void {
             );
             process.exit(2);
           }
-          // `--scope user` targets the ~/.claude install — the exit door for
-          // `install --scope user` (#146), with the same project→~/.claude
-          // mapping install/update use (sync S3).
+          // `--scope user` targets the pack's user-root install(s) — the exit
+          // door for `install --scope user` (#146; multi-runtime roots in
+          // #132). The pack may be installed under one or several user roots
+          // (~/.claude for claude-code, ~/.codex for codex, ~/.gemini/config
+          // for generic); uninstall removes it from every root that has it.
+          let targets: Array<{ project: string; manifest: InstallManifestV1 }>;
           if (options.scope === "user") {
             if (command.getOptionValueSource("project") === "cli") {
               console.error(
                 pc.red(
-                  "✗ --project and --scope user are mutually exclusive — user scope always targets ~/.claude.",
+                  "✗ --project and --scope user are mutually exclusive — user scope always targets the user config roots.",
                 ),
               );
               process.exit(2);
             }
-            options.project = path.join(os.homedir(), ".claude");
-          }
-          const ws = await resolveAgentpackPaths(options.project);
-          const manifest = await readInstallManifest(ws, packId);
-          console.log(
-            pc.bold(
-              `\nUninstall plan: ${manifest.packId}@${manifest.packVersion} (${manifest.target}, ${manifest.profile})`,
-            ),
-          );
-          // Merged files (shared CLAUDE.md/AGENTS.md, JSON configs) are
-          // surgically un-merged — only the pack's span/entries come out, the
-          // user's surrounding content stays. They are NOT backup restores, so
-          // show them separately or the "Restore (n)" count contradicts the
-          // "0 restored" result (QA P2-2).
-          const mergePaths = new Set((manifest.merges ?? []).map((m) => m.path));
-          const restores = manifest.backups.filter((b) => !mergePaths.has(b.original));
-          // A merged file lists ONLY under Unmerge — it also appears in
-          // `created` when the pack introduced it, but its uninstall action is
-          // the merge one (span/entry removal; whole-file only when nothing
-          // else remains), and double-listing reads as removing it twice
-          // (#149c).
-          const removals = manifest.created.filter((c) => !mergePaths.has(c.path));
-          console.log(pc.green(`  Remove (${removals.length}):`));
-          for (const c of removals) console.log(pc.green(`    − ${c.path}`));
-          if (manifest.merges && manifest.merges.length > 0) {
-            console.log(pc.cyan(`  Unmerge (${manifest.merges.length}):`));
-            for (const m of manifest.merges)
-              console.log(pc.cyan(`    ✂ ${m.path} (${m.strategy})`));
-          }
-          console.log(pc.cyan(`  Restore (${restores.length}):`));
-          for (const b of restores) console.log(pc.cyan(`    ↺ ${b.original}`));
-
-          if (!options.yes) {
-            const ok = await confirm(pc.bold(`\nProceed with uninstall? [y/N] `));
-            if (!ok) {
-              console.log(pc.dim("Aborted."));
-              process.exit(1);
+            targets = [];
+            const roots = allUserScopeRoots();
+            for (const root of roots) {
+              const isDir = await fs
+                .stat(root)
+                .then((s) => s.isDirectory())
+                .catch(() => false);
+              if (!isDir) continue;
+              const ws = await resolveAgentpackPaths(root);
+              try {
+                targets.push({
+                  project: root,
+                  manifest: await readInstallManifest(ws, packId),
+                });
+              } catch (err) {
+                if (!(err instanceof InstallManifestNotFoundError)) throw err;
+              }
             }
+            if (targets.length === 0) {
+              throw new InstallManifestNotFoundError(packId, roots.join(", "));
+            }
+          } else {
+            const ws = await resolveAgentpackPaths(options.project);
+            targets = [
+              { project: options.project, manifest: await readInstallManifest(ws, packId) },
+            ];
           }
 
-          const result = await uninstall({
-            packId,
-            projectRoot: options.project,
-            force: options.force,
-            forceRestore: options.forceRestore,
-          });
-          console.log(pc.green(`\n✓ Uninstalled ${packId}.`));
-          console.log(
-            pc.dim(
-              `  • ${result.removed.length} removed, ${result.restored.length} restored, ${result.conflicts.length} conflicts.`,
-            ),
-          );
-          // Lockfile v2 (#114): uninstall removes only this pack's entry.
-          const lockNote = {
-            "entry-removed": `AGENTPACK.lock updated (${packId} entry removed; other packs' entries retained).`,
-            "file-removed": `AGENTPACK.lock removed (${packId} was the last installed pack; history.jsonl keeps the audit trail).`,
-            "not-tracked": `AGENTPACK.lock untouched (no entry for ${packId}).`,
-            "unrecognized-left-in-place": `AGENTPACK.lock could not be parsed — left in place; inspect or delete it manually.`,
-          }[result.lockfile];
-          console.log(pc.dim(`  • ${lockNote}`));
+          for (const { project, manifest } of targets) {
+            const where =
+              targets.length > 1 || options.scope === "user" ? ` — ${project}` : "";
+            console.log(
+              pc.bold(
+                `\nUninstall plan: ${manifest.packId}@${manifest.packVersion} (${manifest.target}, ${manifest.profile})${where}`,
+              ),
+            );
+            // Merged files (shared CLAUDE.md/AGENTS.md, JSON configs) are
+            // surgically un-merged — only the pack's span/entries come out, the
+            // user's surrounding content stays. They are NOT backup restores, so
+            // show them separately or the "Restore (n)" count contradicts the
+            // "0 restored" result (QA P2-2).
+            const mergePaths = new Set((manifest.merges ?? []).map((m) => m.path));
+            const restores = manifest.backups.filter((b) => !mergePaths.has(b.original));
+            // A merged file lists ONLY under Unmerge — it also appears in
+            // `created` when the pack introduced it, but its uninstall action is
+            // the merge one (span/entry removal; whole-file only when nothing
+            // else remains), and double-listing reads as removing it twice
+            // (#149c).
+            const removals = manifest.created.filter((c) => !mergePaths.has(c.path));
+            console.log(pc.green(`  Remove (${removals.length}):`));
+            for (const c of removals) console.log(pc.green(`    − ${c.path}`));
+            if (manifest.merges && manifest.merges.length > 0) {
+              console.log(pc.cyan(`  Unmerge (${manifest.merges.length}):`));
+              for (const m of manifest.merges)
+                console.log(pc.cyan(`    ✂ ${m.path} (${m.strategy})`));
+            }
+            console.log(pc.cyan(`  Restore (${restores.length}):`));
+            for (const b of restores) console.log(pc.cyan(`    ↺ ${b.original}`));
+
+            if (!options.yes) {
+              const ok = await confirm(pc.bold(`\nProceed with uninstall? [y/N] `));
+              if (!ok) {
+                console.log(pc.dim("Aborted."));
+                process.exit(1);
+              }
+            }
+
+            const result = await uninstall({
+              packId,
+              projectRoot: project,
+              force: options.force,
+              forceRestore: options.forceRestore,
+            });
+            console.log(pc.green(`\n✓ Uninstalled ${packId}.`));
+            console.log(
+              pc.dim(
+                `  • ${result.removed.length} removed, ${result.restored.length} restored, ${result.conflicts.length} conflicts.`,
+              ),
+            );
+            // Lockfile v2 (#114): uninstall removes only this pack's entry.
+            const lockNote = {
+              "entry-removed": `AGENTPACK.lock updated (${packId} entry removed; other packs' entries retained).`,
+              "file-removed": `AGENTPACK.lock removed (${packId} was the last installed pack; history.jsonl keeps the audit trail).`,
+              "not-tracked": `AGENTPACK.lock untouched (no entry for ${packId}).`,
+              "unrecognized-left-in-place": `AGENTPACK.lock could not be parsed — left in place; inspect or delete it manually.`,
+            }[result.lockfile];
+            console.log(pc.dim(`  • ${lockNote}`));
+          }
         } catch (err) {
           if (err instanceof UninstallConflictError) {
             console.error(pc.red("✗ ") + err.message);

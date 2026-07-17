@@ -21,6 +21,8 @@ import {
   countIncompleteInstalls,
   recoverIncomplete,
   signing,
+  USER_SCOPE_TARGETS,
+  userScopeRoot,
   type GitSource,
   type LockfileSource,
   type RegistryClient,
@@ -53,7 +55,7 @@ export function registerInstall(program: Command): void {
     .option("--project <dir>", "target project directory", process.cwd())
     .option(
       "--scope <scope>",
-      "install scope: `project` (default) or `user` — user scope installs into ~/.claude with user-layout paths (claude-code target only; state at ~/.claude/.agentpack/)",
+      "install scope: `project` (default) or `user` — user scope installs into the target's user config dir with user-layout paths (claude-code → ~/.claude, codex → ~/.codex, generic → ~/.gemini/config; state at <root>/.agentpack/)",
       "project",
     )
     .option("-y, --yes", "skip confirmation prompt", false)
@@ -128,14 +130,18 @@ export function registerInstall(program: Command): void {
             process.exit(2);
           }
           const scope = options.scope as "project" | "user";
-          // Sync S3 (#112): `--scope user` roots the install at ~/.claude and
-          // remaps adapter output to the user layout. State (.agentpack/)
-          // lands at ~/.claude/.agentpack/ — never inside any project.
+          // Sync S3 (#112), extended in #132: `--scope user` roots the
+          // install at the TARGET's user config dir (claude-code → ~/.claude,
+          // codex → ~/.codex, generic → ~/.gemini/config — Antigravity's
+          // global customization root) and remaps adapter output to the user
+          // layout. State (.agentpack/) lands at <root>/.agentpack/ — never
+          // inside any project.
           if (scope === "user") {
-            if (options.target !== "claude-code") {
+            const userRoot = userScopeRoot(options.target);
+            if (userRoot === null) {
               console.error(
                 pc.red(
-                  `✗ --scope user is only supported with --target claude-code (got \`${options.target}\`).`,
+                  `✗ --scope user is only supported with --target ${USER_SCOPE_TARGETS.join(", ")} (got \`${options.target}\`).`,
                 ),
               );
               process.exit(2);
@@ -143,19 +149,18 @@ export function registerInstall(program: Command): void {
             if (command.getOptionValueSource("project") === "cli") {
               console.error(
                 pc.red(
-                  "✗ --project and --scope user are mutually exclusive — user scope always installs into ~/.claude.",
+                  `✗ --project and --scope user are mutually exclusive — user scope always installs into ${userRoot}.`,
                 ),
               );
               process.exit(2);
             }
-            const userRoot = path.join(os.homedir(), ".claude");
             const exists = await fs
               .stat(userRoot)
               .then((s) => s.isDirectory())
               .catch(() => false);
             if (!exists) {
               if (options.dryRun) {
-                // A dry-run must never mutate ~ — including creating ~/.claude.
+                // A dry-run must never mutate ~ — including creating the root.
                 console.error(
                   pc.red(
                     `✗ ${userRoot} does not exist. --dry-run never creates it; run without --dry-run to install (which will create it).`,
@@ -843,9 +848,11 @@ export function registerInstall(program: Command): void {
           );
           console.log(pc.dim(`  • History entry: ${result.commitEntry.id}`));
           if (scope === "user") {
+            const userRoot = userScopeRoot(plan.target) ?? plan.projectRoot;
+            const displayRoot = userRoot.replace(os.homedir(), "~");
             console.log(
               pc.dim(
-                `\nUser-scope install: files live under ~/.claude, state under ~/.claude/.agentpack/.\nKeep the pack repo as the source of truth; run \`agentpack update --scope user\` to pull its changes.`,
+                `\nUser-scope install: files live under ${displayRoot}, state under ${displayRoot}/.agentpack/.\nKeep the pack repo as the source of truth; run \`agentpack update --scope user\` to pull its changes.`,
               ),
             );
           } else {
