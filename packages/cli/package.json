@@ -1,9 +1,32 @@
 {
   "name": "@agentpack/cli",
   "version": "0.7.0-dev",
-  "private": true,
   "description": "agentpack CLI — validate, inspect, plan, export, install, uninstall, verify, and rollback AgentPacks.",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jckeen/agent-pack.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/jckeen/agent-pack#readme",
+  "bugs": {
+    "url": "https://github.com/jckeen/agent-pack/issues"
+  },
+  "keywords": [
+    "agentpack",
+    "agents",
+    "ai-agents",
+    "agent-configuration",
+    "claude-code",
+    "codex",
+    "cursor",
+    "cli",
+    "skills",
+    "mcp"
+  ],
   "type": "module",
   "bin": {
     "agentpack": "./dist/index.js"
@@ -11,7 +34,8 @@
   "files": [
     "dist",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -b tsconfig.json",
