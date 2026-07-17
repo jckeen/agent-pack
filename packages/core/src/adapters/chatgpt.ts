@@ -50,6 +50,10 @@ export async function handler(args: { input?: string }): Promise<string> {
 
 export const chatgptAdapter = defineAdapter({
   target: "chatgpt",
+  // No exec-capable outputs (#119): commands become inert TypeScript tool
+  // stubs (descriptions only, never wired to a transport and never
+  // auto-run), and everything else is instructions/metadata.
+  execSurfaces: () => false,
   async build(options: AdapterExportOptions) {
     const { manifest, packRoot, resolvedAtoms } = options;
     const files: AdapterOutputFile[] = [];

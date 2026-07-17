@@ -115,6 +115,13 @@ export function mapClaudeCodeOutputToUserScope(file: { path: string; content: st
 
 export const claudeCodeAdapter = defineAdapter({
   target: "claude-code",
+  // Claude Code preprocesses `!`…`` (bang-bash) in slash-command and subagent
+  // markdown bodies as shell on invocation (#78) — those are the only emitted
+  // files whose content the runtime EXECUTES. Everything else (CLAUDE.md,
+  // skills, settings.json, .mcp.json) is read, not preprocessed. Paths are
+  // matched as this adapter emits them (project layout, before any --scope
+  // user remap); the stamped flag rides the file object from there (#119).
+  execSurfaces: (file) => /^\.claude\/(commands|agents)\/[^/]+\.md$/.test(file.path),
   async build(options: AdapterExportOptions) {
     const { manifest, packRoot, resolvedAtoms } = options;
     const files: AdapterOutputFile[] = [];
@@ -164,6 +171,9 @@ export const claudeCodeAdapter = defineAdapter({
     // ---------- Skills ----------
     // Emitted skill folders conform to the Agent Skills spec (agentskills.io):
     // slug-normalized directory names, name = directory, YAML-safe frontmatter.
+    // Outside `execSurfaces` (#119): Claude Code loads SKILL.md as
+    // instructions — it does not preprocess bang-bash in skill bodies the way
+    // it does for slash commands and agents.
     const skillAtoms = byType.get("skill") ?? [];
     for (const atom of skillAtoms) {
       const slug = normalizeSkillSlug(slugFor(atom));

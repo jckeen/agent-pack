@@ -20,6 +20,10 @@ function renderRuleMdc(atom: Atom, body: string): string {
 
 export const cursorAdapter = defineAdapter({
   target: "cursor",
+  // No exec-capable outputs (#119): commands/subagents surface as
+  // DESCRIPTIONS in AGENTS.md only — no body is emitted and Cursor executes
+  // nothing this adapter installs.
+  execSurfaces: () => false,
   async build(options: AdapterExportOptions) {
     const { manifest, packRoot, resolvedAtoms } = options;
     const files: AdapterOutputFile[] = [];

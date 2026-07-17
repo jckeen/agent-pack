@@ -74,6 +74,12 @@ function slugFor(atom: Atom): string {
 
 export const codexAdapter = defineAdapter({
   target: "codex",
+  // No exec-capable outputs (#119): command bodies land VERBATIM in
+  // `.agents/skills/<slug>/SKILL.md`, but the #119 audit found no evidence
+  // Codex executes Claude-style `!`…`` bang-bash in skill bodies — absence of
+  // evidence, not proof. Re-audit and flip this declaration if Codex ever
+  // adds skill-body preprocessing.
+  execSurfaces: () => false,
   async build(options: AdapterExportOptions) {
     const { manifest, packRoot, resolvedAtoms } = options;
     const files: AdapterOutputFile[] = [];
@@ -432,6 +438,8 @@ export const codexAdapter = defineAdapter({
     }
 
     // ---------- .agents/skills (commands) ----------
+    // Command bodies are emitted VERBATIM — see the `execSurfaces`
+    // declaration above for why these are nonetheless not exec-capable.
     for (const atom of commandAtomsAll) {
       // A command whose slug collides with a skill would emit the same
       // SKILL.md path twice — applyInstall's create-only (`wx`) write then
