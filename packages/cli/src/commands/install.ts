@@ -570,16 +570,15 @@ export function registerInstall(program: Command): void {
             (a) => a.type === "hook" || a.type === "mcp_server",
           );
           // Second exec surface (#78): `command` and `subagent` atoms don't fire
-          // on lifecycle events like hooks, but they compile to
-          // `.claude/commands|agents/<slug>.md` with the author's prompt body
-          // written VERBATIM. A Claude Code bang-bash directive (`!`…`) in that
-          // body runs shell the moment the user invokes the slash command /
-          // subagent — author-controlled code reaching an exec surface, so it
-          // crosses the same consent gate. Detect by scanning the exact bytes
-          // the plan will write (immune to atom→file mapping drift); only the
-          // claude-code adapter emits these paths, so this is target-precise. A
-          // benign prompt command (no `!`…`) is NOT gated, so the common case
-          // (e.g. the README quickstart's /pr-summary) stays frictionless.
+          // on lifecycle events like hooks, but they compile to markdown whose
+          // author prompt body is written VERBATIM. A Claude Code bang-bash
+          // directive (`!`…`) in that body runs shell the moment the user
+          // invokes the slash command / subagent — author-controlled code
+          // reaching an exec surface, so it crosses the same consent gate.
+          // Detect by scanning the exact bytes the plan will write (immune to
+          // atom→file mapping drift). A benign prompt command (no `!`…`) is
+          // NOT gated, so the common case (e.g. the README quickstart's
+          // /pr-summary) stays frictionless.
           const BANG_BASH = /!`/;
           const plannedOutputs = [...plan.created, ...plan.modified, ...plan.unchanged];
           // --force also writes conflict files to disk (backed up first) —
@@ -588,14 +587,14 @@ export function registerInstall(program: Command): void {
           // silent exec consent (#121 review, HIGH): the bang-bash scan is the
           // ONLY gate for command/subagent atoms, which are never execAtoms.
           if (options.force) plannedOutputs.push(...plan.conflicts.map((c) => c.file));
-          // User scope drops the `.claude/` prefix (sync S3): commands/agents
-          // land at the ~/.claude root, so match the scope's actual layout.
-          const execPathRe =
-            scope === "user"
-              ? /^(commands|agents)\/[^/]+\.md$/
-              : /(^|\/)\.claude\/(commands|agents)\/[^/]+\.md$/;
+          // WHICH files to content-scan is declared by the ADAPTER — each
+          // emitted file carries `execCapable` when its runtime executes
+          // embedded directives (#119) — not by a path regex here. The flag
+          // rides the file object through every path remap (e.g. --scope
+          // user's `.claude/X` → `X`), so a layout change or a new
+          // exec-capable target surface cannot silently detach this gate.
           const execFiles = plannedOutputs
-            .filter((f) => execPathRe.test(f.path) && BANG_BASH.test(f.content))
+            .filter((f) => f.execCapable === true && BANG_BASH.test(f.content))
             .map((f) => f.path);
           if (
             (execAtoms.length > 0 || execFiles.length > 0) &&

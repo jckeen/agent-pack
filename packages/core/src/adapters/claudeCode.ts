@@ -164,6 +164,9 @@ export const claudeCodeAdapter = defineAdapter({
     // ---------- Skills ----------
     // Emitted skill folders conform to the Agent Skills spec (agentskills.io):
     // slug-normalized directory names, name = directory, YAML-safe frontmatter.
+    // Not `execCapable`: Claude Code loads SKILL.md as instructions — it does
+    // not preprocess bang-bash in skill bodies the way it does for slash
+    // commands and agents (#119).
     const skillAtoms = byType.get("skill") ?? [];
     for (const atom of skillAtoms) {
       const slug = normalizeSkillSlug(slugFor(atom));
@@ -234,6 +237,10 @@ export const claudeCodeAdapter = defineAdapter({
         path: `.claude/commands/${slug}.md`,
         content: `${yamlFrontmatter({ description: atom.description, "argument-hint": argHint })}\n${body ?? `# ${atom.name}\n\n${atom.description}`}\n`,
         action: "create",
+        // Claude Code preprocesses `!`…`` (bang-bash) in slash-command bodies
+        // as shell on /invocation — the exec-consent gate content-scans this
+        // file (#78/#119).
+        execCapable: true,
       });
     }
 
@@ -257,6 +264,9 @@ export const claudeCodeAdapter = defineAdapter({
         path: `.claude/agents/${slug}.md`,
         content: `${yamlFrontmatter({ name: slug, description: description ?? atom.description, tools, model })}\n${body}\n`,
         action: "create",
+        // Same exec surface as slash commands: bang-bash in an agent body runs
+        // shell when the subagent is invoked (#78/#119).
+        execCapable: true,
       });
     }
 

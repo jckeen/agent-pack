@@ -115,6 +115,9 @@ export const chatgptAdapter = defineAdapter({
     });
 
     // ---------- mcp-server/ skeleton ----------
+    // Commands become inert TypeScript tool stubs (descriptions only, never
+    // wired to a transport and never auto-run), so no output of this adapter
+    // is `execCapable` (#119).
     if (commandAtoms.length > 0) {
       files.push({
         path: "mcp-server/package.json",

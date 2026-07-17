@@ -432,6 +432,11 @@ export const codexAdapter = defineAdapter({
     }
 
     // ---------- .agents/skills (commands) ----------
+    // Command bodies are emitted VERBATIM into SKILL.md, but intentionally NOT
+    // marked `execCapable`: Codex reads skills as instructions and does not
+    // execute Claude-style `!`…`` bang-bash directives (verified in the #119
+    // target-support audit — no preprocessing of skill bodies). If Codex ever
+    // gains such a surface, flag it here and the install gate follows.
     for (const atom of commandAtomsAll) {
       // A command whose slug collides with a skill would emit the same
       // SKILL.md path twice — applyInstall's create-only (`wx`) write then
