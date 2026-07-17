@@ -105,6 +105,8 @@ export function registerPlan(program: Command): void {
                 permissions: plan.permissions,
                 warnings: plan.warnings,
                 unsupportedAtoms: plan.unsupportedAtoms,
+                authoredCompatibility: plan.authoredCompatibility ?? null,
+                observedFidelity: plan.observedFidelity,
                 files: plan.files.map((f) => ({ path: f.path, action: f.action })),
               }),
             );

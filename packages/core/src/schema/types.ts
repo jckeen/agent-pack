@@ -334,4 +334,18 @@ export interface InstallPlan {
   warnings: string[];
   files: AdapterOutputFile[];
   unsupportedAtoms: string[];
+  /**
+   * The manifest's authored `compatibility.targets[target].status` for this
+   * plan's target, verbatim (#134). Absent when the manifest declares nothing
+   * for the target. Never `unsupported`: planning for an authored-unsupported
+   * target throws `UnsupportedTargetError` instead of producing a plan.
+   */
+  authoredCompatibility?: CompatibilityStatus;
+  /**
+   * Compiler-observed fidelity, derived from adapter warnings + unsupported
+   * atoms (#134): `supported` when the adapter reported neither, `partial`
+   * otherwise. Reported separately from `authoredCompatibility` so an
+   * authored claim can never mask what the export actually achieved.
+   */
+  observedFidelity: CompatibilityStatus;
 }
