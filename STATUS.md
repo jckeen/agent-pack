@@ -107,7 +107,7 @@ see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
 
 - **All workspace test suites pass** across core, cli, db, connector, and registry — run `pnpm test` for the current per-package counts. Iteration-10 added the command-gate, recovery-data-loss, release-descriptor/verify-sig, symlink-safe-read, codex/chatgpt importer, mcpb/chat export, schema, and abuse-control suites.
 - All workspace packages typecheck + lint + build cleanly.
-- Registry builds Next.js 15.5.18 production output (run `pnpm --filter @agentpack/registry build` for the current page/route counts), including the `/admin/packs` page and the `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route.
+- Registry builds Next.js 16.2.10 production output (run `pnpm --filter @agentpack/registry build` for the current page/route counts), including the `/admin/packs` page and the `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route.
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.
 - `pnpm audit --prod` — **no known vulnerabilities** (iteration-9 patched `diff`/`yaml` and added a `postcss ≥8.5.10` override).
 - Iteration-5 dep bumps (2026-05-19): `next 15.1.3 → 15.5.18` (patches 2 CRITICAL + 8 HIGH per `pnpm audit`), `vitest 2.1.8 → 2.1.9` (patches 1 CRITICAL RCE).
