@@ -21,7 +21,7 @@ pnpm verify         # the canonical pre-PR gate: typecheck + lint + test + build
 - `packages/cli` — the `agentpack` binary. Thin wrappers around the core API plus rendering. Run the local build via `node packages/cli/dist/index.js …` until the npm artifact ships.
 - `packages/db` — `@agentpack/db`: Drizzle schema, queries, migrations for the registry's Postgres backend.
 - `packages/connector` — `@agentpack/connector`: prototype remote MCP connector that exposes an AgentPack's guidance (skills, commands, instructions, rules) as MCP prompts and resources.
-- `apps/registry` — `@agentpack/registry`: Next.js 15 App Router app. Renders seed packs in JSON-fallback mode without any env vars; switches to DB-backed mode when `DATABASE_URL` is set (see `apps/registry/.env.example`).
+- `apps/registry` — `@agentpack/registry`: Next.js 16 App Router app. Renders seed packs in JSON-fallback mode without any env vars; switches to DB-backed mode when `DATABASE_URL` is set (see `apps/registry/.env.example`).
 - `examples/pr-quality` — the canonical reference pack. Used by tests, docs, and the README quickstart.
 - `spec/` — original build packet; treated as design history.
 - `docs/` — reference docs (standard, security, adapters, CLI, registry, publish, install, remote-install, git-source, signatures, policy).

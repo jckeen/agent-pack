@@ -194,7 +194,7 @@ agent-pack/
 │   ├── connector/            # @agentpack/connector: remote MCP connector (prototype) — cross-surface reach
 │   └── db/                   # @agentpack/db: Drizzle schema, queries, migrations
 ├── apps/
-│   └── registry/             # @agentpack/registry: Next.js 15 App Router registry app
+│   └── registry/             # @agentpack/registry: Next.js 16 App Router registry app
 ├── examples/
 │   └── pr-quality/           # complete AgentPack — 7 atoms, 4 profiles
 ├── schemas/AGENTPACK.schema.json

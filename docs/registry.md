@@ -20,7 +20,7 @@ agents must obey, see `Plans/PROTOCOL.md`.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   apps/registry  (Next.js 15)                │
+│                   apps/registry  (Next.js 16)                │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐   │
 │  │  Web UI     │  │  API routes │  │  NextAuth v5        │   │
 │  │  /          │  │  /api/      │  │  /api/auth/         │   │
