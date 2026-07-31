@@ -47,7 +47,15 @@ function restoreEnv(key: string, value: string | undefined): void {
 // 30s timeout: the entrypoint import does real disk I/O and its first run
 // pays the module-transform cost; under a fully parallel `pnpm -r test` on a
 // loaded machine that has exceeded the 5s default (#184).
-describe("serve.ts entrypoint", { timeout: 30_000 }, () => {
+const TEST_TIMEOUT_MS = 30_000;
+// The describe-level timeout only covers test bodies — Vitest's hookTimeout
+// (default 10s) governs beforeEach/afterEach independently, so afterEach gets
+// its own explicit budget. The settle wait stays below it so a wedged run
+// fails with a descriptive error instead of an opaque hook-timeout.
+const HOOK_TIMEOUT_MS = 30_000;
+const SETTLE_TIMEOUT_MS = 25_000;
+
+describe("serve.ts entrypoint", { timeout: TEST_TIMEOUT_MS }, () => {
   beforeEach(() => {
     serveMock.mockReset();
     vi.resetModules();
@@ -55,15 +63,40 @@ describe("serve.ts entrypoint", { timeout: 30_000 }, () => {
   });
 
   afterEach(async () => {
-    // Wait out any entrypoint run the test left unfinished (e.g. after a
+    // Settle any entrypoint run the test left unfinished (e.g. after a
     // timeout) before mocks are restored and the next test resets serveMock.
-    await pendingReady;
+    // The wait is bounded: an ESM import cannot be aborted, so if the run is
+    // still in flight after SETTLE_TIMEOUT_MS we fail this test loudly rather
+    // than hang the hook and let the run leak into the next test unattributed.
+    if (pendingReady) {
+      const timedOut = Symbol("settle-timeout");
+      let timer: NodeJS.Timeout | undefined;
+      const outcome = await Promise.race([
+        // Rejections are the test body's concern (asserted via mod.ready);
+        // here we only care that the run has settled.
+        pendingReady.then(
+          () => undefined,
+          () => undefined,
+        ),
+        new Promise<typeof timedOut>((resolve) => {
+          timer = setTimeout(() => resolve(timedOut), SETTLE_TIMEOUT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+      if (outcome === timedOut) {
+        pendingReady = undefined;
+        throw new Error(
+          `serve.ts entrypoint run still in flight after ${SETTLE_TIMEOUT_MS}ms; ` +
+            "it may leak into the next test (#184)",
+        );
+      }
+    }
     pendingReady = undefined;
     restoreEnv("AGENTPACK_CONNECTOR_TOKEN", ORIGINAL_TOKEN);
     restoreEnv("AGENTPACK_CONNECTOR_PORT", ORIGINAL_PORT);
     process.argv = ORIGINAL_ARGV;
     vi.restoreAllMocks();
-  });
+  }, HOOK_TIMEOUT_MS);
 
   it("binds the server and prints the startup banner with a valid token", async () => {
     process.env["AGENTPACK_CONNECTOR_TOKEN"] = VALID_TOKEN;
