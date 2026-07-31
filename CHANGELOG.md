@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.7.0-dev — 2026-07-29 (dependency + docs maintenance)
+
+- **Dependencies**: minor-and-patch group bump across the workspace — 19
+  updates ([#183](https://github.com/jckeen/agent-pack/pull/183)).
+- **Docs**: nightly/weekly drift sweeps reconciled doc surfaces with the
+  shipped code, including the registry's Next.js 15 → 16 references in
+  README, CONTRIBUTING, and `docs/registry.md`
+  ([#173](https://github.com/jckeen/agent-pack/pull/173),
+  [#182](https://github.com/jckeen/agent-pack/pull/182)).
+
+## 0.7.0-dev — 2026-07-17 (sync S4, lockfile v2, atom variants, go-public hardening)
+
+Backfilled 2026-07-30 for the 2026-07-11 → 2026-07-17 merge window (issue #171).
+
+- **Sync S4 — repo-side sync triggers (#113,
+  [#159](https://github.com/jckeen/agent-pack/pull/159))**: the
+  `agentpack.sync-check` SessionStart pack (`packs/sync-check/`) surfaces
+  pack drift at agent-session start, and a reusable pack-repo CI action
+  (`action/`) runs `validate` + `import --diff` on the pack repo itself.
+- **Lockfile v2 — multi-pack `AGENTPACK.lock` (#114,
+  [#161](https://github.com/jckeen/agent-pack/pull/161))**: the lockfile is
+  now a multi-pack document — installs merge their entry instead of
+  last-install-wins; v1 files migrate on the next write; verify/uninstall
+  operate per-entry.
+- **Target-specific atom variants with shared identity (#133,
+  [#160](https://github.com/jckeen/agent-pack/pull/160))**: one atom id can
+  carry per-target `variants` (`path` or `body` per target, same trust rules
+  as `atom.path`); the planner selects the target's variant, and
+  `import --into` preserves foreign targets' variants across a fold.
+- **Authored target compatibility enforced in install planning (#134,
+  [#154](https://github.com/jckeen/agent-pack/pull/154))**: `unsupported`
+  targets refuse at plan time; authored `partial`/`experimental` claims
+  require an explicit `--allow-partial-target` acknowledgement
+  (intentionally separate from `--yes`).
+- **Go-public hardening (#63,
+  [#157](https://github.com/jckeen/agent-pack/pull/157))**: npm
+  publishability for the workspace packages, registry startup guards, and a
+  registry token floor.
+- **First-run UX
+  ([#158](https://github.com/jckeen/agent-pack/pull/158))**: quickstart
+  output, `uninstall --scope user`, guided errors, and orientation output.
+- **Exec-consent correctness**: install's exec-consent scan surfaces are
+  derived from the adapters instead of a hardcoded list (#119,
+  [#152](https://github.com/jckeen/agent-pack/pull/152)), and update's
+  re-consent derives its surfaces from the plan/adapters the same way (#153,
+  [#169](https://github.com/jckeen/agent-pack/pull/169)).
+- **Publish containment (#162,
+  [#165](https://github.com/jckeen/agent-pack/pull/165))**: `publish` routes
+  atom paths through the containment gate and validates the manifest before
+  upload.
+- **Review-finding backlog closed (#123, #126, #127, #128, #137 —
+  [#151](https://github.com/jckeen/agent-pack/pull/151))**.
+- **Dependency majors**: `next` 15.5 → 16.2
+  ([#141](https://github.com/jckeen/agent-pack/pull/141)), `vite` 6.4 → 8.1
+  ([#144](https://github.com/jckeen/agent-pack/pull/144)), `eslint` 9.17 →
+  10.7 ([#143](https://github.com/jckeen/agent-pack/pull/143)),
+  `@types/node` 22 → 26
+  ([#142](https://github.com/jckeen/agent-pack/pull/142)),
+  `actions/setup-node` 6 → 7
+  ([#139](https://github.com/jckeen/agent-pack/pull/139)).
+
 ## 0.7.0-dev — 2026-07-10 (honest cross-runtime import portability)
 
 - Imported standalone instruction, Claude Code, and Codex configurations now

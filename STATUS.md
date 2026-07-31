@@ -1,12 +1,12 @@
 # agent-pack — STATUS
 
-Last updated: 2026-06-17 (repo flipped **PUBLIC** — anonymous git-source quickstart verified end-to-end; exec-gate scope #78 + clean-build trap #80 fixed and merged. Prior: pre-public verification pass for issue #63 — re-verified B1 exec-atom gate (code + tests + live E2E), secret/brand scrubs clean, `pnpm verify` exit 0 / 797 tests after the vitest 2→4 + Sigstore 5.0 bumps; fixed CLI `--version` drift (0.2.0 → 0.7.0-dev, now guarded against package.json) and reconciled doc-truth drift. Prior: iteration-10 complete — review/QA sweep, hardening backlog #34–#38/#50, four cross-surface targets #38–#41, Issue #25 closed. Run `pnpm test` for the current count. See CHANGELOG 0.7.0-dev / `docs/integration-roadmap.md`)
+Last updated: 2026-07-30 (July window reconciled — continuous-sync engine S1–S4 shipped (lockfile provenance, gated `update`, `--scope user` + `import --into`, sync-check pack + pack-repo CI action), lockfile v2 multi-pack `AGENTPACK.lock`, target-specific atom variants (#133), authored target-compat enforcement (#134), go-public hardening #63 + first-run UX #158, and the July dependency majors. See the "July 2026" section below and CHANGELOG 0.7.0-dev. Prior: repo flipped **PUBLIC** 2026-06-17 — anonymous git-source quickstart verified end-to-end.)
 
 ## Where we are
 
 **AgentPack is OPEN SOURCE.** Standard, registry, CLI, connector, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
-**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; iteration-8 (2026-06-12) landed Agent Skills spec conformance (emit + ingest + CI gate, CHANGELOG 0.6.9); v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; iteration-8 (2026-06-12) landed Agent Skills spec conformance (emit + ingest + CI gate, CHANGELOG 0.6.9); July 2026 landed the continuous-sync engine (S1–S4), lockfile v2, and atom variants (see below); v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
 
 ## Cross-surface integration
 
@@ -25,13 +25,48 @@ highlights" below): `.mcpb` + CoWork ([#38](https://github.com/jckeen/agent-pack
 backlog ([#34](https://github.com/jckeen/agent-pack/issues/34)–[#37](https://github.com/jckeen/agent-pack/issues/37))
 landed in the same iteration.
 
+## July 2026 — continuous sync + go-public hardening (2026-07-08 → 2026-07-29)
+
+The personal-config sync loop shipped end-to-end (design: `docs/sync-design.md`;
+user guide: `docs/sync.md`; trigger survey: `docs/sync-triggers.md`):
+
+- **Sync S1 — provenance (#116)**: the lockfile + install manifest record the
+  install's source (`github:owner/repo@sha`), `update --check` (exit 10 =
+  something moved) and `verify --all` read it back.
+- **Sync S2 — gated update apply (#117)**: three-way reconcile with backups;
+  upstream-unchanged local edits retained, both-changed refuses (exit 2,
+  `--theirs`/`--keep-local` per-glob), exec-bearing deltas re-require
+  `--allow-exec` even with `--yes`.
+- **Sync S3 — user scope (#112)**: `install`/`update --scope user` root at
+  `~/.claude` (settings deep-merge, hook-path rewrite, state in
+  `~/.claude/.agentpack/`); `import --into <pack-dir> [--diff]` folds live
+  config edits back into the pack with git as the consent point.
+- **Sync S4 — triggers (#113)**: `packs/sync-check` SessionStart pack surfaces
+  drift at agent-session start; a reusable pack-repo CI action (`action/`)
+  runs `validate` + `import --diff` on the pack repo.
+- **Lockfile v2 (#114)**: `AGENTPACK.lock` is a multi-pack document — installs
+  merge entries instead of last-install-wins; v1 migrates on next write.
+- **Atom variants (#133)**: one atom id carries per-target `path`/`body`
+  variants under the same trust rules; folds preserve foreign targets'
+  variants.
+- **Consent/containment hardening**: authored target-compat acknowledgement
+  gate (#134), exec-consent surfaces derived from adapters on install (#119)
+  and update (#153), publish containment + manifest validation (#162),
+  cross-runtime import honesty (#129), go-public hardening (#63), first-run
+  UX (#158), review-finding backlog closed (#151).
+- **Dependency majors**: `next` 16, `vite` 8, `eslint` 10, `@types/node` 26,
+  plus the earlier `zod` 4 / `tailwindcss` 4 — see `package.json` files for
+  current pins.
+
 ## Iteration-10 highlights (2026-06-16)
 
 A `/max` session — parallel review fleet (security + backend-architecture +
 independent Codex second-opinion + E2E QA), the full hardening backlog it
 surfaced, and four cross-surface targets. All landed via PR with required CI;
 see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
-(#25, #34–#41) are closed; no open issues remain.**
+(#25, #34–#41) are closed** (point-in-time claim, 2026-06-16 — see the
+[issue tracker](https://github.com/jckeen/agent-pack/issues) for the current
+open set).
 
 - **Review/QA sweep**: the security review and Codex independently cleared the
   load-bearing invariants (Sigstore SAN-binding; install-recovery happy path);
@@ -56,7 +91,7 @@ see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
 - **All eight deferred-verify issues (#14–#21) resolved.** Six were already fixed in code (drift-sweep had migrated them as verification tasks, not open defects) and now carry named regression tests; two needed real work. See ISA Iteration-9 / CHANGELOG 0.6.11.
 - **Signer-identity enforcement (#14)**: `evaluateSignerGate` pins the acceptable Sigstore signer from `--expected-signer` ∪ policy `install.allowedSigners`; `install.requireIdentity` refuses an unpinned signer. The registry-side per-publisher bound-SAN remains a follow-up gated on the live registry.
 - **Typed exit codes (#20)**: `failCleanly` now maps domain errors to the pinned taxonomy (not-found → 8, integrity → 7, conflict → 9) instead of collapsing to 1.
-- **Connector auth (security)**: the remote-MCP connector is now auth-by-default — `AGENTPACK_CONNECTOR_TOKEN` (≥16 chars) required or fail-closed start, constant-time bearer compare, DNS-rebinding Host/Origin allowlist.
+- **Connector auth (security)**: the remote-MCP connector is now auth-by-default — `AGENTPACK_CONNECTOR_TOKEN` (≥32 chars) required or fail-closed start, constant-time bearer compare, DNS-rebinding Host/Origin allowlist.
 - **Registry hardening**: `verifyBearer` 45 s TTL cache; audit-fork (#15) + admin-CSRF (#16) regression tests backfilled; `pack_signatures_signer_san_idx` schema drift fixed; drizzle-kit `meta/` journal baseline (so `db:generate` reports no drift).
 - **Adversarial-review fix (CRITICAL)**: signature trust is now bound to the certificate **inside the verified bundle**, not the forgeable `envelope.metadata.identity.san` — a re-signed bundle with an edited SAN string no longer passes the signer gate. `--require-sig` also pins to the resolved version + cross-checks the manifest hash.
 - **Dependencies**: `diff`/`yaml`/`postcss` advisories patched — `pnpm audit --prod` reports no known vulnerabilities.
@@ -107,7 +142,7 @@ see CHANGELOG 0.7.0-dev and `docs/integration-roadmap.md`. **All session issues
 
 - **All workspace test suites pass** across core, cli, db, connector, and registry — run `pnpm test` for the current per-package counts. Iteration-10 added the command-gate, recovery-data-loss, release-descriptor/verify-sig, symlink-safe-read, codex/chatgpt importer, mcpb/chat export, schema, and abuse-control suites.
 - All workspace packages typecheck + lint + build cleanly.
-- Registry builds Next.js 15.5.18 production output (run `pnpm --filter @agentpack/registry build` for the current page/route counts), including the `/admin/packs` page and the `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route.
+- Registry builds Next.js 16 production output (see `apps/registry/package.json` for the exact pin; run `pnpm --filter @agentpack/registry build` for the current page/route counts), including the `/admin/packs` page and the `/api/admin/packs/[publisher]/[pack]/versions/[version]/status` POST route.
 - `pnpm verify` (typecheck + lint + test + build) exit 0 on the committed tree.
 - `pnpm audit --prod` — **no known vulnerabilities** (iteration-9 patched `diff`/`yaml` and added a `postcss ≥8.5.10` override).
 - Iteration-5 dep bumps (2026-05-19): `next 15.1.3 → 15.5.18` (patches 2 CRITICAL + 8 HIGH per `pnpm audit`), `vitest 2.1.8 → 2.1.9` (patches 1 CRITICAL RCE).

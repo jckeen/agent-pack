@@ -20,7 +20,7 @@ agents must obey, see `Plans/PROTOCOL.md`.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   apps/registry  (Next.js 15)                │
+│                   apps/registry  (Next.js 16)                │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐   │
 │  │  Web UI     │  │  API routes │  │  NextAuth v5        │   │
 │  │  /          │  │  /api/      │  │  /api/auth/         │   │
@@ -279,7 +279,7 @@ docker run -e POSTGRES_PASSWORD=dev -p 5432:5432 -d postgres:16
 
 # 2. Set env
 export DATABASE_URL='postgres://postgres:dev@localhost:5432/postgres'
-export AUTH_SECRET='dev-secret-not-for-prod'
+export AUTH_SECRET='dev-secret-not-for-prod-pad-to-32-chars'
 
 # 3. Apply schema + seed
 pnpm db:push

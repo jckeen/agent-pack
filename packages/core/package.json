@@ -67,12 +67,13 @@
     "diff": "9.0.0",
     "fflate": "0.8.3",
     "sigstore": "5.0.0",
-    "smol-toml": "1.7.0",
+    "smol-toml": "1.7.1",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/node": "26.1.1",
+    "@types/node": "26.1.2",
+    "ajv": "8.20.0",
     "@vitest/coverage-v8": "4.1.10",
     "typescript": "5.6.3",
     "vite": "8.1.5",
