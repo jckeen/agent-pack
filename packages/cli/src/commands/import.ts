@@ -27,13 +27,31 @@ type Source = (typeof SOURCES)[number];
 
 // Which TargetPlatform a fold source's content belongs to (#133): the fold
 // drops the existing pack's variant for THIS target (the fresh import owns it
-// now) while preserving every other runtime's variant.
-const SOURCE_TARGET: Record<Source, TargetPlatform> = {
-  claude: "claude-code",
+// now) while preserving every other runtime's variant. `claude` is resolved
+// per-file by sourceTargetFor(), NOT here — a single-file import is only
+// claude-code content when the file is actually named CLAUDE.md (#167).
+const SOURCE_TARGET: Record<Exclude<Source, "claude">, TargetPlatform> = {
   "claude-code": "claude-code",
   codex: "codex",
   "chatgpt-gpt": "chatgpt",
 };
+
+/**
+ * Mirror runImporter's single-file decision: `--from claude` imports a file
+ * named CLAUDE.md as claude-code content, but AGENTS.md, stdin, and any other
+ * filename import as `generic`. The fold target must follow the SAME decision
+ * — passing claude-code for a generic import would delete the existing pack's
+ * claude-code variant (a foreign runtime's content) and keep a stale generic
+ * variant that shadows the freshly imported generic default (codex #167).
+ */
+function sourceTargetFor(from: Source, srcPath: string): TargetPlatform {
+  if (from !== "claude") return SOURCE_TARGET[from];
+  return singleFileSource(srcPath);
+}
+
+function singleFileSource(srcPath: string): "claude-code" | "generic" {
+  return path.basename(srcPath).toLowerCase() === "claude.md" ? "claude-code" : "generic";
+}
 
 async function readSource(p: string): Promise<string> {
   if (p === "-") {
@@ -190,9 +208,7 @@ async function runImporter(
   if (from === "codex") return importCodexDir(srcPath, opts);
   if (from === "chatgpt-gpt") return importChatgptGptDir(srcPath, opts);
   const text = await readSource(srcPath);
-  const filename = path.basename(srcPath).toLowerCase();
-  const source = filename === "claude.md" ? "claude-code" : "generic";
-  return importClaudeMd(text, { ...opts, source });
+  return importClaudeMd(text, { ...opts, source: singleFileSource(srcPath) });
 }
 
 /**
@@ -220,7 +236,7 @@ async function runFoldInto(
       existing,
       packDir,
       apply: !diffOnly,
-      sourceTarget: SOURCE_TARGET[from],
+      sourceTarget: sourceTargetFor(from, srcPath),
     });
     for (const w of result.warnings) {
       const where = w.line > 0 ? `line ${w.line}: ` : "";
