@@ -49,9 +49,18 @@ export interface UpdateConflict {
    * foreign-file: on-disk file was never ours (no BASE record, no marker).
    * other-pack: file carries another pack's marker.
    * json-collision / toml-collision: config merge cannot reconcile.
+   * invalid-json / invalid-toml: config file cannot be parsed — `--theirs`
+   * is refused for these (#185 P1.2: it would replace the whole file with
+   * the pack fragment); the user must fix the syntax first.
    */
   reason:
-    "both-changed" | "foreign-file" | "other-pack" | "json-collision" | "toml-collision";
+    | "both-changed"
+    | "foreign-file"
+    | "other-pack"
+    | "json-collision"
+    | "toml-collision"
+    | "invalid-json"
+    | "invalid-toml";
   file: AdapterOutputFile;
 }
 
@@ -143,7 +152,12 @@ export async function planUpdate(opts: PlanUpdateOptions): Promise<UpdatePlan> {
       conflicts.push({ path: c.file.path, reason: "other-pack", file: c.file });
       continue;
     }
-    if (c.reason === "json-collision" || c.reason === "toml-collision") {
+    if (
+      c.reason === "json-collision" ||
+      c.reason === "toml-collision" ||
+      c.reason === "invalid-json" ||
+      c.reason === "invalid-toml"
+    ) {
       conflicts.push({ path: c.file.path, reason: c.reason, file: c.file });
       continue;
     }
@@ -290,8 +304,18 @@ export async function applyUpdate(opts: ApplyUpdateOptions): Promise<ApplyUpdate
   const unresolved: UpdateConflict[] = [];
   for (const c of up.conflicts) {
     if (keepLocal(c.path)) retained.push(c.path);
-    else if (theirs(c.path)) resolvedWrites.push(c.file);
-    else unresolved.push(c);
+    else if (theirs(c.path)) {
+      // `--theirs` on an unparsable config would write the bare pack
+      // fragment over the whole file (#185 P1.2) — fail closed instead.
+      if (c.reason === "invalid-json" || c.reason === "invalid-toml") {
+        throw new Error(
+          `Update refused: \`${c.path}\` is not valid ${c.reason === "invalid-toml" ? "TOML" : "JSON"}, ` +
+            `so --theirs would replace your whole config with the pack fragment. ` +
+            `Fix the file's syntax, then re-run the update.`,
+        );
+      }
+      resolvedWrites.push(c.file);
+    } else unresolved.push(c);
   }
   if (unresolved.length > 0) {
     throw new UpdateConflictError(unresolved);

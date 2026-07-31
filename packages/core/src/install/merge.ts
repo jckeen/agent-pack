@@ -32,6 +32,13 @@ export interface MergeRecord {
   fragment: string;
   /** sha256(normalizeForHash(fragment)) — drift detection checks THIS. */
   fragmentSha256: string;
+  /**
+   * Key paths (as segment arrays) where a `--force` install overwrote a
+   * pre-existing user value (#185 P1.1). Uninstall restores these keys from
+   * the install backup instead of just deleting the pack's fragment — the
+   * user's pre-install value must survive the round trip.
+   */
+  forcedKeys?: string[][];
 }
 
 const beginMarker = (packId: string) =>
@@ -182,8 +189,23 @@ function stringifyConfig(value: Json): string {
 
 export type JsonMergeResult =
   | { ok: true; merged: string }
-  | { ok: false; collisions: string[] }
+  | { ok: false; collisions: string[]; collisionPaths: string[][] }
   | { ok: false; invalidJson: true };
+
+/**
+ * True when `raw` parses as a JSON/TOML config object this module can merge
+ * into (and back out of). Uninstall uses these to fail CLOSED on an
+ * unparsable config instead of silently orphaning the pack's entries
+ * (#185 P1.3).
+ */
+export function isParsableJsonConfig(raw: string): boolean {
+  return parseJsonObject(raw) !== null;
+}
+
+/** TOML twin of `isParsableJsonConfig`. */
+export function isParsableTomlConfig(raw: string): boolean {
+  return parseTomlObject(raw) !== null;
+}
 
 /**
  * Merge our JSON fragment into an existing JSON config.
@@ -245,10 +267,16 @@ function mergeParsedConfig(
   fragment: Json,
   prior: Json | null,
   force: boolean,
-): { ok: true; merged: Json } | { ok: false; collisions: string[] } {
+):
+  | { ok: true; merged: Json }
+  | { ok: false; collisions: string[]; collisionPaths: string[][] } {
   // Start from existing minus our prior contribution.
   const base = prior ? removeFragment(existing, prior) : existing;
   const collisions: string[] = [];
+  // Same collisions as segment arrays — dotted strings are ambiguous for
+  // quoted TOML keys that themselves contain dots, and uninstall needs the
+  // exact paths to restore forced keys from the backup (#185 P1.1).
+  const collisionPaths: string[][] = [];
 
   for (const [key, fragVal] of Object.entries(fragment)) {
     const curVal = base[key];
@@ -272,6 +300,7 @@ function mergeParsedConfig(
           base[key] = fragVal;
         } else {
           collisions.push(key);
+          collisionPaths.push([key]);
         }
         continue;
       }
@@ -280,6 +309,7 @@ function mergeParsedConfig(
         if (name in out && !deepEqual(out[name], val)) {
           if (!force) {
             collisions.push(`${key}.${name}`);
+            collisionPaths.push([key, name]);
             continue;
           }
           // force: the pack wins this collided entry.
@@ -291,6 +321,7 @@ function mergeParsedConfig(
       if (curVal !== undefined && !deepEqual(curVal, fragVal)) {
         if (!force) {
           collisions.push(key);
+          collisionPaths.push([key]);
           continue;
         }
         // force: the pack wins this collided key.
@@ -298,7 +329,7 @@ function mergeParsedConfig(
       base[key] = fragVal;
     }
   }
-  if (collisions.length > 0) return { ok: false, collisions };
+  if (collisions.length > 0) return { ok: false, collisions, collisionPaths };
   return { ok: true, merged: base };
 }
 
@@ -308,7 +339,7 @@ function mergeParsedConfig(
 
 export type TomlMergeResult =
   | { ok: true; merged: string }
-  | { ok: false; collisions: string[] }
+  | { ok: false; collisions: string[]; collisionPaths: string[][] }
   | { ok: false; invalidToml: true };
 
 /**
@@ -362,6 +393,69 @@ export function removeTomlFragment(currentRaw: string, fragmentRaw: string): str
   const out = removeFragment(current, fragment);
   if (Object.keys(out).length === 0) return "";
   return stringifyTomlConfig(out);
+}
+
+/**
+ * Re-add pre-install user values that a `--force` install overwrote
+ * (#185 P1.1). `remainderRaw` is the config AFTER the pack's fragment was
+ * removed; `backupRaw` is the pre-install backup; `forcedKeys` are the
+ * collision paths recorded at plan time. A key is restored only when the
+ * remainder no longer has a value at that path — a user's post-install edit
+ * to the same key always wins. Returns null when the backup (or remainder)
+ * does not parse.
+ */
+export function restoreForcedKeys(
+  remainderRaw: string,
+  backupRaw: string,
+  forcedKeys: string[][],
+  format: "json" | "toml",
+): string | null {
+  const isToml = format === "toml";
+  const remainder =
+    remainderRaw === ""
+      ? ({} as Json)
+      : isToml
+        ? parseTomlObject(remainderRaw)
+        : parseJsonObject(remainderRaw);
+  const backup = isToml ? parseTomlObject(backupRaw) : parseJsonObject(backupRaw);
+  if (!remainder || !backup) return null;
+  let changed = false;
+  for (const segments of forcedKeys) {
+    // Manifest content is attacker-influenced — never walk a dunder segment.
+    if (segments.length === 0 || segments.some((s) => DUNDER_KEYS.has(s))) continue;
+    const value = getPath(backup, segments);
+    if (value === undefined) continue;
+    if (getPath(remainder, segments) !== undefined) continue;
+    setPath(remainder, segments, value);
+    changed = true;
+  }
+  if (!changed) return remainderRaw;
+  if (Object.keys(remainder).length === 0) return "";
+  return isToml ? stringifyTomlConfig(remainder) : stringifyConfig(remainder);
+}
+
+function getPath(obj: Json, segments: string[]): unknown {
+  let cur: unknown = obj;
+  for (const s of segments) {
+    if (!isObj(cur)) return undefined;
+    cur = (cur as Json)[s];
+  }
+  return cur;
+}
+
+function setPath(obj: Json, segments: string[], value: unknown): void {
+  let cur: Json = obj;
+  for (const s of segments.slice(0, -1)) {
+    const next = cur[s];
+    if (isObj(next)) {
+      cur = next as Json;
+    } else {
+      const child: Json = {};
+      cur[s] = child;
+      cur = child;
+    }
+  }
+  cur[segments[segments.length - 1] as string] = value;
 }
 
 /** TOML twin of `jsonFragmentIntact`. */

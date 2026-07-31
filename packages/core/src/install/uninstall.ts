@@ -19,6 +19,9 @@ import {
   jsonFragmentIntact,
   removeTomlFragment,
   tomlFragmentIntact,
+  isParsableJsonConfig,
+  isParsableTomlConfig,
+  restoreForcedKeys,
 } from "./merge.js";
 
 export interface UninstallOptions {
@@ -64,6 +67,29 @@ export interface UninstallResult {
    * --force) refused to act. With --force, these are also removed/restored.
    */
   conflicts: Array<{ path: string; reason: "user-edited-after-install" }>;
+}
+
+/**
+ * A merge-managed config (settings.json, config.toml, …) can no longer be
+ * parsed, so the pack's entries cannot be surgically removed. Uninstall fails
+ * CLOSED — force included (#185 P1.3): proceeding would delete the manifest
+ * and lockfile entry while the pack's config stays live in the file, with
+ * nothing left tracking it.
+ */
+export class UninstallUnparsableConfigError extends Error {
+  constructor(
+    public path: string,
+    format: "TOML" | "JSON",
+    subject = "its current content",
+  ) {
+    super(
+      `Uninstall refused: \`${path}\` is a merge-managed config but ${subject} is not valid ${format}. ` +
+        `AgentPack's entries cannot be surgically removed from an unparsable file, and forcing would ` +
+        `leave the pack's configuration live with nothing tracking it. ` +
+        `Fix the file's syntax, then re-run the uninstall.`,
+    );
+    this.name = "UninstallUnparsableConfigError";
+  }
 }
 
 export class UninstallConflictError extends Error {
@@ -180,6 +206,13 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
       // strategy === "json" | "toml" — same surgical un-merge, per-format
       // parse/serialize.
       const isToml = merge.strategy === "toml";
+      const format = isToml ? ("TOML" as const) : ("JSON" as const);
+      // Unparsable config fails CLOSED, --force included (#185 P1.3): we are
+      // still in the scan phase, so nothing has been touched — manifest and
+      // lockfile keep tracking the pack until the user fixes the file.
+      if (!(isToml ? isParsableTomlConfig(current) : isParsableJsonConfig(current))) {
+        throw new UninstallUnparsableConfigError(entry.path, format);
+      }
       const fragmentIntact = isToml
         ? tomlFragmentIntact(current, merge.fragment)
         : jsonFragmentIntact(current, merge.fragment);
@@ -187,15 +220,49 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
         pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
         continue;
       }
-      const remainder = isToml
+      let remainder = isToml
         ? removeTomlFragment(current, merge.fragment)
         : removeJsonFragment(current, merge.fragment);
       if (remainder === null) {
-        // Current content is no longer valid JSON/TOML — only act under force.
-        if (!opts.force) {
-          pushConflict("force", { path: entry.path, reason: "user-edited-after-install" });
+        // Current content parsed above, so this is the manifest's own
+        // fragment failing to parse — corrupt state; same fail-closed posture.
+        throw new UninstallUnparsableConfigError(
+          entry.path,
+          format,
+          "the manifest's recorded fragment",
+        );
+      }
+      // #185 P1.1: a --force install overwrote user values at these key
+      // paths — restore them from the pre-install backup rather than just
+      // deleting the pack's fragment.
+      const forcedKeys = merge.forcedKeys ?? [];
+      if (forcedKeys.length > 0) {
+        const b = manifest.backups.find((bk) => bk.original === entry.path);
+        if (b) {
+          const backupAbs = fromRelative(ws.projectRoot, b.backupPath);
+          const backupRaw = await fs.readFile(backupAbs, "utf8").catch((err) => {
+            // A vanished backup leaves nothing to restore from; anything
+            // else (permissions, IO) must not silently skip the restore.
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+            throw err;
+          });
+          if (backupRaw !== null) {
+            const restored = restoreForcedKeys(
+              remainder,
+              backupRaw,
+              forcedKeys,
+              isToml ? "toml" : "json",
+            );
+            if (restored === null) {
+              throw new UninstallUnparsableConfigError(
+                entry.path,
+                format,
+                `the pre-install backup at \`${b.backupPath}\``,
+              );
+            }
+            remainder = restored;
+          }
         }
-        continue;
       }
       if (remainder === "" && !isModified) {
         actions.push({ kind: "unlink", abs, rel: entry.path });

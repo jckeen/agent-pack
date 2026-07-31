@@ -1304,7 +1304,9 @@ function printPlanSummary(
       const detail =
         c.reason === "other-pack-marker"
           ? `belongs to pack \`${c.otherPackId}\``
-          : `existing file has no AgentPack marker`;
+          : c.reason === "invalid-toml" || c.reason === "invalid-json"
+            ? `existing file is not valid ${c.reason === "invalid-toml" ? "TOML" : "JSON"} — fix its syntax first (--force will not replace it)`
+            : `existing file has no AgentPack marker`;
       console.log(pc.red(`  ! ${c.file.path} — ${detail}`));
     }
   }

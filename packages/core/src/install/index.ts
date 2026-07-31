@@ -108,7 +108,11 @@ export {
 } from "./userScope.js";
 export { applyInstall } from "./apply.js";
 export type { ApplyInstallOptions, ApplyInstallResult } from "./apply.js";
-export { uninstall, UninstallConflictError } from "./uninstall.js";
+export {
+  uninstall,
+  UninstallConflictError,
+  UninstallUnparsableConfigError,
+} from "./uninstall.js";
 export type {
   UninstallOptions,
   UninstallResult,

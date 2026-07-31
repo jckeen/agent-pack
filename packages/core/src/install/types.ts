@@ -194,6 +194,12 @@ export interface InstallManifestV1 {
     strategy: "marker" | "json" | "toml";
     fragment: string;
     fragmentSha256: string;
+    /**
+     * Key paths (segment arrays) where a `--force` install overwrote a
+     * pre-existing user value (#185 P1.1). Uninstall restores these from the
+     * install backup after removing the pack's fragment.
+     */
+    forcedKeys?: string[][];
   }>;
   /**
    * sha256 of THIS pack's lock rendered as a standalone v1 document
@@ -349,7 +355,13 @@ export interface InstallPlanV2 {
    */
   conflicts: Array<{
     file: AdapterOutputFile;
-    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision" | "toml-collision";
+    reason:
+      | "no-marker-existing-content"
+      | "other-pack-marker"
+      | "json-collision"
+      | "toml-collision"
+      | "invalid-json"
+      | "invalid-toml";
     existingSha256: string;
     otherPackId?: string;
   }>;
@@ -364,6 +376,8 @@ export interface InstallPlanV2 {
     strategy: "marker" | "json" | "toml";
     fragment: string;
     fragmentSha256: string;
+    /** Collided key paths a `--force` apply overwrites — see InstallManifestV1. */
+    forcedKeys?: string[][];
   }>;
   /** The lockfile that would be produced. */
   lockfile: LockfileV1;
@@ -398,7 +412,13 @@ export interface DiffEntry {
   diff?: string;
   /** Conflict subtype. */
   conflict?: {
-    reason: "no-marker-existing-content" | "other-pack-marker" | "json-collision" | "toml-collision";
+    reason:
+      | "no-marker-existing-content"
+      | "other-pack-marker"
+      | "json-collision"
+      | "toml-collision"
+      | "invalid-json"
+      | "invalid-toml";
     otherPackId?: string;
   };
 }

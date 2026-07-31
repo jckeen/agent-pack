@@ -83,6 +83,23 @@ export const installManifestSchema = z.object({
         strategy: z.enum(["marker", "json", "toml"]),
         fragment: z.string(),
         fragmentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+        // Segment arrays, never dotted strings (quoted TOML keys may contain
+        // dots). The manifest is attacker-influenced, so dunder segments are
+        // rejected here — restoreForcedKeys skips them again as defense in
+        // depth.
+        forcedKeys: z
+          .array(
+            z.array(
+              z
+                .string()
+                .min(1)
+                .refine(
+                  (s) => !["__proto__", "constructor", "prototype"].includes(s),
+                  "merges[].forcedKeys must not contain prototype-pollution keys",
+                ),
+            ),
+          )
+          .optional(),
       }),
     )
     .optional(),

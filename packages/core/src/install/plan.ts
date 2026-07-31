@@ -137,12 +137,13 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       const absTarget = path.resolve(ws.projectRoot, f.path);
       await realpathContained(ws.projectRoot, absTarget);
       const plannedContent = pristine.get(f.path) ?? normalizeContent(f);
-      const recordMerge = (strategy: MergeRecord["strategy"]) => {
+      const recordMerge = (strategy: MergeRecord["strategy"], forcedKeys?: string[][]) => {
         merges.push({
           path: f.path,
           strategy,
           fragment: plannedContent,
           fragmentSha256: sha256Hex(normalizeForHash(plannedContent)),
+          ...(forcedKeys && forcedKeys.length > 0 ? { forcedKeys } : {}),
         });
       };
       const cls = await classify({
@@ -183,10 +184,12 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
           // JSON/TOML collision: stage the force-merge result so a --force
           // apply (and update --theirs, which consumes this staged file)
           // writes the deep-merge, and record the pristine fragment so
-          // verify/uninstall treat the forced write as a config merge.
+          // verify/uninstall treat the forced write as a config merge. The
+          // collided key paths travel with the merge record so uninstall can
+          // restore the user's overwritten values from the backup (#185 P1.1).
           if (cls.forcedContent !== undefined) {
             f.content = cls.forcedContent;
-            recordMerge(TOML_MERGE_PATHS.has(f.path) ? "toml" : "json");
+            recordMerge(TOML_MERGE_PATHS.has(f.path) ? "toml" : "json", cls.collidedKeys);
           }
           conflicts.push({
             file: f,
@@ -272,7 +275,9 @@ type Classification =
         | "no-marker-existing-content"
         | "other-pack-marker"
         | "json-collision"
-        | "toml-collision";
+        | "toml-collision"
+        | "invalid-json"
+        | "invalid-toml";
       existingSha256: string;
       otherPackId?: string;
       /**
@@ -283,6 +288,12 @@ type Classification =
        * itself is unchanged: no --force still refuses.
        */
       forcedContent?: string;
+      /**
+       * For JSON/TOML collisions: the collided key paths (segment arrays) —
+       * the user values a forced apply overwrites. Recorded in the manifest's
+       * merge record so uninstall can restore them from the backup (#185 P1.1).
+       */
+      collidedKeys?: string[][];
     };
 
 async function classify(input: {
@@ -321,18 +332,30 @@ async function classify(input: {
       if (normalizeForHash(res.merged) === existingNormalized) return { kind: "unchanged" };
       return { kind: "merge", strategy: "json", mergedContent: res.merged };
     }
+    // Unparsable existing config: a distinct conflict reason — apply refuses
+    // it even under --force, because the only thing --force could write is
+    // the bare fragment, replacing the user's whole config (#185 P1.2).
+    if ("invalidJson" in res) {
+      return {
+        kind: "conflict",
+        reason: "invalid-json",
+        existingSha256: sha256Hex(existingNormalized),
+      };
+    }
     // Collision: still refuse without --force, but stage what a forced apply
     // writes — the deep-merge with the pack winning only the collided keys —
     // never the bare fragment (which would drop the user's other entries).
-    const forced =
-      "invalidJson" in res
-        ? null
-        : forceMergeJsonConfig(existing, input.plannedContent, input.priorFragment);
+    const forced = forceMergeJsonConfig(
+      existing,
+      input.plannedContent,
+      input.priorFragment,
+    );
     return {
       kind: "conflict",
-      reason: "invalidJson" in res ? "no-marker-existing-content" : "json-collision",
+      reason: "json-collision",
       existingSha256: sha256Hex(existingNormalized),
       ...(forced !== null ? { forcedContent: forced } : {}),
+      collidedKeys: res.collisionPaths,
     };
   }
 
@@ -346,15 +369,24 @@ async function classify(input: {
       if (normalizeForHash(res.merged) === existingNormalized) return { kind: "unchanged" };
       return { kind: "merge", strategy: "toml", mergedContent: res.merged };
     }
-    const forced =
-      "invalidToml" in res
-        ? null
-        : forceMergeTomlConfig(existing, input.plannedContent, input.priorFragment);
+    if ("invalidToml" in res) {
+      return {
+        kind: "conflict",
+        reason: "invalid-toml",
+        existingSha256: sha256Hex(existingNormalized),
+      };
+    }
+    const forced = forceMergeTomlConfig(
+      existing,
+      input.plannedContent,
+      input.priorFragment,
+    );
     return {
       kind: "conflict",
-      reason: "invalidToml" in res ? "no-marker-existing-content" : "toml-collision",
+      reason: "toml-collision",
       existingSha256: sha256Hex(existingNormalized),
       ...(forced !== null ? { forcedContent: forced } : {}),
+      collidedKeys: res.collisionPaths,
     };
   }
 
