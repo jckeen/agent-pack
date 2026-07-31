@@ -188,6 +188,8 @@ const atomPlatformsSchema = z
  *  - not absolute (no leading `/` or `C:\`)
  *  - not contain any `..` traversal segment
  *  - not start with `~`
+ *  - not contain a NUL character (truncates in C filesystem APIs — a path
+ *    smuggling primitive; no real file can contain it)
  *
  * Symlink-escape (where the path is in-pack lexically but resolves outside)
  * is enforced at I/O time in adapters/types.ts via realpath comparison.
@@ -202,6 +204,9 @@ const WINDOWS_RESERVED_BASENAME_RE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹
 const atomPathSchema = z
   .string()
   .min(1)
+  .refine((p) => !p.includes("\u0000"), {
+    message: "atom.path must not contain a NUL (\\u0000) character",
+  })
   .refine((p) => !p.startsWith("~"), {
     message: "atom.path must not start with `~` (no home expansion)",
   })
