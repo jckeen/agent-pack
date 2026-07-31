@@ -220,6 +220,75 @@ describe("applyInstall merges into a multi-pack lockfile", () => {
     expect(
       await fs.readFile(path.join(project, "CLAUDE.md"), "utf8").catch(() => null),
     ).toBeNull();
+    // Genuinely zero writes (#164): the refusal must fire BEFORE
+    // `.agentpack/installed` + `.agentpack/backups` are created and the
+    // project lock is acquired — no `.agentpack/` directory may exist.
+    expect(await fs.stat(path.join(project, ".agentpack")).catch(() => null)).toBeNull();
+  });
+
+  it("aborts before any write when the lockfile turns corrupt between preflight and lock acquisition", async () => {
+    const project = await tempDir("agentpack-lockv2-proj-");
+    const ws = await resolveAgentpackPaths(project);
+    const packDir = await tempDir("agentpack-lockv2-window-");
+    await writePack(packDir, { ...A, instructionBody: "# House\n" });
+    const plan = await planInstall({
+      source: packDir,
+      target: "claude-code",
+      projectRoot: project,
+      generator: GEN,
+    });
+
+    // Hold the project lock so the install is parked between its preflight
+    // read (which sees no lockfile) and the authoritative locked read.
+    await fs.mkdir(ws.historyLockFile, { recursive: true });
+    await fs.writeFile(path.join(ws.historyLockFile, "nonce"), "test-holder", "utf8");
+
+    const pending = applyInstall({ plan, actor: { type: "cli" } });
+    // Sink the eventual rejection so it is never counted as unhandled; the
+    // real assertion happens below.
+    pending.catch(() => {});
+    // Let the install pass preflight and start polling the held lock.
+    await new Promise((r) => setTimeout(r, 200));
+    // Corrupt the lockfile inside the window, then release the lock.
+    const lockPath = path.join(project, "AGENTPACK.lock");
+    await fs.writeFile(lockPath, "{ corrupted in the window", "utf8");
+    await fs.rm(ws.historyLockFile, { recursive: true, force: true });
+
+    await expect(pending).rejects.toThrow(/AGENTPACK\.lock could not be read/);
+    // The authoritative locked read must abort BEFORE `.agentpack/installed`,
+    // `.agentpack/backups`, or the WAL begin entry are created: nothing may
+    // exist besides the corrupt lockfile the test planted.
+    expect(await fs.readFile(lockPath, "utf8")).toBe("{ corrupted in the window");
+    expect(
+      await fs.readFile(path.join(project, "CLAUDE.md"), "utf8").catch(() => null),
+    ).toBeNull();
+    expect(await fs.readdir(ws.agentpackDir)).toEqual([]);
+  });
+
+  it("aborts when the lockfile read fails for a reason other than ENOENT (#163)", async () => {
+    const project = await tempDir("agentpack-lockv2-proj-");
+    // An EISDIR collision: AGENTPACK.lock exists but is not a readable file.
+    // Treating this as "no lockfile" would let the install replace a real v2
+    // document with a single-pack one, discarding other packs' entries.
+    const lockPath = path.join(project, "AGENTPACK.lock");
+    await fs.mkdir(lockPath);
+    const packDir = await tempDir("agentpack-lockv2-eisdir-");
+    await writePack(packDir, { ...A, instructionBody: "# House\n" });
+    const plan = await planInstall({
+      source: packDir,
+      target: "claude-code",
+      projectRoot: project,
+      generator: GEN,
+    });
+    await expect(applyInstall({ plan, actor: { type: "cli" } })).rejects.toThrow(
+      /AGENTPACK\.lock could not be read/,
+    );
+    // Nothing was installed and the unreadable path is untouched.
+    expect((await fs.stat(lockPath)).isDirectory()).toBe(true);
+    expect(
+      await fs.readFile(path.join(project, "CLAUDE.md"), "utf8").catch(() => null),
+    ).toBeNull();
+    expect(await fs.stat(path.join(project, ".agentpack")).catch(() => null)).toBeNull();
   });
 });
 
