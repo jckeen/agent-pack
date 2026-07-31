@@ -13,18 +13,19 @@
 // block, so a tampered manifest cannot turn a pinned install into a
 // silently-tracking one.
 
-import os from "node:os";
-import path from "node:path";
+import { promises as fs } from "node:fs";
 
 import type { Command } from "commander";
 import pc from "picocolors";
 import {
   ExitCode,
   HttpRegistryClient,
+  allUserScopeRoots,
   applyUpdate,
   computeExecDelta,
   enforceUpdatePolicy,
   fetchGitPack,
+  InstallManifestNotFoundError,
   listInstallManifests,
   loadPolicy,
   parseGitId,
@@ -70,7 +71,7 @@ export function registerUpdate(program: Command): void {
     .option("--project <dir>", "target project directory", process.cwd())
     .option(
       "--scope <scope>",
-      "update scope: `project` (default) or `user` — user scope targets the ~/.claude install (sync S3)",
+      "update scope: `project` (default) or `user` — user scope targets every user-root install (~/.claude, ~/.codex, ~/.gemini/config)",
       "project",
     )
     .option(
@@ -125,29 +126,48 @@ export function registerUpdate(program: Command): void {
             );
             process.exit(ExitCode.UsageError);
           }
-          // `--scope user` targets the ~/.claude install (sync S3). The
-          // per-pack mapping itself comes from the install manifest's recorded
-          // scope — this flag only picks WHICH .agentpack/ state dir to read.
+          // `--scope user` targets every user-root install (sync S3, #132:
+          // ~/.claude, ~/.codex, ~/.gemini/config — whichever exist). The
+          // per-pack mapping itself comes from each install manifest's
+          // recorded scope — this flag only picks WHICH .agentpack/ state
+          // dirs to read.
+          let projects: string[] = [options.project];
           if (options.scope === "user") {
             if (command.getOptionValueSource("project") === "cli") {
               console.error(
                 pc.red(
-                  "✗ --project and --scope user are mutually exclusive — user scope always targets ~/.claude.",
+                  "✗ --project and --scope user are mutually exclusive — user scope always targets the user config roots.",
                 ),
               );
               process.exit(ExitCode.UsageError);
             }
-            options.project = path.join(os.homedir(), ".claude");
+            projects = await existingDirs(allUserScopeRoots());
           }
           if (!options.check) {
-            await runApply(packId, options);
+            await runApply(packId, options, projects);
             return;
           }
 
-          const paths = await resolveAgentpackPaths(options.project);
-          const manifests: InstallManifestV1[] = packId
-            ? [await readInstallManifest(paths, packId)]
-            : await listInstallManifests(paths);
+          const manifests: InstallManifestV1[] = [];
+          let packIdFound = !packId;
+          for (const project of projects) {
+            const paths = await resolveAgentpackPaths(project);
+            if (packId) {
+              try {
+                manifests.push(await readInstallManifest(paths, packId));
+                packIdFound = true;
+              } catch (err) {
+                // With multiple user roots the pack lives in SOME of them —
+                // a root without it is not an error unless it's in none.
+                if (!(err instanceof InstallManifestNotFoundError)) throw err;
+              }
+            } else {
+              manifests.push(...(await listInstallManifests(paths)));
+            }
+          }
+          if (packId && !packIdFound) {
+            throw new InstallManifestNotFoundError(packId, projects.join(", "));
+          }
 
           if (manifests.length === 0) {
             if (options.json) {
@@ -360,43 +380,78 @@ interface ApplyCliOptions {
   quiet: boolean;
 }
 
+/** Filter to directories that exist (user-scope roots are optional). */
+async function existingDirs(dirs: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const dir of dirs) {
+    const isDir = await fs
+      .stat(dir)
+      .then((s) => s.isDirectory())
+      .catch(() => false);
+    if (isDir) out.push(dir);
+  }
+  return out;
+}
+
 async function runApply(
   packId: string | undefined,
   options: ApplyCliOptions,
+  projects: string[],
 ): Promise<never> {
   const say = options.quiet ? () => {} : console.log;
-  const paths = await resolveAgentpackPaths(options.project);
-  // Same posture as install: consume any crashed install/update first.
-  if (!options.dryRun) {
-    try {
-      await recoverIncomplete(options.project);
-    } catch {
-      // Non-fatal — nothing to recover in a project with no .agentpack yet.
-    }
-  }
-  const manifests: InstallManifestV1[] = packId
-    ? [await readInstallManifest(paths, packId)]
-    : await listInstallManifests(paths);
 
-  if (manifests.length === 0) {
-    say(pc.dim("No AgentPacks installed in this project — nothing to update."));
-    process.exit(0);
-  }
-  if (options.to !== undefined && manifests.length > 1) {
-    console.error(pc.red("✗ --to targets one pack — pass a packId alongside it."));
-    process.exit(ExitCode.UsageError);
-  }
-
-  // Worst-exit aggregation across packs: policy refusal (6) > conflicts (2) >
-  // error (1). The severity order happens to match numeric order, so max()
-  // suffices — revisit the ordering if a future exit code breaks that.
+  // Worst-exit aggregation across packs (and user-scope roots): policy
+  // refusal (6) > conflicts (2) > error (1). The severity order happens to
+  // match numeric order, so max() suffices — revisit the ordering if a
+  // future exit code breaks that.
   let worst: ApplyExit = 0;
   const bump = (code: ApplyExit) => {
     if (code > worst) worst = code;
   };
 
-  for (const manifest of manifests) {
-    bump(await applyOne(manifest, options));
+  let totalManifests = 0;
+  let packIdFound = !packId;
+  for (const project of projects) {
+    const paths = await resolveAgentpackPaths(project);
+    // Same posture as install: consume any crashed install/update first.
+    if (!options.dryRun) {
+      try {
+        await recoverIncomplete(project);
+      } catch {
+        // Non-fatal — nothing to recover in a project with no .agentpack yet.
+      }
+    }
+    let manifests: InstallManifestV1[];
+    if (packId) {
+      try {
+        manifests = [await readInstallManifest(paths, packId)];
+        packIdFound = true;
+      } catch (err) {
+        // With multiple user roots the pack lives in SOME of them — a root
+        // without it is not an error unless it's in none (checked below).
+        if (!(err instanceof InstallManifestNotFoundError)) throw err;
+        manifests = [];
+      }
+    } else {
+      manifests = await listInstallManifests(paths);
+    }
+    if (manifests.length === 0) continue;
+    totalManifests += manifests.length;
+    if (options.to !== undefined && manifests.length > 1) {
+      console.error(pc.red("✗ --to targets one pack — pass a packId alongside it."));
+      process.exit(ExitCode.UsageError);
+    }
+
+    for (const manifest of manifests) {
+      bump(await applyOne(manifest, { ...options, project }));
+    }
+  }
+  if (packId && !packIdFound) {
+    throw new InstallManifestNotFoundError(packId, projects.join(", "));
+  }
+  if (totalManifests === 0) {
+    say(pc.dim("No AgentPacks installed in this project — nothing to update."));
+    process.exit(0);
   }
   process.exit(worst);
 }

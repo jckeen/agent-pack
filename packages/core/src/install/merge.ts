@@ -15,16 +15,30 @@
  *  - "json": the planned content is a JSON config fragment (hooks /
  *    mcpServers). Merging deep-adds our entries into the existing config.
  *    Uninstall removes only our entries.
+ *  - "toml": same deep-merge discipline over a TOML config (the Codex
+ *    `config.toml`). The parse/serialize pair differs; the object-level merge
+ *    semantics are shared with "json". Serialization is canonical (sorted
+ *    keys), so comments and formatting in the existing file are NOT preserved
+ *    across a merge — data (trust settings, unrelated tables) always is.
  */
+
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 export interface MergeRecord {
   /** Project-relative path of the merged file. */
   path: string;
-  strategy: "marker" | "json";
-  /** The pack's contribution — the marker block or JSON fragment. */
+  strategy: "marker" | "json" | "toml";
+  /** The pack's contribution — the marker block or JSON/TOML fragment. */
   fragment: string;
   /** sha256(normalizeForHash(fragment)) — drift detection checks THIS. */
   fragmentSha256: string;
+  /**
+   * Key paths (as segment arrays) where a `--force` install overwrote a
+   * pre-existing user value (#185 P1.1). Uninstall restores these keys from
+   * the install backup instead of just deleting the pack's fragment — the
+   * user's pre-install value must survive the round trip.
+   */
+  forcedKeys?: string[][];
 }
 
 const beginMarker = (packId: string) =>
@@ -132,12 +146,31 @@ function parseJsonObject(raw: string): Json | null {
   }
 }
 
+/**
+ * Parse a TOML config into a plain object. Returns null for unparseable
+ * content or content carrying prototype-pollution keys (same refusal as the
+ * JSON path). TOML documents are always tables at the top level, so the
+ * object check only guards against a defensive future parser change.
+ */
+function parseTomlObject(raw: string): Json | null {
+  try {
+    const v = parseToml(raw) as unknown;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    if (hasDunderKeys(v)) return null;
+    return v as Json;
+  } catch {
+    return null;
+  }
+}
+
 function deepEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
 }
 
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
+  // TOML datetimes parse to Date subclasses — scalar values, not tables.
+  if (value instanceof Date) return value;
   if (value && typeof value === "object") {
     // Null-prototype object: assignment can never hit a setter or mutate
     // the prototype chain, whatever the key is.
@@ -156,8 +189,23 @@ function stringifyConfig(value: Json): string {
 
 export type JsonMergeResult =
   | { ok: true; merged: string }
-  | { ok: false; collisions: string[] }
+  | { ok: false; collisions: string[]; collisionPaths: string[][] }
   | { ok: false; invalidJson: true };
+
+/**
+ * True when `raw` parses as a JSON/TOML config object this module can merge
+ * into (and back out of). Uninstall uses these to fail CLOSED on an
+ * unparsable config instead of silently orphaning the pack's entries
+ * (#185 P1.3).
+ */
+export function isParsableJsonConfig(raw: string): boolean {
+  return parseJsonObject(raw) !== null;
+}
+
+/** TOML twin of `isParsableJsonConfig`. */
+export function isParsableTomlConfig(raw: string): boolean {
+  return parseTomlObject(raw) !== null;
+}
 
 /**
  * Merge our JSON fragment into an existing JSON config.
@@ -204,10 +252,31 @@ function mergeJsonImpl(
   const fragment = parseJsonObject(fragmentRaw);
   if (!existing || !fragment) return { ok: false, invalidJson: true };
   const prior = priorFragmentRaw ? parseJsonObject(priorFragmentRaw) : null;
+  const res = mergeParsedConfig(existing, fragment, prior, force);
+  if (!res.ok) return res;
+  return { ok: true, merged: stringifyConfig(res.merged) };
+}
 
+/**
+ * Format-agnostic deep merge over parsed config objects — the shared
+ * semantics behind the "json" and "toml" strategies. See `mergeJsonConfig`
+ * for the per-key rules.
+ */
+function mergeParsedConfig(
+  existing: Json,
+  fragment: Json,
+  prior: Json | null,
+  force: boolean,
+):
+  | { ok: true; merged: Json }
+  | { ok: false; collisions: string[]; collisionPaths: string[][] } {
   // Start from existing minus our prior contribution.
   const base = prior ? removeFragment(existing, prior) : existing;
   const collisions: string[] = [];
+  // Same collisions as segment arrays — dotted strings are ambiguous for
+  // quoted TOML keys that themselves contain dots, and uninstall needs the
+  // exact paths to restore forced keys from the backup (#185 P1.1).
+  const collisionPaths: string[][] = [];
 
   for (const [key, fragVal] of Object.entries(fragment)) {
     const curVal = base[key];
@@ -231,6 +300,7 @@ function mergeJsonImpl(
           base[key] = fragVal;
         } else {
           collisions.push(key);
+          collisionPaths.push([key]);
         }
         continue;
       }
@@ -239,6 +309,7 @@ function mergeJsonImpl(
         if (name in out && !deepEqual(out[name], val)) {
           if (!force) {
             collisions.push(`${key}.${name}`);
+            collisionPaths.push([key, name]);
             continue;
           }
           // force: the pack wins this collided entry.
@@ -250,6 +321,7 @@ function mergeJsonImpl(
       if (curVal !== undefined && !deepEqual(curVal, fragVal)) {
         if (!force) {
           collisions.push(key);
+          collisionPaths.push([key]);
           continue;
         }
         // force: the pack wins this collided key.
@@ -257,8 +329,146 @@ function mergeJsonImpl(
       base[key] = fragVal;
     }
   }
-  if (collisions.length > 0) return { ok: false, collisions };
-  return { ok: true, merged: stringifyConfig(base) };
+  if (collisions.length > 0) return { ok: false, collisions, collisionPaths };
+  return { ok: true, merged: base };
+}
+
+// ---------------------------------------------------------------------------
+// TOML config merge (Codex `config.toml`, sync #132)
+// ---------------------------------------------------------------------------
+
+export type TomlMergeResult =
+  | { ok: true; merged: string }
+  | { ok: false; collisions: string[]; collisionPaths: string[][] }
+  | { ok: false; invalidToml: true };
+
+/**
+ * TOML twin of `mergeJsonConfig`: identical deep-merge semantics over a
+ * parsed TOML document. Serialization is canonical (sorted keys) — user data
+ * (trust settings, unrelated tables) survives byte-for-byte at the value
+ * level, but comments/formatting in the existing file do not.
+ */
+export function mergeTomlConfig(
+  existingRaw: string,
+  fragmentRaw: string,
+  priorFragmentRaw?: string,
+): TomlMergeResult {
+  return mergeTomlImpl(existingRaw, fragmentRaw, priorFragmentRaw, false);
+}
+
+/**
+ * TOML twin of `forceMergeJsonConfig`: the pack wins ONLY the collided keys;
+ * every non-colliding user entry survives. Returns null when the existing
+ * content is not parseable TOML (nothing mergeable to preserve).
+ */
+export function forceMergeTomlConfig(
+  existingRaw: string,
+  fragmentRaw: string,
+  priorFragmentRaw?: string,
+): string | null {
+  const res = mergeTomlImpl(existingRaw, fragmentRaw, priorFragmentRaw, true);
+  return res.ok ? res.merged : null;
+}
+
+function mergeTomlImpl(
+  existingRaw: string,
+  fragmentRaw: string,
+  priorFragmentRaw: string | undefined,
+  force: boolean,
+): TomlMergeResult {
+  const existing = parseTomlObject(existingRaw);
+  const fragment = parseTomlObject(fragmentRaw);
+  if (!existing || !fragment) return { ok: false, invalidToml: true };
+  const prior = priorFragmentRaw ? parseTomlObject(priorFragmentRaw) : null;
+  const res = mergeParsedConfig(existing, fragment, prior, force);
+  if (!res.ok) return res;
+  return { ok: true, merged: stringifyTomlConfig(res.merged) };
+}
+
+/** TOML twin of `removeJsonFragment`. */
+export function removeTomlFragment(currentRaw: string, fragmentRaw: string): string | null {
+  const current = parseTomlObject(currentRaw);
+  const fragment = parseTomlObject(fragmentRaw);
+  if (!current || !fragment) return null;
+  const out = removeFragment(current, fragment);
+  if (Object.keys(out).length === 0) return "";
+  return stringifyTomlConfig(out);
+}
+
+/**
+ * Re-add pre-install user values that a `--force` install overwrote
+ * (#185 P1.1). `remainderRaw` is the config AFTER the pack's fragment was
+ * removed; `backupRaw` is the pre-install backup; `forcedKeys` are the
+ * collision paths recorded at plan time. A key is restored only when the
+ * remainder no longer has a value at that path — a user's post-install edit
+ * to the same key always wins. Returns null when the backup (or remainder)
+ * does not parse.
+ */
+export function restoreForcedKeys(
+  remainderRaw: string,
+  backupRaw: string,
+  forcedKeys: string[][],
+  format: "json" | "toml",
+): string | null {
+  const isToml = format === "toml";
+  const remainder =
+    remainderRaw === ""
+      ? ({} as Json)
+      : isToml
+        ? parseTomlObject(remainderRaw)
+        : parseJsonObject(remainderRaw);
+  const backup = isToml ? parseTomlObject(backupRaw) : parseJsonObject(backupRaw);
+  if (!remainder || !backup) return null;
+  let changed = false;
+  for (const segments of forcedKeys) {
+    // Manifest content is attacker-influenced — never walk a dunder segment.
+    if (segments.length === 0 || segments.some((s) => DUNDER_KEYS.has(s))) continue;
+    const value = getPath(backup, segments);
+    if (value === undefined) continue;
+    if (getPath(remainder, segments) !== undefined) continue;
+    setPath(remainder, segments, value);
+    changed = true;
+  }
+  if (!changed) return remainderRaw;
+  if (Object.keys(remainder).length === 0) return "";
+  return isToml ? stringifyTomlConfig(remainder) : stringifyConfig(remainder);
+}
+
+function getPath(obj: Json, segments: string[]): unknown {
+  let cur: unknown = obj;
+  for (const s of segments) {
+    if (!isObj(cur)) return undefined;
+    cur = (cur as Json)[s];
+  }
+  return cur;
+}
+
+function setPath(obj: Json, segments: string[], value: unknown): void {
+  let cur: Json = obj;
+  for (const s of segments.slice(0, -1)) {
+    const next = cur[s];
+    if (isObj(next)) {
+      cur = next as Json;
+    } else {
+      const child: Json = {};
+      cur[s] = child;
+      cur = child;
+    }
+  }
+  cur[segments[segments.length - 1] as string] = value;
+}
+
+/** TOML twin of `jsonFragmentIntact`. */
+export function tomlFragmentIntact(currentRaw: string, fragmentRaw: string): boolean {
+  const current = parseTomlObject(currentRaw);
+  const fragment = parseTomlObject(fragmentRaw);
+  if (!current || !fragment) return false;
+  return parsedFragmentIntact(current, fragment);
+}
+
+function stringifyTomlConfig(value: Json): string {
+  const out = stringifyToml(sortKeys(value) as Record<string, unknown>);
+  return out.endsWith("\n") ? out : `${out}\n`;
 }
 
 /**
@@ -283,6 +493,10 @@ export function jsonFragmentIntact(currentRaw: string, fragmentRaw: string): boo
   const current = parseJsonObject(currentRaw);
   const fragment = parseJsonObject(fragmentRaw);
   if (!current || !fragment) return false;
+  return parsedFragmentIntact(current, fragment);
+}
+
+function parsedFragmentIntact(current: Json, fragment: Json): boolean {
   for (const [key, fragVal] of Object.entries(fragment)) {
     const curVal = current[key];
     if (key === "hooks" && isObj(fragVal)) {
@@ -343,7 +557,8 @@ function removeFragment(current: Json, fragment: Json): Json {
 }
 
 function isObj(v: unknown): v is Json {
-  return !!v && typeof v === "object" && !Array.isArray(v);
+  // Date subclasses (TOML datetimes) are scalar values, not mergeable tables.
+  return !!v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date);
 }
 
 /** Paths the planner treats as JSON-mergeable configs. */
@@ -356,4 +571,16 @@ export const JSON_MERGE_PATHS = new Set([
   ".mcp.json",
   ".cursor/mcp.json",
   ".codex/hooks.json",
+  // User-scope mapped form of `.codex/hooks.json` (#132): a codex `--scope
+  // user` install roots at ~/.codex, where the file is plain `hooks.json`.
+  "hooks.json",
 ]);
+
+/**
+ * Paths the planner treats as TOML-mergeable configs (#132). `config.toml`
+ * is the user-scope mapped form of `.codex/config.toml`: a codex `--scope
+ * user` install roots at ~/.codex, where the real user config (trust
+ * settings, model, unrelated machine entries) already lives — it MUST
+ * deep-merge, never be replaced whole.
+ */
+export const TOML_MERGE_PATHS = new Set([".codex/config.toml", "config.toml"]);

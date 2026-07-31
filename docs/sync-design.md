@@ -285,9 +285,12 @@ exists for. Rules:
 - **Branch-channel + unsigned git = moving executable target.** Mitigated by exec
   re-consent on delta and the policy channel ceiling; fully solved only by cosign-on-tag
   (existing v0.5.1 roadmap item — sync raises its priority).
-- **`--scope user` writes into `~/.claude`,** the user's live config. Realpath
-  containment, backup, and dry-run guarantees must be verified against a throwaway
-  `HOME` before shipping — a dry-run that mutates real config is worse than none.
+- **`--scope user` writes into the user's live config** — `~/.claude`, and since
+  #132 also `~/.codex` and `~/.gemini/config`. Realpath containment, backup, and
+  dry-run guarantees must be verified against a throwaway `HOME` before shipping —
+  a dry-run that mutates real config is worse than none. The Codex root raises the
+  stakes: `config.toml` holds trust settings and machine entries, so it deep-merges
+  (TOML strategy, #132) and is never replaced whole.
 
 ---
 

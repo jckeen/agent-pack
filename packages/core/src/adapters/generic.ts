@@ -15,6 +15,22 @@ import {
   renderSkillMd,
 } from "../skills/agentskills.js";
 
+/**
+ * User-scope path mapping (#132): the generic adapter's output maps to the
+ * Antigravity global customization root (`~/.gemini/config/`) UNCHANGED —
+ * Antigravity's global discovery reads standalone `AGENTS.md` rule files and
+ * `skills/` directly in that root (verified against agy 1.1.3), which is
+ * exactly the layout the generic adapter emits. The identity mapping is kept
+ * as an explicit function so the user-scope dispatch stays uniform across
+ * targets and a future layout divergence has one place to land.
+ */
+export function mapGenericOutputToUserScope(file: { path: string; content: string }): {
+  path: string;
+  content: string;
+} {
+  return { path: file.path, content: file.content };
+}
+
 export const genericAdapter = defineAdapter({
   target: "generic",
   // No exec-capable outputs (#119): SKILL.md consumers (e.g. Antigravity)

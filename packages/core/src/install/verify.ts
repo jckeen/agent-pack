@@ -6,7 +6,7 @@ import { readInstallManifest } from "./manifest.js";
 import { parseLockfileDocument, lockfileEntryChecksum } from "./lockfile.js";
 import { normalizeForHash, sha256Hex } from "./checksum.js";
 import { readHistory, verifyChain } from "./history.js";
-import { extractMarkerSpan, jsonFragmentIntact } from "./merge.js";
+import { extractMarkerSpan, jsonFragmentIntact, tomlFragmentIntact } from "./merge.js";
 
 export interface VerifyOptions {
   packId: string;
@@ -84,8 +84,12 @@ export async function verifyInstall(opts: VerifyOptions): Promise<VerifyResult> 
       }
       continue;
     }
-    if (merge?.strategy === "json") {
-      if (!jsonFragmentIntact(current, merge.fragment)) {
+    if (merge?.strategy === "json" || merge?.strategy === "toml") {
+      const intact =
+        merge.strategy === "json"
+          ? jsonFragmentIntact(current, merge.fragment)
+          : tomlFragmentIntact(current, merge.fragment);
+      if (!intact) {
         drift.push({
           path: entry.path,
           expected: merge.fragmentSha256,

@@ -807,14 +807,17 @@ describe("sync S3 — install/update --scope user (e2e gate for #112)", () => {
     expect(merged.hooks).toBeDefined();
   }, 120_000);
 
-  it("install --scope user refuses a non-claude-code target (usage error)", async () => {
+  // #132 flipped codex + generic from rejected to supported at user scope
+  // (see user-scope-codex.cli.test.ts / user-scope-generic.cli.test.ts).
+  // Targets WITHOUT a user-scope mapping must still be a usage error.
+  it("install --scope user refuses a target without a user-scope mapping (usage error)", async () => {
     const homeB = await freshProject("home-badtarget");
     const r = await run(
       [
         "install",
         `github:${OWNER}/${REPO}@main`,
         "--target",
-        "codex",
+        "cursor",
         "--scope",
         "user",
         "--yes",

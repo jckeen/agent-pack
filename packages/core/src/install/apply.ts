@@ -86,6 +86,27 @@ export interface ApplyInstallResult {
  */
 export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInstallResult> {
   const plan = opts.plan;
+  // An unparsable merge-managed config fails CLOSED even under --force: the
+  // planner had nothing to merge into, so the only content --force could
+  // write is the bare pack fragment — replacing the user's whole config file
+  // (#185 P1.2). The user must fix the file's syntax first.
+  const unparsable = plan.conflicts.filter(
+    (c) => c.reason === "invalid-json" || c.reason === "invalid-toml",
+  );
+  if (unparsable.length > 0) {
+    const list = unparsable
+      .map(
+        (c) =>
+          `  • ${c.file.path} (not valid ${c.reason === "invalid-toml" ? "TOML" : "JSON"})`,
+      )
+      .join("\n");
+    throw new Error(
+      `Install refused: ${unparsable.length} config file(s) could not be parsed:\n${list}\n` +
+        `AgentPack deep-merges into these files and will not replace them wholesale — ` +
+        `even with --force, that would discard your existing settings. ` +
+        `Fix the file's syntax, then re-run the install.`,
+    );
+  }
   if (plan.conflicts.length > 0 && !opts.force) {
     const paths = plan.conflicts.map((c) => `  • ${c.file.path} (${c.reason})`).join("\n");
     throw new Error(

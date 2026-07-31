@@ -72,6 +72,40 @@ function slugFor(atom: Atom): string {
   return raw.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+/**
+ * User-scope path mapping (#132): remap the codex adapter's project-layout
+ * output to the `~/.codex` user layout. A `--scope user` install roots at
+ * `~/.codex`, whose layout the codex IMPORTER already reads back (home-style:
+ * `AGENTS.md`, `config.toml`, `hooks.json`, `skills/`, `agents/*.toml`), so
+ * install→import round-trips on the same paths:
+ *
+ *   AGENTS.md              → AGENTS.md         (~/.codex/AGENTS.md)
+ *   .codex/config.toml     → config.toml       (deep-merged — real user config)
+ *   .codex/hooks.json      → hooks.json
+ *   .codex/agents/<x>.toml → agents/<x>.toml
+ *   .agents/skills/…       → skills/…          (~/.codex/skills — Codex's own
+ *                                               user-level skills dir; keeps
+ *                                               the install single-rooted)
+ *
+ * The AGENTS.md skill index references `.agents/skills/…`; those are
+ * rewritten to the mapped `skills/…` location so the index never points at a
+ * path this install did not write.
+ */
+export function mapCodexOutputToUserScope(file: { path: string; content: string }): {
+  path: string;
+  content: string;
+} {
+  let p = file.path;
+  if (p.startsWith(".codex/")) p = p.slice(".codex/".length);
+  else if (p.startsWith(".agents/skills/"))
+    p = `skills/${p.slice(".agents/skills/".length)}`;
+  let content = file.content;
+  if (p === "AGENTS.md") {
+    content = content.replace(/\.agents\/skills\//g, "skills/");
+  }
+  return { path: p, content };
+}
+
 export const codexAdapter = defineAdapter({
   target: "codex",
   // No exec-capable outputs (#119): command bodies land VERBATIM in
