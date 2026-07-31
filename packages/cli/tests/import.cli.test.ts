@@ -359,6 +359,56 @@ describe("agentpack import --into (fold live edits back into a pack)", () => {
     expect(recheck.code, recheck.stderr + recheck.stdout).toBe(0);
   });
 
+  // codex #167: a `--from claude` import of a file NOT named CLAUDE.md is
+  // generic content, so the fold must supersede the generic variant — not the
+  // claude-code variant, which is a foreign runtime's content.
+  it("folding a generic AGENTS.md import preserves the claude-code variant and drops the generic one", async () => {
+    const agentsMd = path.join(TMP_ROOT, "into-variants", "AGENTS.md");
+    await fs.mkdir(path.dirname(agentsMd), { recursive: true });
+    await fs.writeFile(agentsMd, "## Working Style\n\nbody\n", "utf8");
+    const packDir = path.join(TMP_ROOT, "into-variants-pack");
+    const imp = await run(["import", agentsMd, "--out", packDir, "--id", "me.variants"]);
+    expect(imp.code, imp.stderr).toBe(0);
+
+    // Hand-add variants the way a pack author would after #133: a claude-code
+    // variant (another runtime's content) and a stale generic variant.
+    const claudeVariant = path.join(packDir, "atoms/instructions/working-style.claude.md");
+    const genericVariant = path.join(
+      packDir,
+      "atoms/instructions/working-style.generic.md",
+    );
+    await fs.writeFile(claudeVariant, "# Claude-specific working style\n", "utf8");
+    await fs.writeFile(genericVariant, "# Stale generic working style\n", "utf8");
+    const manifestPath = path.join(packDir, "AGENTPACK.yaml");
+    const edited = (await fs.readFile(manifestPath, "utf8")).replace(
+      "    risk_level: low\n    permissions: []",
+      "    risk_level: low\n    permissions: []\n    variants:\n" +
+        "      claude-code:\n        path: atoms/instructions/working-style.claude.md\n" +
+        "      generic:\n        path: atoms/instructions/working-style.generic.md",
+    );
+    await fs.writeFile(manifestPath, edited, "utf8");
+
+    // Live edit so the fold has something to write.
+    await fs.writeFile(agentsMd, "## Working Style\n\nnew body\n", "utf8");
+    const fold = await run(["import", agentsMd, "--from", "claude", "--into", packDir]);
+    expect(fold.code, fold.stderr + fold.stdout).toBe(0);
+
+    const { manifest } = await loadManifest(packDir);
+    const atom = manifest.atoms.find((a) => a.id === "instruction:working-style");
+    expect(atom).toBeDefined();
+    // The claude-code variant (foreign runtime content) survives the fold.
+    expect(atom?.variants?.["claude-code"]?.path).toBe(
+      "atoms/instructions/working-style.claude.md",
+    );
+    await fs.access(claudeVariant);
+    // The generic variant is superseded by the freshly imported generic
+    // default — keeping it would shadow the new content on generic installs.
+    expect(atom?.variants?.["generic"]).toBeUndefined();
+    await expect(fs.access(genericVariant)).rejects.toThrow();
+    const validate = await run(["validate", packDir]);
+    expect(validate.code, validate.stderr + validate.stdout).toBe(0);
+  });
+
   it("preserves hand-edited metadata (version, description) across a fold", async () => {
     const live = await seedLiveDir("into-meta-live");
     const packDir = path.join(TMP_ROOT, "into-meta-pack");
