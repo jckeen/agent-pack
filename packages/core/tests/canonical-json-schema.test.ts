@@ -6,7 +6,10 @@
 //     only source, must be rejected (the runtime superRefine rejects both).
 //   - #168: variant `path` entries obey the same trust rules as `atom.path`
 //     (no `~`, no absolute paths, no `..` traversal, no Windows-reserved
-//     names) — the runtime routes them through `atomPathSchema`.
+//     names, no NUL) — the runtime routes them through `atomPathSchema`.
+// Plus the #190 review follow-ups: `variants: {}` alongside a default
+// `path`/`body` is runtime-valid and must stay schema-valid, and NUL-bearing
+// paths are rejected by both validators.
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -87,6 +90,17 @@ describe("canonical JSON schema — default source combinations (#166)", () => {
     expectBoth(manifest({ variants: {} }), false);
   });
 
+  it("accepts a default path with an empty variants map (runtime-valid, #190 review)", () => {
+    // `variants: {}` is not a source, but the atom doesn't need it to be one
+    // when a default `path` exists — the runtime superRefine accepts this, so
+    // the JSON schema's minProperties must not fire unconditionally.
+    expectBoth(manifest({ path: "atoms/instructions/house-style.md", variants: {} }), true);
+  });
+
+  it("accepts a body-only atom with an empty variants map", () => {
+    expectBoth(manifest({ body: "Inline body.", variants: {} }), true);
+  });
+
   it("rejects an atom with no source at all", () => {
     expectBoth(manifest({}), false);
   });
@@ -115,6 +129,10 @@ describe("canonical JSON schema — atom path trust rules on variant paths (#168
     "",
     "atoms/CON.md",
     "atoms/nul/skill.md",
+    // NUL truncates in C filesystem APIs — a path-smuggling primitive both
+    // validators must reject (#190 review).
+    "atoms/hou\u0000se.md",
+    "atoms/skills\u0000/../../../etc/passwd",
   ];
 
   for (const bad of badPaths) {

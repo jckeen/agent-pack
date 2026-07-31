@@ -8,11 +8,16 @@
     "atomPath": {
       "type": "string",
       "minLength": 1,
-      "description": "Pack-relative source path. Mirrors the runtime `atomPathSchema` trust rules: no `~` home expansion, no absolute paths (POSIX or drive-letter), no `..` traversal segments, no Windows-reserved segment names (#160, #168).",
+      "description": "Pack-relative source path. Mirrors the runtime `atomPathSchema` trust rules: no `~` home expansion, no absolute paths (POSIX or drive-letter), no `..` traversal segments, no Windows-reserved segment names, no NUL characters (#160, #168).",
       "allOf": [
         {
           "not": {
             "pattern": "^~"
+          }
+        },
+        {
+          "not": {
+            "pattern": "\\u0000"
           }
         },
         {
@@ -161,8 +166,7 @@
           },
           "variants": {
             "type": "object",
-            "description": "Per-target source/body overrides keyed by target platform; the atom keeps one id while each target compiles its own variant (#133). At least one entry when present — an empty map is not a source (#166).",
-            "minProperties": 1,
+            "description": "Per-target source/body overrides keyed by target platform; the atom keeps one id while each target compiles its own variant (#133). May be empty when the atom carries a default `path`/`body`; when variants is the atom's ONLY source it must have at least one entry — enforced by the atom-level `anyOf`, matching the runtime superRefine (#166).",
             "properties": {
               "claude-code": {
                 "$ref": "#/$defs/atomVariant"
@@ -193,7 +197,13 @@
                 "required": ["body"]
               },
               {
-                "required": ["variants"]
+                "required": ["variants"],
+                "properties": {
+                  "variants": {
+                    "type": "object",
+                    "minProperties": 1
+                  }
+                }
               }
             ]
           },
