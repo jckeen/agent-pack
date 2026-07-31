@@ -16,6 +16,22 @@ vi.mock("@hono/node-server", () => ({ serve: serveMock }));
 const EXAMPLE = path.resolve(__dirname, "../../../examples/pr-quality");
 const VALID_TOKEN = "test-token-of-at-least-32-characters";
 
+// Importing the entrypoint transforms the module and runs main(), which does
+// real file I/O (loadPackCatalog) before touching the serve mock. If a test
+// times out while any of that is still in flight, the stale run would resolve
+// during the NEXT test and call the shared serveMock again (the "called
+// 2 times" cascade from #184). Capture the import→ready chain synchronously
+// and settle it in afterEach so no entrypoint run ever leaks across tests.
+let pendingReady: Promise<void> | undefined;
+
+function importEntrypoint(): Promise<{ ready: Promise<void> }> {
+  const modPromise = import("../src/serve.js") as Promise<{
+    ready: Promise<void>;
+  }>;
+  pendingReady = modPromise.then((mod) => mod.ready);
+  return modPromise;
+}
+
 const ORIGINAL_TOKEN = process.env["AGENTPACK_CONNECTOR_TOKEN"];
 const ORIGINAL_PORT = process.env["AGENTPACK_CONNECTOR_PORT"];
 const ORIGINAL_ARGV = process.argv;
@@ -28,14 +44,21 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
-describe("serve.ts entrypoint", () => {
+// 30s timeout: the entrypoint import does real disk I/O and its first run
+// pays the module-transform cost; under a fully parallel `pnpm -r test` on a
+// loaded machine that has exceeded the 5s default (#184).
+describe("serve.ts entrypoint", { timeout: 30_000 }, () => {
   beforeEach(() => {
     serveMock.mockReset();
     vi.resetModules();
     process.argv = [process.argv[0]!, "serve.ts", EXAMPLE];
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Wait out any entrypoint run the test left unfinished (e.g. after a
+    // timeout) before mocks are restored and the next test resets serveMock.
+    await pendingReady;
+    pendingReady = undefined;
     restoreEnv("AGENTPACK_CONNECTOR_TOKEN", ORIGINAL_TOKEN);
     restoreEnv("AGENTPACK_CONNECTOR_PORT", ORIGINAL_PORT);
     process.argv = ORIGINAL_ARGV;
@@ -59,7 +82,7 @@ describe("serve.ts entrypoint", () => {
       },
     );
 
-    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    const mod = await importEntrypoint();
     await mod.ready;
 
     expect(serveMock).toHaveBeenCalledTimes(1);
@@ -87,7 +110,7 @@ describe("serve.ts entrypoint", () => {
       },
     );
 
-    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    const mod = await importEntrypoint();
     await mod.ready;
 
     expect(serveMock).toHaveBeenCalledTimes(1);
@@ -107,7 +130,7 @@ describe("serve.ts entrypoint", () => {
       .spyOn(process, "exit")
       .mockImplementation(((_code?: number) => undefined) as never);
 
-    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    const mod = await importEntrypoint();
     await mod.ready;
 
     // The listener is never bound and the process is told to exit non-zero.
@@ -129,7 +152,7 @@ describe("serve.ts entrypoint", () => {
       .spyOn(process, "exit")
       .mockImplementation(((_code?: number) => undefined) as never);
 
-    const mod = (await import("../src/serve.js")) as { ready: Promise<void> };
+    const mod = await importEntrypoint();
     await mod.ready;
 
     expect(serveMock).not.toHaveBeenCalled();
