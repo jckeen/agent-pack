@@ -3,13 +3,63 @@
   "$id": "https://agentpack.dev/schemas/agentpack.schema.json",
   "title": "AgentPack Manifest",
   "type": "object",
-  "required": [
-    "agentpack",
-    "metadata",
-    "compatibility",
-    "profiles",
-    "atoms"
-  ],
+  "required": ["agentpack", "metadata", "compatibility", "profiles", "atoms"],
+  "$defs": {
+    "atomPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Pack-relative source path. Mirrors the runtime `atomPathSchema` trust rules: no `~` home expansion, no absolute paths (POSIX or drive-letter), no `..` traversal segments, no Windows-reserved segment names, no NUL characters (#160, #168).",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^~"
+          }
+        },
+        {
+          "not": {
+            "pattern": "\\u0000"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^([A-Za-z]:[\\\\/]|[\\\\/])"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(^|[\\\\/])\\.\\.([\\\\/]|$)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(^|[\\\\/])([Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9¹²³]|[Ll][Pp][Tt][0-9¹²³])(\\.|[\\\\/]|$)"
+          }
+        }
+      ]
+    },
+    "atomVariant": {
+      "type": "object",
+      "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file, same trust rules as `atom.path`) or `body` (inline content).",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/atomPath"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["path"]
+        },
+        {
+          "required": ["body"]
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
   "properties": {
     "agentpack": {
       "type": "string",
@@ -17,14 +67,7 @@
     },
     "metadata": {
       "type": "object",
-      "required": [
-        "id",
-        "name",
-        "slug",
-        "description",
-        "version",
-        "publisher"
-      ],
+      "required": ["id", "name", "slug", "description", "version", "publisher"],
       "properties": {
         "id": {
           "type": "string"
@@ -77,13 +120,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "id",
-          "type",
-          "name",
-          "description",
-          "risk_level"
-        ],
+        "required": ["id", "type", "name", "description", "risk_level"],
         "properties": {
           "id": {
             "type": "string"
@@ -111,15 +148,10 @@
             "type": "string"
           },
           "path": {
-            "type": "string"
+            "$ref": "#/$defs/atomPath"
           },
           "risk_level": {
-            "enum": [
-              "low",
-              "medium",
-              "high",
-              "critical"
-            ]
+            "enum": ["low", "medium", "high", "critical"]
           },
           "permissions": {
             "type": "array",
@@ -134,157 +166,51 @@
           },
           "variants": {
             "type": "object",
-            "description": "Per-target source/body overrides keyed by target platform; the atom keeps one id while each target compiles its own variant (#133).",
+            "description": "Per-target source/body overrides keyed by target platform; the atom keeps one id while each target compiles its own variant (#133). May be empty when the atom carries a default `path`/`body`; when variants is the atom's ONLY source it must have at least one entry — enforced by the atom-level `anyOf`, matching the runtime superRefine (#166).",
             "properties": {
               "claude-code": {
-                "type": "object",
-                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "body": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "oneOf": [
-                  {
-                    "required": [
-                      "path"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "body"
-                    ]
-                  }
-                ],
-                "additionalProperties": false
+                "$ref": "#/$defs/atomVariant"
               },
               "codex": {
-                "type": "object",
-                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "body": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "oneOf": [
-                  {
-                    "required": [
-                      "path"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "body"
-                    ]
-                  }
-                ],
-                "additionalProperties": false
+                "$ref": "#/$defs/atomVariant"
               },
               "cursor": {
-                "type": "object",
-                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "body": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "oneOf": [
-                  {
-                    "required": [
-                      "path"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "body"
-                    ]
-                  }
-                ],
-                "additionalProperties": false
+                "$ref": "#/$defs/atomVariant"
               },
               "chatgpt": {
-                "type": "object",
-                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "body": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "oneOf": [
-                  {
-                    "required": [
-                      "path"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "body"
-                    ]
-                  }
-                ],
-                "additionalProperties": false
+                "$ref": "#/$defs/atomVariant"
               },
               "generic": {
-                "type": "object",
-                "description": "Target-specific atom source (#133): exactly one of `path` (pack-relative file) or `body` (inline content).",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "body": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "oneOf": [
-                  {
-                    "required": [
-                      "path"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "body"
-                    ]
-                  }
-                ],
-                "additionalProperties": false
+                "$ref": "#/$defs/atomVariant"
               }
             },
             "additionalProperties": false
           }
         },
-        "anyOf": [
+        "allOf": [
           {
-            "required": [
-              "path"
+            "anyOf": [
+              {
+                "required": ["path"]
+              },
+              {
+                "required": ["body"]
+              },
+              {
+                "required": ["variants"],
+                "properties": {
+                  "variants": {
+                    "type": "object",
+                    "minProperties": 1
+                  }
+                }
+              }
             ]
           },
           {
-            "required": [
-              "body"
-            ]
-          },
-          {
-            "required": [
-              "variants"
-            ]
+            "not": {
+              "required": ["path", "body"]
+            }
           }
         ]
       }

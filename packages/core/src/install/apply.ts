@@ -93,14 +93,36 @@ export async function applyInstall(opts: ApplyInstallOptions): Promise<ApplyInst
     );
   }
   const ws = await resolveAgentpackPaths(plan.projectRoot);
-  await ensureAgentpackDirs(ws);
-  // Serialize the entire install (plan → write → commit) against any other
-  // concurrent `agentpack install` running against the same projectRoot.
-  // Without this, two concurrent installs both pass `plan` and clash on
-  // `atomicWriteFile(..., "wx")`, leaving an orphan `install_begin` row.
-  // Reentrant: `recordHistory` calls inside the locked region detect the
-  // outer hold and skip re-acquiring. From qa-lead HIGH-3 (iter-5).
-  return withProjectLock(ws, async () => applyInstallLocked(opts, ws));
+  // Pre-flight lockfile validation BEFORE any write — a corrupt or unreadable
+  // AGENTPACK.lock must fail the install with genuinely zero project
+  // modifications (codex #164). The authoritative read happens again under
+  // the project lock in applyInstallLocked, BEFORE `.agentpack/installed` +
+  // `.agentpack/backups` are created — so a lockfile that turns corrupt in
+  // the preflight→lock window still aborts before any durable write (codex
+  // #188 review). This one only fails fast.
+  await readPriorLockfile(ws.lockfilePath);
+  // Lock acquisition itself must mkdir `.agentpack/` (the lock lives inside
+  // it). Remember whether it pre-existed so an abort before any real write
+  // can remove the empty directory and keep the zero-writes guarantee.
+  const agentpackDirExisted = (await fs.stat(ws.agentpackDir).catch(() => null)) !== null;
+  try {
+    // Serialize the entire install (plan → write → commit) against any other
+    // concurrent `agentpack install` running against the same projectRoot.
+    // Without this, two concurrent installs both pass `plan` and clash on
+    // `atomicWriteFile(..., "wx")`, leaving an orphan `install_begin` row.
+    // Reentrant: `recordHistory` calls inside the locked region detect the
+    // outer hold and skip re-acquiring. From qa-lead HIGH-3 (iter-5).
+    return await withProjectLock(ws, async () => applyInstallLocked(opts, ws));
+  } catch (err) {
+    if (!agentpackDirExisted) {
+      // Best-effort: a non-recursive rmdir only succeeds when the install
+      // aborted before writing anything into `.agentpack/` (the lock dir is
+      // already released). If real writes happened (WAL begin, backups),
+      // the dir is non-empty and stays for the recovery sweep.
+      await fs.rmdir(ws.agentpackDir).catch(() => {});
+    }
+    throw err;
+  }
 }
 
 async function applyInstallLocked(
@@ -125,21 +147,18 @@ async function applyInstallLocked(
   // Read + parse any existing lockfile BEFORE the WAL begin entry — a v2
   // lockfile is multi-pack (#114), so this install MERGES its entry into the
   // document instead of replacing it. Parsing up front means a corrupt or
-  // unrecognized lockfile fails the install with zero writes, instead of
-  // silently dropping other packs' entries mid-apply. We hold the project
-  // lock, so the file cannot change between this read and the step-4 write.
-  const priorLockRaw = await fs.readFile(ws.lockfilePath, "utf8").catch(() => undefined);
-  let priorLockDoc: import("./types.js").LockfileV2 | null = null;
-  if (priorLockRaw !== undefined) {
-    try {
-      priorLockDoc = parseLockfileDocument(priorLockRaw);
-    } catch (err) {
-      throw new Error(
-        `Refusing to install: the existing AGENTPACK.lock could not be read (${err instanceof Error ? err.message : String(err)}). ` +
-          `It may describe other installed packs. Fix the file, or delete it if it is expendable, then re-run.`,
-      );
-    }
-  }
+  // unrecognized lockfile fails the install before any file is touched,
+  // instead of silently dropping other packs' entries mid-apply. We hold the
+  // project lock, so the file cannot change between this read and the
+  // step-4 write.
+  const priorLock = await readPriorLockfile(ws.lockfilePath);
+  const priorLockRaw = priorLock?.raw;
+  const priorLockDoc = priorLock?.doc ?? null;
+
+  // Only now that the authoritative lockfile read has passed do we create
+  // `.agentpack/installed` + `.agentpack/backups` — keeping the abort paths
+  // above (corrupt lockfile, target mismatch) at zero filesystem writes.
+  await ensureAgentpackDirs(ws);
 
   // Compute the backup dir BEFORE the WAL begin entry so the begin row can
   // record it — the recovery sweep needs it to restore overwritten user
@@ -537,6 +556,39 @@ function plannedFilesFromPlan(
 
 function sanitizePack(packId: string): string {
   return packId.replace(/[/\\]/g, "_");
+}
+
+/**
+ * Read + parse the existing AGENTPACK.lock, if any.
+ *
+ * Only a genuinely missing file (ENOENT) maps to `undefined`. Any other read
+ * failure — EACCES on a shared checkout, EISDIR collision, I/O error — must
+ * abort the install: treating an unreadable v2 lockfile as absent would let
+ * the step-4 write replace it with a document containing only the pack being
+ * installed, silently discarding every other pack's entry (codex #163).
+ * A file that reads but does not parse aborts for the same reason (#114).
+ */
+async function readPriorLockfile(
+  lockfilePath: string,
+): Promise<{ raw: string; doc: import("./types.js").LockfileV2 } | undefined> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(lockfilePath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new Error(
+      `Refusing to install: the existing AGENTPACK.lock could not be read (${err instanceof Error ? err.message : String(err)}). ` +
+        `It may describe other installed packs. Fix the file, or delete it if it is expendable, then re-run.`,
+    );
+  }
+  try {
+    return { raw, doc: parseLockfileDocument(raw) };
+  } catch (err) {
+    throw new Error(
+      `Refusing to install: the existing AGENTPACK.lock could not be read (${err instanceof Error ? err.message : String(err)}). ` +
+        `It may describe other installed packs. Fix the file, or delete it if it is expendable, then re-run.`,
+    );
+  }
 }
 
 /**
