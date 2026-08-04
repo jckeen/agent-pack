@@ -25,8 +25,8 @@
     "@agentpack/core": "workspace:*",
     "@agentpack/db": "workspace:*",
     "@auth/drizzle-adapter": "1.11.3",
-    "@aws-sdk/client-s3": "3.1096.0",
-    "@aws-sdk/s3-request-presigner": "3.1096.0",
+    "@aws-sdk/client-s3": "3.1101.0",
+    "@aws-sdk/s3-request-presigner": "3.1101.0",
     "@neondatabase/serverless": "1.1.0",
     "drizzle-orm": "0.45.2",
     "next": "16.2.12",
@@ -40,13 +40,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "26.1.2",
-    "@types/react": "19.2.17",
-    "@types/react-dom": "19.2.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
     "@vitest/coverage-v8": "4.1.10",
-    "postcss": "^8.5.24",
+    "postcss": "^8.5.25",
     "tailwindcss": "4.3.3",
     "typescript": "5.6.3",
-    "vite": "8.1.5",
+    "vite": "8.2.0",
     "vitest": "4.1.10"
   }
 }
