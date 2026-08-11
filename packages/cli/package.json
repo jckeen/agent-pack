@@ -55,12 +55,12 @@
     "picocolors": "1.1.1"
   },
   "devDependencies": {
-    "@types/node": "26.1.2",
+    "@types/node": "26.2.0",
     "@vitest/coverage-v8": "4.1.10",
     "smol-toml": "1.7.1",
-    "tsx": "4.23.1",
+    "tsx": "4.23.11",
     "typescript": "6.0.3",
-    "vite": "8.1.5",
+    "vite": "8.2.1",
     "vitest": "4.1.10"
   }
 }
