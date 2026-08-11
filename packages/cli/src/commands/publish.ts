@@ -409,7 +409,9 @@ async function putBlob(
   const res = await fetch(presigned.url, {
     method: "PUT",
     headers: presigned.headers,
-    body: bytes,
+    // TS 6 / undici BodyInit requires an ArrayBuffer-backed view; Buffer is
+    // typed over ArrayBufferLike, so copy into a plain Uint8Array.
+    body: new Uint8Array(bytes),
   });
   if (!res.ok) {
     throw new Error(`PUT ${filePath} → HTTP ${res.status}`);
