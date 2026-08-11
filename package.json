@@ -2,7 +2,7 @@
   "name": "agent-pack",
   "version": "0.7.0-dev",
   "private": true,
-  "description": "AgentPack standard + AgentPack Registry — the compiler and governance layer for agent configuration.",
+  "description": "AgentPack standard + AgentPack Registry \u2014 the compiler and governance layer for agent configuration.",
   "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@9.15.4",
@@ -40,7 +40,19 @@
     "overrides": {
       "postcss@<8.5.10": ">=8.5.10",
       "esbuild@<=0.24.2": ">=0.25.0",
-      "@eslint/plugin-kit@<0.3.4": ">=0.3.4"
+      "@eslint/plugin-kit@<0.3.4": ">=0.3.4",
+      "sharp@<0.35.0": ">=0.35.0",
+      "next-auth@>=5.0.0-beta.0 <=5.0.0-beta.31": ">=5.0.0-beta.32",
+      "@auth/core@>=0.1.0 <0.41.3": ">=0.41.3",
+      "next-auth@>=5.0.0-beta.1 <=5.0.0-beta.31": ">=5.0.0-beta.32",
+      "@auth/core@<=0.41.2": ">=0.41.3",
+      "fast-uri@>=3.0.0 <3.1.5": ">=3.1.5",
+      "hono@<4.12.34": ">=4.12.34",
+      "brace-expansion@>=4.0.0 <5.0.9": ">=5.0.9",
+      "hono@>=3.8.0 <4.12.34": ">=4.12.34",
+      "hono@>=4.7.0 <4.12.34": ">=4.12.34",
+      "hono@>=4.12.0 <4.12.34": ">=4.12.34",
+      "nanoid@<3.3.17": ">=3.3.17 <4"
     }
   }
 }
