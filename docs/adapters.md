@@ -13,6 +13,7 @@ Every adapter MUST:
 5. Preserve `<!-- BEGIN AGENTPACK: <id> --> … <!-- END AGENTPACK: <id> -->` markers in generated instruction files so multiple packs can coexist.
 6. Keep output **deterministic**: two consecutive exports of the same manifest + profile produce byte-identical files. Adapters sort files by path, sort JSON object keys, and emit trailing newlines consistently.
 7. Emit **[Agent Skills](https://agentskills.io) spec-conformant** skill folders. The spec rules live in one module (`packages/core/src/skills/agentskills.ts`, a TS port of the reference `skills-ref` validator): emitted skill directory names are spec-normalized (lowercase/digits/hyphens, ≤64 chars), the frontmatter `name` always equals the directory name, frontmatter values are YAML-serialized (never string-interpolated), and non-spec frontmatter fields are relocated under the spec's `metadata` passthrough. An already-conformant source skill folder passes through **byte-identical**; anything auto-conformed produces a warning. The conformance gate is `packages/core/tests/agentskills-conformance.test.ts`.
+8. The **[Agent Plugins 1.0](https://agent-plugins.org)** export (`pack agent-plugin`) follows the same discipline: its spec rules live in one module (`packages/core/src/exports/agentplugins.ts`, a TS port of the official JSON Schemas vendored at `schemas/agent-plugins/`), and the conformance gate is `packages/core/tests/agentplugins-conformance.test.ts`.
 
 ## Claude Code
 

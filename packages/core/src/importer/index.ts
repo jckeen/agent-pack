@@ -80,6 +80,10 @@ export {
   type McpAuth,
   type McpAuthScheme,
 } from "./importChatgptGpt.js";
+export {
+  importAgentPluginDir,
+  type ImportAgentPluginOptions,
+} from "./importAgentPlugin.js";
 
 export interface ImportResult {
   manifest: AgentPackManifest;

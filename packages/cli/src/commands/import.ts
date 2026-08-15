@@ -6,6 +6,7 @@ import ora from "ora";
 import pc from "picocolors";
 import {
   foldImportInto,
+  importAgentPluginDir,
   importChatgptGptDir,
   importClaudeCodeDir,
   importClaudeMd,
@@ -22,7 +23,7 @@ import { failCleanly } from "../lib/error.js";
 // `publisher.slug`, exactly one publisher segment + one slug segment.
 const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]*\.[a-z0-9][a-z0-9._-]*$/i;
 
-const SOURCES = ["claude", "claude-code", "codex", "chatgpt-gpt"] as const;
+const SOURCES = ["claude", "claude-code", "codex", "chatgpt-gpt", "agent-plugin"] as const;
 type Source = (typeof SOURCES)[number];
 
 // Which TargetPlatform a fold source's content belongs to (#133): the fold
@@ -34,6 +35,9 @@ const SOURCE_TARGET: Record<Exclude<Source, "claude">, TargetPlatform> = {
   "claude-code": "claude-code",
   codex: "codex",
   "chatgpt-gpt": "chatgpt",
+  // An Agent Plugins dir imports through the claude-code parse pipeline, so
+  // its content belongs to the claude-code variant slot on a fold.
+  "agent-plugin": "claude-code",
 };
 
 /**
@@ -68,11 +72,11 @@ export function registerImport(program: Command): void {
   program
     .command("import <path>")
     .description(
-      "Compile an existing setup into an AgentPack. `--from claude` (default) reads a single CLAUDE.md / AGENTS.md file (use `-` for stdin); `--from claude-code` reads a whole Claude Code config directory (~/.claude or a project's .claude/ + CLAUDE.md): skills, agents, commands, hooks, and MCP servers; `--from codex` reads a Codex setup directory; `--from chatgpt-gpt` reads a human-assembled ChatGPT-GPT bundle directory (gpt.json + optional openapi.yaml + knowledge/).",
+      "Compile an existing setup into an AgentPack. `--from claude` (default) reads a single CLAUDE.md / AGENTS.md file (use `-` for stdin); `--from claude-code` reads a whole Claude Code config directory (~/.claude or a project's .claude/ + CLAUDE.md): skills, agents, commands, hooks, and MCP servers; `--from codex` reads a Codex setup directory; `--from chatgpt-gpt` reads a human-assembled ChatGPT-GPT bundle directory (gpt.json + optional openapi.yaml + knowledge/); `--from agent-plugin` reads an Agent Plugins 1.0 directory (agent-plugins.org: plugin.json + skills/ + mcp.json).",
     )
     .option(
       "--from <source>",
-      "source format: `claude` (default), `claude-code`, `codex`, or `chatgpt-gpt`",
+      "source format: `claude` (default), `claude-code`, `codex`, `chatgpt-gpt`, or `agent-plugin`",
       "claude",
     )
     .option("--out <dir>", "output directory for the imported pack", "agentpack-imported")
@@ -207,6 +211,7 @@ async function runImporter(
   if (from === "claude-code") return importClaudeCodeDir(srcPath, opts);
   if (from === "codex") return importCodexDir(srcPath, opts);
   if (from === "chatgpt-gpt") return importChatgptGptDir(srcPath, opts);
+  if (from === "agent-plugin") return importAgentPluginDir(srcPath, opts);
   const text = await readSource(srcPath);
   return importClaudeMd(text, { ...opts, source: singleFileSource(srcPath) });
 }

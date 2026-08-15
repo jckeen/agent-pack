@@ -1,6 +1,6 @@
 # `agentpack` CLI
 
-The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`validate`, `inspect`, `plan`, `diff`, `verify`, `update --check`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `pack plugin`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
+The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`validate`, `inspect`, `plan`, `diff`, `verify`, `update --check`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `pack plugin`, `pack agent-plugin`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
 
 > AgentPack isn't on npm yet (planned for v0.3.0 promotion). Until then, build the CLI locally:
 >
@@ -127,6 +127,14 @@ The plugin target is the **admin-distribution** path for the compiler-plus-gover
 
 To make it required org-wide, an admin distributes the compiled directory through Cowork **org-plugins**: place it in the system-wide `org-plugins/` location on each device (e.g. macOS `~/Library/Application Support/Claude/org-plugins/`). Org-plugins are **auto-installed, take precedence over user plugins, and support per-tool policy locks** — so a governed pack becomes a locked, mandatory plugin across the org. AgentPack's role is upstream: it makes the artifact you drop into `org-plugins/` deterministic and inspectable (`agentpack inspect`, `agentpack plan`) rather than hand-assembled.
 
+### `agentpack pack agent-plugin [path]`
+
+```
+agentpack pack agent-plugin [path] [--profile <profile>] [--out <dir>] [--only <ids>] [--no-strict] [--allow-missing]
+```
+
+Compiles a pack into an **[Agent Plugins 1.0](https://agent-plugins.org)** directory (default `dist-agent-plugin`) — the cross-vendor package standard loaded natively by VS Code, GitHub Copilot, Cursor, ChatGPT, Kiro, and other clients: `plugin.json` (closed-schema manifest), `skills/` (Agent Skills format, portable), and `mcp.json` (explicit `stdio`/`streamable-http`/`sse` transports, portable). Components the spec declares **non-portable** in v1 — commands, subagents, hooks — ride under the `dev.agentpack/` reverse-domain extension namespace (read by namespace-aware clients and `agentpack import --from agent-plugin`; ignored by everyone else, and the command says so). Instruction/rule content bridges as an on-invoke `<slug>-guidance` skill, the same honest ceiling as `pack plugin`. Pack identity, profile, and risk level travel in `plugin.json` under `extensions["dev.agentpack"]`. MCP `env` placeholders are **dropped with a warning** — the spec expands only `${PLUGIN_ROOT}`/`${PLUGIN_DATA}`, so `${KEY}` values would land as dead literal strings; provide those through the client's own environment. The spec defines only the package format (distribution, install, permissions, and security are explicitly out of its scope — that layer stays with `agentpack install` or the consuming client).
+
 ### `agentpack pack mcpb`
 
 ```
@@ -149,7 +157,7 @@ Compiles a pack into **claude.ai (Claude Chat)** install artifacts written to `-
 
 ```
 agentpack import <path> --id <publisher.slug> \
-  [--from claude|claude-code|codex|chatgpt-gpt] [--out <dir>] [--name <name>]
+  [--from claude|claude-code|codex|chatgpt-gpt|agent-plugin] [--out <dir>] [--name <name>]
 agentpack import <path> --from claude-code --into <pack-dir> [--diff]
 ```
 
@@ -159,6 +167,7 @@ Compiles an existing setup into an AgentPack written to `--out` (default `agentp
 - **`claude-code`** — reads a whole Claude Code config **directory** (`~/.claude`, or a project's `.claude/` + root `CLAUDE.md`): `CLAUDE.md` → instruction/rule atoms, `skills/` → skill atoms, `agents/` → subagent atoms (verbatim `.md`, preserving `tools`/`model`), `commands/` → command atoms, and `settings.json` `hooks` / `mcpServers` → hook / mcp_server atoms. **Hook scripts travel:** when a hook command points at a script file (under the imported tree or `~/.claude`), its body is bundled into the pack and the command rewritten to the portable `${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>` form, so the hook actually runs after install (each bundled script is noted — its full contents ship). Reads **only** those surfaces by name — the credential store (`.credentials.json`) and runtime caches (`plugins/`, `projects/`, etc.) are never opened, and MCP `env` surfaces secret **key names** only (never values).
 - **`codex`** — reads a Codex setup directory (shared `SKILL.md` / MCP / hooks / subagents / `AGENTS.md`); near-lossless and round-trips back through the `codex` adapter.
 - **`chatgpt-gpt`** — reads a human-assembled ChatGPT-GPT bundle directory (`gpt.json` + optional `openapi.yaml` + `knowledge/`). The OpenAPI→MCP transpiler scaffolds tools (operationId→tool, auth→secrets/scopes); the emitted MCP servers are **scaffolding**, not runnable handlers, and the command prints the human-judgment steps required before the pack is usable.
+- **`agent-plugin`** — reads an **Agent Plugins 1.0** directory (`plugin.json` + `skills/` + `mcp.json`). `plugin.json` must pass spec validation (a package conformant clients would reject is not repackaged); a spec-invalid `mcp.json` disables only MCP import (the spec's own failure boundary). AgentPack's `dev.agentpack/` extension namespace round-trips commands/subagents/hooks losslessly; foreign extension namespaces are **warned about, never dropped silently**.
 
 Prints the imported atom count + per-type summary and any warnings, then suggests `agentpack validate <out>` (and `agentpack pack chat <out>` for the `chatgpt-gpt` path). Bad `--from` or a missing/malformed `--id` is a usage error (exit 2).
 

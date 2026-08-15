@@ -1,6 +1,6 @@
 # agent-pack — STATUS
 
-Last updated: 2026-07-30 (July window reconciled — continuous-sync engine S1–S4 shipped (lockfile provenance, gated `update`, `--scope user` + `import --into`, sync-check pack + pack-repo CI action), lockfile v2 multi-pack `AGENTPACK.lock`, target-specific atom variants (#133), authored target-compat enforcement (#134), go-public hardening #63 + first-run UX #158, and the July dependency majors. See the "July 2026" section below and CHANGELOG 0.7.0-dev. Prior: repo flipped **PUBLIC** 2026-06-17 — anonymous git-source quickstart verified end-to-end.)
+Last updated: 2026-08-14 (Agent Plugins 1.0 interop shipped — `pack agent-plugin` + `import --from agent-plugin`, spec module + vendored schemas + CI conformance gate; see CHANGELOG 2026-08-14. Prior window: July reconciled — continuous-sync engine S1–S4 shipped (lockfile provenance, gated `update`, `--scope user` + `import --into`, sync-check pack + pack-repo CI action), lockfile v2 multi-pack `AGENTPACK.lock`, target-specific atom variants (#133), authored target-compat enforcement (#134), go-public hardening #63 + first-run UX #158, and the July dependency majors. See the "July 2026" section below and CHANGELOG 0.7.0-dev. Prior: repo flipped **PUBLIC** 2026-06-17 — anonymous git-source quickstart verified end-to-end.)
 
 ## Where we are
 

@@ -76,6 +76,28 @@ export type {
   ExportMcpbResult,
   McpbManifest,
 } from "./exports/exportMcpb.js";
+// Agent Plugins spec (agent-plugins.org) — validation, export, import.
+export {
+  AGENT_PLUGINS_SPEC_VERSION,
+  AGENT_PLUGIN_MANIFEST_SCHEMA_ID,
+  AGENT_PLUGIN_MCP_SCHEMA_ID,
+  AGENT_PLUGIN_NAME_MAX_LENGTH,
+  AGENTPACK_EXTENSION_NAMESPACE,
+  normalizeAgentPluginName,
+  validateAgentPluginName,
+  validateAgentPluginManifest,
+  validateAgentPluginMcpConfig,
+  type AgentPluginManifest,
+  type AgentPluginAuthor,
+  type AgentPluginMcpConfig,
+  type AgentPluginMcpServer,
+  type SpecValidationResult,
+} from "./exports/agentplugins.js";
+export { exportAgentPlugin } from "./exports/exportAgentPlugin.js";
+export type {
+  ExportAgentPluginOptions,
+  ExportAgentPluginResult,
+} from "./exports/exportAgentPlugin.js";
 export { exportChat } from "./exports/exportChat.js";
 export type {
   ExportChatOptions,
@@ -147,6 +169,7 @@ export {
   importClaudeCodeDir,
   parseClaudeCode,
   buildClaudeCodeManifest,
+  importAgentPluginDir,
   importChatgptGptDir,
   parseChatgptGpt,
   buildChatgptManifest,
