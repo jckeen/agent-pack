@@ -215,6 +215,67 @@ describe("importAgentPluginDir hardening", () => {
     await fs.rm(dir, { recursive: true, force: true });
   }, 15000);
 
+  it("follows symlinked namespace directories and their symlinked subdirectories", async () => {
+    const dir = await minimalPluginDir();
+    // dev.agentpack is an internal symlink; its commands/ is another one.
+    const realNs = path.join(dir, "real-ns");
+    const realCommands = path.join(dir, "real-commands");
+    await fs.mkdir(realNs, { recursive: true });
+    await fs.mkdir(realCommands, { recursive: true });
+    await fs.writeFile(
+      path.join(realCommands, "hello.md"),
+      "---\ndescription: says hello\n---\n\nSay hello.\n",
+      "utf8",
+    );
+    await fs.symlink(realCommands, path.join(realNs, "commands"));
+    await fs.symlink(realNs, path.join(dir, "dev.agentpack"));
+
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    expect(result.manifest.atoms.some((a) => a.type === "command")).toBe(true);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("warns on duplicate bundled hook-script basenames and keeps the first", async () => {
+    const dir = await minimalPluginDir();
+    const hooksDir = path.join(dir, "dev.agentpack", "hooks");
+    await fs.mkdir(path.join(hooksDir, "nested"), { recursive: true });
+    await fs.writeFile(
+      path.join(hooksDir, "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/lint.sh",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(hooksDir, "lint.sh"),
+      "#!/usr/bin/env bash\necho first\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(hooksDir, "nested", "lint.sh"),
+      "#!/usr/bin/env bash\necho second\n",
+      "utf8",
+    );
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    expect(result.warnings.map((w) => w.message).join("\n")).toMatch(/[Dd]uplicate/);
+    const script = result.files.find((f) =>
+      f.relativePath.startsWith("atoms/hooks/scripts/"),
+    );
+    expect(script).toBeDefined();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   it("does not attach a hook script whose basename merely appears inside another filename", async () => {
     const dir = await minimalPluginDir();
     const hooksDir = path.join(dir, "dev.agentpack", "hooks");
