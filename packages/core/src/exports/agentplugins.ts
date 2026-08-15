@@ -36,8 +36,13 @@ export const AGENTPACK_EXTENSION_NAMESPACE = "dev.agentpack";
 
 export const AGENT_PLUGIN_NAME_MAX_LENGTH = 64;
 
-/** Ported from the vendored plugin.schema.json `properties.name.pattern`. */
-const NAME_PATTERN = /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
+/**
+ * Ported from the vendored plugin.schema.json `properties.name.pattern` —
+ * exported so the conformance test pins THIS RegExp against the vendored
+ * pattern byte-for-byte (not a copied literal).
+ */
+export const AGENT_PLUGIN_NAME_PATTERN =
+  /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 
 const MANIFEST_KNOWN_FIELDS = new Set([
   "$schema",
@@ -112,7 +117,7 @@ export function validateAgentPluginName(name: unknown): string[] {
       `Plugin name \`${name}\` exceeds ${AGENT_PLUGIN_NAME_MAX_LENGTH} characters (${name.length})`,
     );
   }
-  if (!NAME_PATTERN.test(name)) {
+  if (!AGENT_PLUGIN_NAME_PATTERN.test(name)) {
     errors.push(
       `Plugin name \`${name}\` must be lowercase letters/digits/hyphens/periods, start and end alphanumeric, with no consecutive hyphens or periods`,
     );
@@ -221,6 +226,18 @@ const CWD_PATTERN = /^(?:\.\/|\$\{PLUGIN_ROOT\}(?:\/|$)|\$\{PLUGIN_DATA\}(?:\/|$
 
 const RESERVED_ENV_KEYS = new Set(["PLUGIN_ROOT", "PLUGIN_DATA"]);
 
+/** Lexical containment: does a conformant-prefix cwd still escape via `..`? */
+function cwdEscapesRoot(cwd: string): boolean {
+  const relative = cwd.replace(/^(?:\.\/|\$\{PLUGIN_ROOT\}\/?|\$\{PLUGIN_DATA\}\/?)/, "");
+  let depth = 0;
+  for (const segment of relative.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    depth += segment === ".." ? -1 : 1;
+    if (depth < 0) return true;
+  }
+  return false;
+}
+
 function isLocalhostUrl(url: URL): boolean {
   return (
     url.hostname === "localhost" ||
@@ -287,6 +304,13 @@ export function validateAgentPluginMcpConfig(json: unknown): SpecValidationResul
       `mcp.json \`$schema\` must be \`${AGENT_PLUGIN_MCP_SCHEMA_ID}\` (got ${JSON.stringify(json["$schema"] ?? null)})`,
     );
   }
+  // Unlike plugin.json, the spec grants mcp.json no report-and-ignore
+  // exception for unknown root fields — the closed root schema is authoritative.
+  for (const key of Object.keys(json)) {
+    if (key !== "$schema" && key !== "mcpServers") {
+      errors.push(`mcp.json field \`${key}\` is not in the Agent Plugins spec`);
+    }
+  }
   const servers = json["mcpServers"];
   if (!isRecord(servers)) {
     errors.push("mcp.json requires an object `mcpServers` field");
@@ -321,6 +345,12 @@ export function validateAgentPluginMcpConfig(json: unknown): SpecValidationResul
         if (typeof raw["cwd"] !== "string" || !CWD_PATTERN.test(raw["cwd"])) {
           errors.push(
             `mcp.json server \`${name}\` \`cwd\` must be \`./…\`, \`\${PLUGIN_ROOT}\`-rooted, or \`\${PLUGIN_DATA}\`-rooted`,
+          );
+        } else if (cwdEscapesRoot(raw["cwd"])) {
+          // The schema validates only the prefix ("filesystem containment is
+          // validated separately") — this is that separate lexical check.
+          errors.push(
+            `mcp.json server \`${name}\` \`cwd\` traverses out of its declared root via \`..\``,
           );
         }
       }

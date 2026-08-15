@@ -6,6 +6,7 @@ import {
   AGENT_PLUGINS_SPEC_VERSION,
   AGENT_PLUGIN_MANIFEST_SCHEMA_ID,
   AGENT_PLUGIN_MCP_SCHEMA_ID,
+  AGENT_PLUGIN_NAME_PATTERN,
   AGENTPACK_EXTENSION_NAMESPACE,
   normalizeAgentPluginName,
   validateAgentPluginName,
@@ -52,10 +53,9 @@ describe("agentplugins spec constants", () => {
     );
     expect(plugin.$id).toBe(AGENT_PLUGIN_MANIFEST_SCHEMA_ID);
     expect(mcp.$id).toBe(AGENT_PLUGIN_MCP_SCHEMA_ID);
-    // The name grammar our validator ports must be the vendored schema's.
-    expect(plugin.properties.name.pattern).toBe(
-      "^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
-    );
+    // The IMPLEMENTATION's ported grammar must be the vendored schema's,
+    // byte-for-byte — pin the exported RegExp, not a copied literal.
+    expect(AGENT_PLUGIN_NAME_PATTERN.source).toBe(plugin.properties.name.pattern);
   });
 });
 
@@ -143,8 +143,7 @@ describe("validateAgentPluginMcpConfig", () => {
   it("requires $schema and mcpServers", () => {
     expect(validateAgentPluginMcpConfig({}).errors.length).toBeGreaterThan(0);
     expect(
-      validateAgentPluginMcpConfig({ $schema: AGENT_PLUGIN_MCP_SCHEMA_ID }).errors
-        .length,
+      validateAgentPluginMcpConfig({ $schema: AGENT_PLUGIN_MCP_SCHEMA_ID }).errors.length,
     ).toBeGreaterThan(0);
   });
 
@@ -179,6 +178,24 @@ describe("validateAgentPluginMcpConfig", () => {
       mcpServers: { s: { type: "streamable-http", url: "http://localhost:3999/mcp" } },
     });
     expect(localhost.errors).toEqual([]);
+  });
+
+  it("rejects unknown mcp.json root fields (the root schema is closed with no non-fatal exception)", () => {
+    const { errors } = validateAgentPluginMcpConfig({
+      ...minimalMcp(),
+      lspServers: {},
+    });
+    expect(errors.join("\n")).toMatch(/lspServers/);
+  });
+
+  it("rejects a cwd whose path traverses out of its declared root", () => {
+    for (const cwd of ["./../outside", "${PLUGIN_ROOT}/../outside", "./a/../../b"]) {
+      const { errors } = validateAgentPluginMcpConfig({
+        $schema: AGENT_PLUGIN_MCP_SCHEMA_ID,
+        mcpServers: { s: { type: "stdio", command: "x", cwd } },
+      });
+      expect(errors.join("\n"), cwd).toMatch(/cwd/);
+    }
   });
 
   it("rejects a cwd outside plugin-relative / PLUGIN_ROOT / PLUGIN_DATA forms", () => {

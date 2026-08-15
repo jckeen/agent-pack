@@ -126,6 +126,15 @@ export function buildClaudeCodeManifest(
       invocation: { slash: `/${cmdSlug}` },
       prompt: promptPath,
     };
+    if (cmd.argumentHint) {
+      // Round-trip the adapter's own `argument-hint` rendering (`[a] [b]` ←
+      // arguments[].name) back into descriptor `arguments`, so the hint
+      // survives import instead of being parsed and dropped.
+      const names = [...cmd.argumentHint.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]!);
+      descriptor["arguments"] = (names.length > 0 ? names : [cmd.argumentHint]).map(
+        (name) => ({ name }),
+      );
+    }
     files.push({
       relativePath: descriptorPath,
       content: stringify(descriptor, { lineWidth: 0 }),

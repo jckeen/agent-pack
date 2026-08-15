@@ -79,10 +79,7 @@ describe("exportAgentPlugin", () => {
     expect(await exists(out, "commands/pr-summary.md")).toBe(false);
     expect(await exists(out, "hooks/hooks.json")).toBe(false);
     expect(result.extensionFiles).toEqual(
-      expect.arrayContaining([
-        `${NS}/commands/pr-summary.md`,
-        `${NS}/hooks/hooks.json`,
-      ]),
+      expect.arrayContaining([`${NS}/commands/pr-summary.md`, `${NS}/hooks/hooks.json`]),
     );
 
     await fs.rm(out, { recursive: true, force: true });
@@ -143,15 +140,9 @@ describe("importAgentPluginDir (round-trip)", () => {
     const out = await tmp();
     await exportAgentPlugin({ source: EXAMPLE, profile: "safe", outDir: out });
     await fs.mkdir(path.join(out, "com.example.other"), { recursive: true });
-    await fs.writeFile(
-      path.join(out, "com.example.other", "config.json"),
-      "{}\n",
-      "utf8",
-    );
+    await fs.writeFile(path.join(out, "com.example.other", "config.json"), "{}\n", "utf8");
     const result = await importAgentPluginDir(out, { id: "acme.reimported" });
-    expect(result.warnings.map((w) => w.message).join("\n")).toMatch(
-      /com\.example\.other/,
-    );
+    expect(result.warnings.map((w) => w.message).join("\n")).toMatch(/com\.example\.other/);
     await fs.rm(out, { recursive: true, force: true });
   });
 
@@ -161,5 +152,194 @@ describe("importAgentPluginDir (round-trip)", () => {
       /plugin\.json/,
     );
     await fs.rm(out, { recursive: true, force: true });
+  });
+});
+
+describe("importAgentPluginDir hardening", () => {
+  async function minimalPluginDir(): Promise<string> {
+    const dir = await tmp();
+    await fs.writeFile(
+      path.join(dir, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "hardening-fixture",
+      }),
+      "utf8",
+    );
+    return dir;
+  }
+
+  it("skips symlinks that escape the plugin root and warns instead of reading them", async () => {
+    const dir = await minimalPluginDir();
+    const secret = path.join(dir, "..", `agentpack-secret-${path.basename(dir)}`);
+    await fs.writeFile(secret, "SECRET-CONTENT-DO-NOT-PACKAGE\n", "utf8");
+    const cmdDir = path.join(dir, "dev.agentpack", "commands");
+    await fs.mkdir(cmdDir, { recursive: true });
+    await fs.symlink(secret, path.join(cmdDir, "leak.md"));
+    // A plugin-internal symlink is fine per the spec — it must survive.
+    const skillDir = path.join(dir, "skills", "inside");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: inside\ndescription: internal skill\n---\n\nBody.\n",
+      "utf8",
+    );
+
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    for (const f of result.files) {
+      expect(f.content).not.toContain("SECRET-CONTENT-DO-NOT-PACKAGE");
+    }
+    expect(result.warnings.map((w) => w.message).join("\n")).toMatch(/leak\.md/);
+    expect(result.manifest.atoms.some((a) => a.type === "skill")).toBe(true);
+
+    await fs.rm(secret, { force: true });
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("skips binary files with a warning instead of corrupting them via UTF-8", async () => {
+    const dir = await minimalPluginDir();
+    const skillDir = path.join(dir, "skills", "binskill");
+    await fs.mkdir(path.join(skillDir, "assets"), { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: binskill\ndescription: has a binary asset\n---\n\nBody.\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(skillDir, "assets", "logo.png"),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]),
+    );
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    expect(result.files.some((f) => f.relativePath.endsWith("logo.png"))).toBe(false);
+    expect(result.warnings.map((w) => w.message).join("\n")).toMatch(/logo\.png/);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("warns when MCP servers carry cwd, headers, or env values it cannot represent", async () => {
+    const dir = await minimalPluginDir();
+    await fs.writeFile(
+      path.join(dir, "mcp.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+        mcpServers: {
+          local: { type: "stdio", command: "srv", env: { MODE: "prod" }, cwd: "./srv" },
+          remote: {
+            type: "streamable-http",
+            url: "https://example.com/mcp",
+            headers: { "X-Team": "a" },
+          },
+        },
+      }),
+      "utf8",
+    );
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    const text = result.warnings.map((w) => w.message).join("\n");
+    expect(text).toMatch(/cwd/);
+    expect(text).toMatch(/headers/);
+    expect(text).toMatch(/env/);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("re-bundles hook scripts shipped in the extension namespace", async () => {
+    const dir = await minimalPluginDir();
+    const hooksDir = path.join(dir, "dev.agentpack", "hooks");
+    await fs.mkdir(hooksDir, { recursive: true });
+    await fs.writeFile(
+      path.join(hooksDir, "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: "Edit",
+              hooks: [
+                {
+                  type: "command",
+                  command: "bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/lint.sh",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(hooksDir, "lint.sh"),
+      "#!/usr/bin/env bash\necho lint\n",
+      "utf8",
+    );
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    const script = result.files.find((f) =>
+      f.relativePath.startsWith("atoms/hooks/scripts/"),
+    );
+    expect(script).toBeDefined();
+    expect(script!.content).toContain("echo lint");
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("warns about manifest-only foreign extension namespaces", async () => {
+    const dir = await tmp();
+    await fs.writeFile(
+      path.join(dir, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "hardening-fixture",
+        extensions: { "com.example.other": { anything: true } },
+      }),
+      "utf8",
+    );
+    const skillDir = path.join(dir, "skills", "s");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: s\ndescription: skill\n---\n\nBody.\n",
+      "utf8",
+    );
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    expect(result.warnings.map((w) => w.message).join("\n")).toMatch(/com\.example\.other/);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("preserves command argument hints through the round-trip", async () => {
+    const out = await tmp();
+    await exportAgentPlugin({ source: EXAMPLE, profile: "full", outDir: out });
+    const result = await importAgentPluginDir(out, { id: "acme.reimported" });
+    const descriptor = result.files.find(
+      (f) =>
+        f.relativePath.startsWith("atoms/commands/") &&
+        f.relativePath.endsWith(".yaml") &&
+        f.content.includes("pr-summary"),
+    );
+    expect(descriptor).toBeDefined();
+    expect(descriptor!.content).toMatch(/arguments:/);
+    expect(descriptor!.content).toMatch(/base/);
+    await fs.rm(out, { recursive: true, force: true });
+  });
+});
+
+describe("exportAgentPlugin outDir safety", () => {
+  it("cleans managed outputs when reusing an outDir, so a safe export can't retain full-profile hooks", async () => {
+    const out = await tmp();
+    await exportAgentPlugin({ source: EXAMPLE, profile: "full", outDir: out });
+    expect(await exists(out, `${NS}/hooks/hooks.json`)).toBe(true);
+    await exportAgentPlugin({ source: EXAMPLE, profile: "safe", outDir: out });
+    // safe still ships commands (freshly written); the full profile's hooks
+    // must NOT survive the re-export.
+    expect(await exists(out, `${NS}/hooks/hooks.json`)).toBe(false);
+    expect(await exists(out, `${NS}/commands/pr-summary.md`)).toBe(true);
+    await fs.rm(out, { recursive: true, force: true });
+  });
+
+  it("refuses to write through a symlinked component path in outDir", async () => {
+    const out = await tmp();
+    const elsewhere = await tmp();
+    await fs.symlink(elsewhere, path.join(out, "skills"));
+    await expect(
+      exportAgentPlugin({ source: EXAMPLE, profile: "full", outDir: out }),
+    ).rejects.toThrow(/symlink|outside/i);
+    const escaped = await fs.readdir(elsewhere);
+    expect(escaped).toEqual([]);
+    await fs.rm(out, { recursive: true, force: true });
+    await fs.rm(elsewhere, { recursive: true, force: true });
   });
 });

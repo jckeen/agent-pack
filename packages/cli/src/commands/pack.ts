@@ -237,8 +237,7 @@ export function registerPack(program: Command): void {
               ),
             );
           }
-          const envWarnings = result.plan.warnings.filter((w) => /env placeholder/.test(w));
-          for (const w of envWarnings) {
+          for (const w of result.plan.warnings) {
             console.log(pc.yellow(`  ⚠ ${w}`));
           }
           console.log("");

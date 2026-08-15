@@ -114,19 +114,50 @@ export async function exportAgentPlugin(
 
   const outDir = path.resolve(options.outDir);
   await fs.mkdir(outDir, { recursive: true });
+  const realOut = await fs.realpath(outDir);
+
+  // The managed component paths are replaced wholesale on every export —
+  // otherwise re-exporting a narrower profile into the same directory would
+  // retain the previous profile's hooks/commands, and a re-import of the
+  // "safe" output would resurrect them. A pre-existing symlink at a managed
+  // path is refused outright: it would redirect the write outside outDir.
+  const managedPaths = ["plugin.json", "mcp.json", "skills", AGENTPACK_EXTENSION_NAMESPACE];
+  for (const rel of managedPaths) {
+    const abs = path.join(realOut, rel);
+    const lstat = await fs.lstat(abs).catch(() => null);
+    if (!lstat) continue;
+    if (lstat.isSymbolicLink()) {
+      throw new Error(
+        `Refusing to export: \`${rel}\` in the output directory is a symlink — writes through it could land outside outDir. Remove it and re-run.`,
+      );
+    }
+    await fs.rm(abs, { recursive: true, force: true });
+  }
+
   const written: string[] = [];
   for (const file of pluginFiles) {
-    const absPath = path.resolve(outDir, file.path);
-    if (!isInside(outDir, absPath)) {
+    const absPath = path.resolve(realOut, file.path);
+    if (!isInside(realOut, absPath)) {
       throw new Error(`Refusing to write outside outDir: ${file.path}`);
     }
     await fs.mkdir(path.dirname(absPath), { recursive: true });
+    // Containment is re-checked on the REAL directory path so a symlinked
+    // intermediate directory can't redirect the write (lexical alone is not
+    // enough), and an existing symlink at the file path itself is refused.
+    const realDir = await fs.realpath(path.dirname(absPath));
+    if (!isInside(realOut, path.join(realDir, path.basename(absPath)))) {
+      throw new Error(`Refusing to write through a symlink outside outDir: ${file.path}`);
+    }
+    const existing = await fs.lstat(absPath).catch(() => null);
+    if (existing?.isSymbolicLink()) {
+      throw new Error(`Refusing to write through a symlink at ${file.path}`);
+    }
     await fs.writeFile(
       absPath,
       file.content.endsWith("\n") ? file.content : `${file.content}\n`,
       "utf8",
     );
-    written.push(path.relative(outDir, absPath));
+    written.push(path.relative(realOut, absPath));
   }
 
   const types = atomTypesForPlan(plan, loaded.manifest);
