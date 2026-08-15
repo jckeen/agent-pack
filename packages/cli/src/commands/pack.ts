@@ -4,8 +4,10 @@ import ora from "ora";
 import {
   exportPack,
   exportPlugin,
+  exportAgentPlugin,
   exportMcpb,
   exportChat,
+  AGENTPACK_EXTENSION_NAMESPACE,
   type PortabilityCeiling,
   type TargetPlatform,
 } from "@agentpack/core";
@@ -174,6 +176,79 @@ export function registerPack(program: Command): void {
           console.log(pc.dim(`outDir: ${result.outDir}`));
         } catch (err) {
           spinner.fail(`Plugin export failed: ${(err as Error).message}`);
+          if (
+            (process.env["AGENTPACK_DEBUG"] === "1" ||
+              process.env["WORKGRAPH_DEBUG"] === "1") &&
+            err instanceof Error
+          ) {
+            console.error(pc.dim(err.stack ?? ""));
+          }
+          process.exit(1);
+        }
+      },
+    );
+
+  pack
+    .command("agent-plugin [path]")
+    .description(
+      "Compile an AgentPack into an Agent Plugins 1.0 directory (agent-plugins.org) — the cross-vendor package standard loaded natively by VS Code, GitHub Copilot, Cursor, ChatGPT, Kiro, and other clients. Skills and MCP servers are portable; commands/subagents/hooks ride in the AgentPack extension namespace.",
+    )
+    .option("--profile <profile>", "install profile")
+    .option("--out <dir>", "output directory", "dist-agent-plugin")
+    .option("--only <atomIds>", "comma-separated subset of atom ids to include")
+    .option("--no-strict", "do not abort on validation errors")
+    .option(
+      "--allow-missing",
+      "allow exporting even when atom body files are missing (default: refuse)",
+      false,
+    )
+    .action(
+      async (
+        path: string | undefined,
+        options: {
+          profile?: string;
+          out: string;
+          only?: string;
+          strict?: boolean;
+          allowMissing?: boolean;
+        },
+      ) => {
+        const source = path ?? process.cwd();
+        const spinner = ora(`Compiling ${source} → Agent Plugins 1.0`).start();
+        try {
+          const result = await exportAgentPlugin({
+            source,
+            profile: options.profile,
+            outDir: options.out,
+            strict: options.strict ?? true,
+            allowMissingBodies: options.allowMissing ?? false,
+            onlyAtoms: options.only
+              ?.split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          });
+          spinner.succeed(
+            `Wrote Agent Plugin \`${result.pluginName}\` — ${result.writtenFiles.length} file(s) to ${pc.cyan(result.outDir)}`,
+          );
+          if (result.extensionFiles.length > 0) {
+            console.log(
+              pc.yellow(
+                `\n  ⚠ ${result.extensionFiles.length} file(s) under \`${AGENTPACK_EXTENSION_NAMESPACE}/\` are NOT portable Agent Plugins v1 components (commands/subagents/hooks) — only namespace-aware clients and \`agentpack install\` read them.`,
+              ),
+            );
+          }
+          for (const w of result.plan.warnings) {
+            console.log(pc.yellow(`  ⚠ ${w}`));
+          }
+          console.log("");
+          console.log(
+            pc.dim(
+              "Install: point any Agent Plugins client at this directory (spec defines the package format; distribution/consent stay with the client or `agentpack install`).",
+            ),
+          );
+          console.log(pc.dim(`outDir: ${result.outDir}`));
+        } catch (err) {
+          spinner.fail(`Agent Plugins export failed: ${(err as Error).message}`);
           if (
             (process.env["AGENTPACK_DEBUG"] === "1" ||
               process.env["WORKGRAPH_DEBUG"] === "1") &&

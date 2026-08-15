@@ -33,12 +33,12 @@ const PORTABILITY: Record<AtomType, PortabilityInfo> = {
   skill: {
     ceiling: "universal",
     mechanism: "SKILL.md (account-level Skills + open standard)",
-    note: "Reaches Claude Code, claude.ai, Desktop, Cowork, the Agent SDK, and ~30 SKILL.md-compatible tools.",
+    note: "Reaches Claude Code, claude.ai, Desktop, Cowork, the Agent SDK, and ~30 SKILL.md-compatible tools; also a portable Agent Plugins 1.0 component (VS Code, Copilot, Cursor, ChatGPT, Kiro via `pack agent-plugin`).",
   },
   mcp_server: {
     ceiling: "universal",
     mechanism: "remote MCP connector / .mcpb desktop bundle",
-    note: "A remote connector is available on every Claude surface; .mcpb covers Desktop. Tools/resources/prompts only — not ambient instructions.",
+    note: "A remote connector is available on every Claude surface; .mcpb covers Desktop; also a portable Agent Plugins 1.0 component (mcp.json via `pack agent-plugin`). Tools/resources/prompts only — not ambient instructions.",
   },
   command: {
     ceiling: "plugin",

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.0-dev — 2026-08-14 (Agent Plugins 1.0 interop)
+
+- **Agent Plugins 1.0 export — `agentpack pack agent-plugin`**: compiles a
+  pack into a spec-conformant [Agent Plugins](https://agent-plugins.org)
+  directory — the cross-vendor package standard (AWS, Cursor, Microsoft,
+  OpenAI, Vercel, Google) loaded natively by VS Code, GitHub Copilot, Cursor,
+  ChatGPT, and Kiro. Skills and MCP servers land at the spec's fixed portable
+  locations (`skills/`, `mcp.json` with explicit transports); commands,
+  subagents, and hooks — non-portable v1 components — ride under the
+  `dev.agentpack` reverse-domain extension namespace; instruction/rule
+  content bridges as an on-invoke guidance skill; pack identity, profile,
+  and risk travel in `plugin.json` `extensions["dev.agentpack"]`. MCP env
+  placeholders are dropped with a warning (the spec expands only
+  `${PLUGIN_ROOT}`/`${PLUGIN_DATA}`) rather than emitted as dead strings.
+- **Agent Plugins import — `agentpack import --from agent-plugin`**: reads
+  any Agent Plugins 1.0 directory back into a pack via the claude-code parse
+  pipeline; the `dev.agentpack` namespace round-trips commands/subagents/
+  hooks losslessly, foreign namespaces are warned about (never dropped
+  silently), and a spec-invalid `mcp.json` disables only MCP import (the
+  spec's own failure boundary).
+- **Post-review hardening** (adversarial Codex review of the interop PR):
+  the importer treats a plugin directory as third-party input — symlinks are
+  followed only when their real target stays inside the plugin root, binary
+  files are skipped with a warning instead of corrupted through UTF-8, and an
+  aggregate 50 MiB budget bounds memory; the exporter replaces its managed
+  paths wholesale on re-export (a `safe` export can no longer retain a prior
+  `full` export's hooks) and refuses symlinked output paths; the MCP
+  validator rejects unknown root fields and `..`-traversing `cwd`; MCP
+  `cwd`/`headers`/env-value losses and manifest-only foreign extension
+  namespaces warn instead of vanishing; bundled hook scripts and command
+  argument hints now survive the round-trip (the argument-hint fix also
+  repairs `import --from claude-code`); the CLI prints every export-plan
+  warning instead of filtering to env notices.
+- **Spec module + conformance gate**: `packages/core/src/exports/
+agentplugins.ts` is the single source of truth for the spec rules
+  (TypeScript port of the official JSON Schemas, vendored at
+  `schemas/agent-plugins/`); a CI-gated conformance suite pins the schema
+  ids and asserts the ported name grammar matches the vendored pattern
+  byte-for-byte. Portability notes for `skill`/`mcp_server` now name the
+  Agent Plugins reach.
+
 ## 0.7.0-dev — 2026-07-29 (dependency + docs maintenance)
 
 - **Dependencies**: minor-and-patch group bump across the workspace — 19

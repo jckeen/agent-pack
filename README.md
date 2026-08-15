@@ -15,7 +15,7 @@ One `AGENTPACK.yaml` describes a bundle of agent configuration — skills, rules
 
 It also compiles to **Codex**, **Cursor**, **ChatGPT Apps**, and a generic `AGENTS.md` target — which is exactly what agents like **Google Antigravity** consume (Antigravity auto-loads a workspace's `AGENTS.md` and `GEMINI.md`; verified against agy 1.1.0, and its skills use the same [Agent Skills](https://agentskills.io) `SKILL.md` format AgentPack emits). AgentPack is **MIT-licensed** and open source through and through; the standard, the CLI, the registry, the connector, and the adapters are all in this repo and stay free forever.
 
-> **Status:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Cross-surface reach spans four compile/import targets — `pack plugin`, `pack mcpb`, `pack chat`, and `import` (Claude / Codex / ChatGPT-GPT) — plus `@agentpack/connector`, a remote-MCP prototype that reaches every surface. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). For the current shipped state and version see [`STATUS.md`](./STATUS.md), [`CHANGELOG.md`](./CHANGELOG.md), and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
+> **Status:** Phases 1–5 are shipped in code; the hosted registry is **not yet live** (DB + R2 + OAuth provisioning pending). Today the working path is **git-source install** — `agentpack install github:owner/repo@ref#subpath` works without any hosted infrastructure. Cross-surface reach spans the compile/import targets — `pack plugin`, `pack agent-plugin` ([Agent Plugins 1.0](https://agent-plugins.org)), `pack mcpb`, `pack chat`, and `import` (Claude / Codex / ChatGPT-GPT / Agent Plugins) — plus `@agentpack/connector`, a remote-MCP prototype that reaches every surface. v0.3.0 promotion is held until a live publish→install smoke round-trips against the hosted registry. Phase 6 (enterprise / orgs / SSO) is 🔒 [gated](./Plans/PHASE-6-GATE.md). For the current shipped state and version see [`STATUS.md`](./STATUS.md), [`CHANGELOG.md`](./CHANGELOG.md), and [`Plans/ROADMAP.md`](./Plans/ROADMAP.md).
 
 ---
 
@@ -140,13 +140,14 @@ Install profiles (**safe → standard → full → enterprise**) let you opt int
 
 The thing you configure in the terminal mostly doesn't follow you to claude.ai, Desktop, Cowork, or mobile — each surface is its own island. AgentPack bridges what's bridgeable through three vehicles, and is honest about the rest:
 
-| Vehicle            | Command                 | Carries                                               | Reaches                                            |
-| ------------------ | ----------------------- | ----------------------------------------------------- | -------------------------------------------------- |
-| **Local install**  | `agentpack install`     | everything, incl. hooks + ambient `CLAUDE.md`         | Claude Code only                                   |
-| **Plugin**         | `agentpack pack plugin` | skills, commands, subagents, MCP, hooks               | Code, Cowork, Desktop, the web **Directory**       |
-| **Local bundle**   | `agentpack pack mcpb`   | a local stdio `mcp_server` as a `.mcpb`               | one-click **local** MCP on Cowork + Desktop        |
-| **Chat artifacts** | `agentpack pack chat`   | skill ZIPs + `connectors.json` + project instructions | **claude.ai (Chat)** — copy-paste install steps    |
-| **MCP connector**  | `@agentpack/connector`  | skills/commands/instructions as prompts + resources   | **every** surface, incl. claude.ai chat and mobile |
+| Vehicle            | Command                       | Carries                                                                                      | Reaches                                                                          |
+| ------------------ | ----------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Local install**  | `agentpack install`           | everything, incl. hooks + ambient `CLAUDE.md`                                                | Claude Code only                                                                 |
+| **Plugin**         | `agentpack pack plugin`       | skills, commands, subagents, MCP, hooks                                                      | Code, Cowork, Desktop, the web **Directory**                                     |
+| **Agent Plugin**   | `agentpack pack agent-plugin` | skills + MCP (portable); commands/subagents/hooks in the `dev.agentpack` extension namespace | **Agent Plugins 1.0** clients: VS Code, GitHub Copilot, Cursor, ChatGPT, Kiro, … |
+| **Local bundle**   | `agentpack pack mcpb`         | a local stdio `mcp_server` as a `.mcpb`                                                      | one-click **local** MCP on Cowork + Desktop                                      |
+| **Chat artifacts** | `agentpack pack chat`         | skill ZIPs + `connectors.json` + project instructions                                        | **claude.ai (Chat)** — copy-paste install steps                                  |
+| **MCP connector**  | `@agentpack/connector`        | skills/commands/instructions as prompts + resources                                          | **every** surface, incl. claude.ai chat and mobile                               |
 
 The plugin format **is** the Claude Cowork install format — one `/plugin install` (or file upload) reaches Code, Cowork, Desktop, and the web Directory. [Hooks are a Cowork-supported plugin component](https://claude.com/docs/cowork/3p/extensions), so they ride the plugin to Cowork (not Code-only).
 
@@ -165,6 +166,10 @@ A pack's overall reach is bounded by its least-portable atom. Instruction/rule c
 # Compile to a Directory-installable Claude Code plugin — this IS the Cowork install format
 agentpack pack plugin examples/pr-quality --profile full --out dist-plugin
 #   → /plugin marketplace add <repo> ; /plugin install pr-quality@pr-quality-marketplace
+
+# Compile to an Agent Plugins 1.0 directory (agent-plugins.org) — VS Code, Copilot, Cursor, ChatGPT, Kiro
+agentpack pack agent-plugin examples/pr-quality --profile full --out dist-agent-plugin
+#   → point any Agent Plugins client at the directory; skills + mcp.json load natively
 
 # Compile a local stdio MCP server into a .mcpb bundle (one-click LOCAL install on Cowork + Desktop)
 agentpack pack mcpb examples/pr-quality --profile full --out dist-mcpb
@@ -219,8 +224,9 @@ agent-pack/
 ```bash
 agentpack init                              # scaffold a starter AGENTPACK.yaml
 agentpack import [path] --id pub.slug \
-  --from claude|claude-code|codex|chatgpt-gpt  # compile an existing setup into a pack
-                                            # (claude-code ingests a whole ~/.claude dir)
+  --from claude|claude-code|codex|chatgpt-gpt|agent-plugin  # compile an existing setup into a pack
+                                            # (claude-code ingests a whole ~/.claude dir;
+                                            #  agent-plugin ingests an Agent Plugins 1.0 dir)
 agentpack validate [path]                   # validate manifest
 agentpack inspect [path]                    # metadata + atoms + profiles + risk
 agentpack plan [path] \
@@ -229,6 +235,8 @@ agentpack pack export [path] \
   --target codex --profile full --out dist/ # write platform-native files
 agentpack pack plugin [path] \
   --profile full --out dist-plugin          # compile a Directory-installable Claude Code plugin
+agentpack pack agent-plugin [path] \
+  --profile full --out dist-agent-plugin    # compile an Agent Plugins 1.0 directory (agent-plugins.org)
 agentpack install [pack] \
   --target claude-code --profile safe \
   --project ./my-project --yes              # WAL-protected local install
@@ -268,6 +276,10 @@ Every adapter:
 ### Agent Skills conformance
 
 AgentPack emits and consumes skills in the open [Agent Skills](https://agentskills.io) format and operates a layer **above** the spec: the spec defines a single skill folder (`SKILL.md` frontmatter + optional `scripts/`/`references/`/`assets/`); AgentPack adds what the spec deliberately leaves out — multi-atom packs, install discipline (lockfile, drift detection, rollback), and governance (policy enforcement, permission planning, risk gating). Every emitted skill folder is conformant: directory names are spec-normalized, `name` always matches the directory, frontmatter is YAML-safe, and AgentPack-specific extras travel under the spec's `metadata` passthrough — non-conformant sources are auto-conformed with a warning, never silently. On the way in, a `skill` atom can point at any spec-conformant skill folder (e.g. one authored against the spec directly) and it passes through byte-identical; `agentpack validate` checks skill sources against the spec rules. Output is validated against the reference `skills-ref` validator and gated by a conformance test in CI ("conformant/validated", not "certified" — there is no certification program).
+
+### Agent Plugins conformance
+
+AgentPack compiles to and imports from **[Agent Plugins 1.0](https://agent-plugins.org)** — the cross-vendor package standard co-authored by AWS, Cursor, Microsoft, OpenAI, Vercel, and Google, loaded natively by VS Code, GitHub Copilot, Cursor, ChatGPT, and Kiro — and operates the same layer **above** it that it operates above Agent Skills. The spec defines only the package format (a closed-schema `plugin.json`, `skills/` per the Agent Skills spec, `mcp.json`) and explicitly leaves distribution, installation, permissions, and security out of scope; AgentPack supplies exactly that layer — multi-atom packs, profiles, computed risk, declared permissions, WAL install + lockfile + rollback, and signing. `agentpack pack agent-plugin` emits a spec-conformant directory (validated against the official JSON Schemas, vendored in `schemas/agent-plugins/` and gated by a conformance test in CI); components the spec declares non-portable in v1 (commands, subagents, hooks) ride under AgentPack's `dev.agentpack` reverse-domain extension namespace, and instruction/rule content bridges as an on-invoke guidance skill — the same honest ceiling as `pack plugin`. `agentpack import --from agent-plugin` reads any spec directory back into a pack, round-tripping the `dev.agentpack` namespace losslessly and warning (never silently dropping) on foreign namespaces.
 
 Details: [`docs/adapters.md`](./docs/adapters.md).
 
