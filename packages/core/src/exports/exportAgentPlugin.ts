@@ -1,3 +1,4 @@
+import { constants as fsConstants } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
@@ -152,11 +153,23 @@ export async function exportAgentPlugin(
     if (existing?.isSymbolicLink()) {
       throw new Error(`Refusing to write through a symlink at ${file.path}`);
     }
-    await fs.writeFile(
+    // O_NOFOLLOW closes the window between the lstat check and the write —
+    // a symlink appearing in between fails the open instead of redirecting it.
+    const handle = await fs.open(
       absPath,
-      file.content.endsWith("\n") ? file.content : `${file.content}\n`,
-      "utf8",
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_TRUNC |
+        fsConstants.O_NOFOLLOW,
     );
+    try {
+      await handle.writeFile(
+        file.content.endsWith("\n") ? file.content : `${file.content}\n`,
+        "utf8",
+      );
+    } finally {
+      await handle.close();
+    }
     written.push(path.relative(realOut, absPath));
   }
 

@@ -196,6 +196,81 @@ describe("importAgentPluginDir hardening", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  it("follows plugin-internal directory symlinks and survives symlink cycles", async () => {
+    const dir = await minimalPluginDir();
+    // skills/ itself is an internal symlink to a real directory in the root.
+    const realSkills = path.join(dir, "real-skills");
+    await fs.mkdir(path.join(realSkills, "linked"), { recursive: true });
+    await fs.writeFile(
+      path.join(realSkills, "linked", "SKILL.md"),
+      "---\nname: linked\ndescription: reached via internal dir symlink\n---\n\nBody.\n",
+      "utf8",
+    );
+    await fs.symlink(realSkills, path.join(dir, "skills"));
+    // A directory symlink cycle must not hang the walk.
+    await fs.symlink(realSkills, path.join(realSkills, "cycle"));
+
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    expect(result.manifest.atoms.some((a) => a.type === "skill")).toBe(true);
+    await fs.rm(dir, { recursive: true, force: true });
+  }, 15000);
+
+  it("does not attach a hook script whose basename merely appears inside another filename", async () => {
+    const dir = await minimalPluginDir();
+    const hooksDir = path.join(dir, "dev.agentpack", "hooks");
+    await fs.mkdir(hooksDir, { recursive: true });
+    await fs.writeFile(
+      path.join(hooksDir, "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/prelint.sh",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    // Only `lint.sh` ships — it is NOT the referenced `prelint.sh` and must
+    // not be attached to the hook on a substring match.
+    await fs.writeFile(
+      path.join(hooksDir, "lint.sh"),
+      "#!/usr/bin/env bash\necho lint\n",
+      "utf8",
+    );
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    expect(
+      result.files.some((f) => f.relativePath.startsWith("atoms/hooks/scripts/")),
+    ).toBe(false);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("skips non-UTF-8 files even when they contain no NUL byte", async () => {
+    const dir = await minimalPluginDir();
+    const skillDir = path.join(dir, "skills", "latin");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: latin\ndescription: has a latin-1 reference\n---\n\nBody.\n",
+      "utf8",
+    );
+    // Latin-1 "café" — 0xE9 is invalid UTF-8 but contains no NUL.
+    await fs.writeFile(
+      path.join(skillDir, "notes.txt"),
+      Buffer.from([0x63, 0x61, 0x66, 0xe9]),
+    );
+    const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
+    expect(result.files.some((f) => f.relativePath.endsWith("notes.txt"))).toBe(false);
+    expect(result.warnings.map((w) => w.message).join("\n")).toMatch(/notes\.txt/);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   it("skips binary files with a warning instead of corrupting them via UTF-8", async () => {
     const dir = await minimalPluginDir();
     const skillDir = path.join(dir, "skills", "binskill");

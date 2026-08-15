@@ -13,6 +13,7 @@
 // rather than corrupted through UTF-8 decoding; and both a per-file and an
 // aggregate byte budget bound what the importer will hold in memory.
 
+import { isUtf8 } from "node:buffer";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { stringify } from "yaml";
@@ -56,11 +57,35 @@ function isInsideRoot(root: string, abs: string): boolean {
 class ContainedReader {
   private count = 0;
   private totalBytes = 0;
+  /** Real paths of directories already walked — breaks symlink cycles. */
+  private readonly visitedDirs = new Set<string>();
 
   constructor(
     private readonly realRoot: string,
     private readonly warn: Warn,
   ) {}
+
+  /**
+   * Resolve a directory that may be a plugin-internal symlink: returns its
+   * real path when it is a directory whose real target stays inside the
+   * plugin root; null (with a warning for escapes) otherwise.
+   */
+  async containedDir(abs: string, rel: string): Promise<string | null> {
+    const lstat = await fs.lstat(abs).catch(() => null);
+    if (!lstat) return null;
+    if (!lstat.isSymbolicLink() && !lstat.isDirectory()) return null;
+    const real = await fs.realpath(abs).catch(() => null);
+    if (real === null) return null;
+    if (!isInsideRoot(this.realRoot, real)) {
+      this.warn(
+        rel,
+        `\`${rel}\` is a symlink escaping the plugin root — not read (the Agent Plugins spec forbids symlinks that escape).`,
+      );
+      return null;
+    }
+    const stat = await fs.stat(real).catch(() => null);
+    return stat?.isDirectory() ? real : null;
+  }
 
   /**
    * Read one file if it passes every gate; null otherwise. Symlinks are
@@ -102,7 +127,16 @@ class ContainedReader {
       );
     }
     const buf = await fs.readFile(target);
-    if (buf.includes(0)) {
+    // Re-check the budget against the bytes actually read — the pre-read
+    // stat.size is advisory (the file may have grown in between).
+    if (buf.length > MAX_FILE_BYTES || this.totalBytes + buf.length > MAX_TOTAL_BYTES) {
+      throw new Error(
+        `Agent Plugins source exceeds the ${MAX_TOTAL_BYTES}-byte total budget; refusing to import.`,
+      );
+    }
+    // NUL check catches most binaries cheaply; isUtf8 catches the rest
+    // (e.g. Latin-1) that UTF-8 decoding would corrupt via replacement chars.
+    if (buf.includes(0) || !isUtf8(buf)) {
       this.warn(
         rel,
         `\`${rel}\` is not UTF-8 text — skipped rather than corrupted (binary assets do not survive this importer).`,
@@ -115,6 +149,11 @@ class ContainedReader {
   }
 
   async walkInto(tree: Map<string, string>, absDir: string, relDir: string): Promise<void> {
+    // `absDir` is already a real, contained path (callers resolve through
+    // containedDir / the recursion below). The visited set breaks cycles
+    // introduced by internal directory symlinks pointing at an ancestor.
+    if (this.visitedDirs.has(absDir)) return;
+    this.visitedDirs.add(absDir);
     const entries = await fs.readdir(absDir, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
       if (SUBTREE_IGNORE.has(entry.name)) continue;
@@ -136,8 +175,12 @@ class ContainedReader {
           await this.walkInto(tree, real, rel);
           continue;
         }
+        // A symlink to a contained file falls through to read() below.
       } else if (lstat.isDirectory()) {
-        await this.walkInto(tree, abs, rel);
+        // Normalize to the real path so the visited set is canonical even
+        // when an ancestor was reached through an internal symlink.
+        const real = await fs.realpath(abs).catch(() => null);
+        if (real !== null) await this.walkInto(tree, real, rel);
         continue;
       }
       const content = await this.read(abs, rel);
@@ -240,8 +283,8 @@ export async function importAgentPluginDir(
 
   // skills/ — fixed portable location; SKILL.md at immediate child level only
   // per the spec, but supporting files below each skill dir carry through.
-  const skillsDir = path.join(realRoot, "skills");
-  if ((await fs.lstat(skillsDir).catch(() => null))?.isDirectory()) {
+  const skillsDir = await reader.containedDir(path.join(realRoot, "skills"), "skills");
+  if (skillsDir !== null) {
     await reader.walkInto(tree, skillsDir, "skills");
   }
 
@@ -274,9 +317,9 @@ export async function importAgentPluginDir(
   const hookScripts = new Map<string, string>();
   const rootEntries = await fs.readdir(realRoot, { withFileTypes: true }).catch(() => []);
   for (const entry of rootEntries) {
-    const entryAbs = path.join(realRoot, entry.name);
-    const lstat = await fs.lstat(entryAbs).catch(() => null);
-    if (!lstat?.isDirectory() || !NAMESPACE_DIR_RE.test(entry.name)) continue;
+    if (!NAMESPACE_DIR_RE.test(entry.name)) continue;
+    const nsDir = await reader.containedDir(path.join(realRoot, entry.name), entry.name);
+    if (nsDir === null) continue;
     if (entry.name !== AGENTPACK_EXTENSION_NAMESPACE) {
       warn(
         entry.name,
@@ -284,15 +327,18 @@ export async function importAgentPluginDir(
       );
       continue;
     }
-    const nsRoot = entryAbs;
+    const nsRoot = nsDir;
     for (const sub of ["commands", "agents"]) {
-      const abs = path.join(nsRoot, sub);
-      if ((await fs.lstat(abs).catch(() => null))?.isDirectory()) {
+      const abs = await reader.containedDir(path.join(nsRoot, sub), `${entry.name}/${sub}`);
+      if (abs !== null) {
         await reader.walkInto(tree, abs, sub);
       }
     }
-    const hooksDir = path.join(nsRoot, "hooks");
-    if ((await fs.lstat(hooksDir).catch(() => null))?.isDirectory()) {
+    const hooksDir = await reader.containedDir(
+      path.join(nsRoot, "hooks"),
+      `${entry.name}/hooks`,
+    );
+    if (hooksDir !== null) {
       const hooksTree = new Map<string, string>();
       await reader.walkInto(hooksTree, hooksDir, "hooks");
       const hooksRaw = hooksTree.get("hooks/hooks.json");
@@ -310,7 +356,16 @@ export async function importAgentPluginDir(
       // Every other file under hooks/ is a bundled script (emitted by
       // `pack agent-plugin` from `.claude/hooks/…`) — reattach by basename.
       for (const [rel, content] of hooksTree) {
-        if (rel !== "hooks/hooks.json") hookScripts.set(path.basename(rel), content);
+        if (rel === "hooks/hooks.json") continue;
+        const base = path.basename(rel);
+        if (hookScripts.has(base)) {
+          warn(
+            rel,
+            `Duplicate bundled hook script basename \`${base}\` — kept the first occurrence; rename to disambiguate.`,
+          );
+          continue;
+        }
+        hookScripts.set(base, content);
       }
     }
   }
@@ -335,8 +390,16 @@ export async function importAgentPluginDir(
   // (mirrors importClaudeCodeDir's resolveHookScript, but the script bodies
   // are already in-tree — no disk resolution and no path trust needed).
   for (const hook of parsed.hooks) {
+    // Match on whole path basenames, not substrings — a shipped `lint.sh`
+    // must not attach to a command referencing `prelint.sh`.
+    const commandBasenames = new Set(
+      hook.command
+        .trim()
+        .split(/\s+/)
+        .map((token) => path.basename(token.replace(/\\/g, "/"))),
+    );
     for (const [baseName, content] of hookScripts) {
-      if (!hook.command.includes(baseName)) continue;
+      if (!commandBasenames.has(baseName)) continue;
       const ext = path.extname(baseName) || ".sh";
       const interpreter = hookInterpreter(content, ext);
       if (!interpreter) {

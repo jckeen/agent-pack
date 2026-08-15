@@ -230,7 +230,8 @@ const RESERVED_ENV_KEYS = new Set(["PLUGIN_ROOT", "PLUGIN_DATA"]);
 function cwdEscapesRoot(cwd: string): boolean {
   const relative = cwd.replace(/^(?:\.\/|\$\{PLUGIN_ROOT\}\/?|\$\{PLUGIN_DATA\}\/?)/, "");
   let depth = 0;
-  for (const segment of relative.split("/")) {
+  // Split on backslashes too: Windows-style `..\outside` traverses as well.
+  for (const segment of relative.split(/[/\\]/)) {
     if (segment === "" || segment === ".") continue;
     depth += segment === ".." ? -1 : 1;
     if (depth < 0) return true;

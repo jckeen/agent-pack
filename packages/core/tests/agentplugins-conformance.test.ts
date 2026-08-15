@@ -189,7 +189,12 @@ describe("validateAgentPluginMcpConfig", () => {
   });
 
   it("rejects a cwd whose path traverses out of its declared root", () => {
-    for (const cwd of ["./../outside", "${PLUGIN_ROOT}/../outside", "./a/../../b"]) {
+    for (const cwd of [
+      "./../outside",
+      "${PLUGIN_ROOT}/../outside",
+      "./a/../../b",
+      "./..\\outside",
+    ]) {
       const { errors } = validateAgentPluginMcpConfig({
         $schema: AGENT_PLUGIN_MCP_SCHEMA_ID,
         mcpServers: { s: { type: "stdio", command: "x", cwd } },
