@@ -64,7 +64,7 @@ jobs:
   publish:
     steps:
       - uses: actions/checkout@v4
-      - run: pnpm agentpack publish ./AGENTPACK.yaml --registry https://registry.agentpack.dev
+      - run: agentpack publish ./AGENTPACK.yaml --registry https://registry.agentpack.dev
 ```
 
 The signature's identity claim will be the workflow URI, e.g. `https://github.com/<owner>/<repo>/.github/workflows/<wf>.yml@<ref>`.
