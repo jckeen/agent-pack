@@ -208,7 +208,7 @@ create index packs_search_idx on packs using gin(search);
 - `packages/cli` — new `publish` subcommand with two-phase flow.
 - `packages/cli` — new `login` / `whoami` / `tokens` subcommands.
 - `scripts/seed-import.ts` — idempotent seed migration.
-- `apps/registry/components/PackDetail.tsx` updates — fetch from DB, not JSON.
+- `apps/registry/app/packs/[publisher]/[slug]/page.tsx` — pack detail page fetches from DB, not JSON.
 - Phase 3 docs at `docs/registry.md` and `docs/publish.md`.
 
 ### Phase 3 dependencies

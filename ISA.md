@@ -193,15 +193,15 @@ This section tracks what is _not yet implemented in code_. As phases land, items
 - [x] ISC-105: `vitest` suite `install.test.ts` — happy path: install into temp dir writes expected files + manifest + lockfile + history
 - [x] ISC-106: `install.test.ts` — refuses to write outside projectRoot (symlink escape attempt)
 - [x] ISC-107: `install.test.ts` — determinism: two installs into separate clean dirs → identical lockfile contents (ignoring `installedAt`)
-- [x] ISC-108: `uninstall.test.ts` — roundtrip: install → uninstall → pre-install state restored bit-identically
-- [x] ISC-109: `uninstall.test.ts` — missing manifest → throws `UninstallManifestNotFound`
+- [x] ISC-108: `install.test.ts` (`describe("uninstall")`) — roundtrip: install → uninstall → pre-install state restored bit-identically
+- [x] ISC-109: `install.test.ts` (`describe("uninstall")`) — missing manifest → throws `InstallManifestNotFoundError`
 - [x] ISC-110: `lockfile.test.ts` — schema accepts known shape, rejects unknown fields when strict
 - [x] ISC-111: `lockfile.test.ts` — checksum determinism: same manifest+target+profile → same atom checksums
 - [x] ISC-112: `checksum.test.ts` — SHA-256 of canonical content matches `openssl dgst -sha256` of file
 - [x] ISC-113: `diff.test.ts` — produces unified diff with marker context
-- [x] ISC-114: `verify.test.ts` — clean install reports `clean: true`
-- [x] ISC-115: `verify.test.ts` — mutated file reports `drift[]` with the path
-- [x] ISC-116: `verify.test.ts` — deleted file reports `missing[]`
+- [x] ISC-114: `install.test.ts` (`describe("verifyInstall")`) — clean install reports `clean: true`
+- [x] ISC-115: `install.test.ts` (`describe("verifyInstall")`) — mutated file reports `drift[]` with the path
+- [x] ISC-116: `install.test.ts` (`describe("verifyInstall")`) — deleted file reports `missing[]`
 - [x] ISC-117: `rollback.test.ts` — three-step history (install → install → uninstall) rolled back to step 0 yields empty `.agentpack/installed/`
 - [x] ISC-118: CLI subprocess test — `agentpack install` with `--dry-run` exits 0 and writes nothing
 - [x] ISC-119: CLI subprocess test — `agentpack install --yes` succeeds, `uninstall --yes` succeeds, `history` lists 2 entries
