@@ -204,8 +204,8 @@ agent-pack/
 │   └── pr-quality/           # complete AgentPack — 7 atoms, 4 profiles
 ├── schemas/AGENTPACK.schema.json
 ├── seed/seed-packs.json
-├── templates/                # starter manifest, CLAUDE.md, AGENTS.md, rule templates
-├── docs/                     # standard, security, adapters, CLI, registry, publish, install, policy, remote-install
+├── templates/                # CLAUDE.md, AGENTS.md, README-agent, cursor-rule merge templates
+├── docs/                     # standard, security, adapters, CLI, registry, publish, install, policy, remote-install, git-source, signatures, sync, sync-design, sync-triggers, integration-roadmap
 ├── Plans/                    # ROADMAP, PROTOCOL, PHASE-6-GATE
 ├── scripts/                  # bring-up-prod.sh, smoke-e2e.sh, seed-import.ts
 ├── ISA.md                    # Project Ideal State Articulation — ISCs (test harness + done condition)
