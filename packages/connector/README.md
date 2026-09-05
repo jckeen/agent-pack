@@ -65,6 +65,6 @@ set and the public hostname added to `AGENTPACK_CONNECTOR_ALLOWED_HOSTS`.
 ## Status
 
 Prototype with auth. The catalog builder, MCP registration, bearer auth, and
-DNS-rebinding guard are covered by tests (33 total, incl. a bound-socket
+DNS-rebinding guard are covered by tests (50 total, incl. a bound-socket
 round-trip); a full MCP **client** handshake against a running server is not
 yet wired into CI.
