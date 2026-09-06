@@ -27,7 +27,7 @@ pnpm verify         # the canonical pre-PR gate: typecheck + lint + test + build
 - `docs/` — reference docs (standard, security, adapters, CLI, registry, publish, install, remote-install, git-source, signatures, policy, sync, sync-design, sync-triggers, integration-roadmap).
 - `Plans/` — ROADMAP, PROTOCOL wire contract, PHASE-6-GATE.
 - `ISA.md` — the living ideal-state articulation (test harness + done condition). Internal planning artifact, but kept in the repo for transparency.
-- `scripts/` — `bring-up-prod.sh` (operator-only, provisions Neon + R2 + GitHub OAuth), `smoke-e2e.sh` (requires a deployed registry + `SMOKE_PUBLISH_TOKEN`), `seed-import.ts`.
+- `scripts/` — `bring-up-prod.sh` (operator-only, provisions Neon + R2 + GitHub OAuth), `check-doc-truth.sh` (CI doc-contract checker), `smoke-e2e.sh` (requires a deployed registry + `SMOKE_PUBLISH_TOKEN`), `seed-import.ts`.
 
 ## Pull-request expectations
 

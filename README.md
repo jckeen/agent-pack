@@ -207,7 +207,7 @@ agent-pack/
 ├── templates/                # CLAUDE.md, AGENTS.md, README-agent, cursor-rule merge templates
 ├── docs/                     # standard, security, adapters, CLI, registry, publish, install, policy, remote-install, git-source, signatures, sync, sync-design, sync-triggers, integration-roadmap
 ├── Plans/                    # ROADMAP, PROTOCOL, PHASE-6-GATE
-├── scripts/                  # bring-up-prod.sh, smoke-e2e.sh, seed-import.ts
+├── scripts/                  # bring-up-prod.sh, check-doc-truth.sh, smoke-e2e.sh, seed-import.ts
 ├── ISA.md                    # Project Ideal State Articulation — ISCs (test harness + done condition)
 ├── STATUS.md                 # Current shipped state
 ├── CHANGELOG.md
