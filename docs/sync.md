@@ -44,10 +44,13 @@ deep-merged with your existing settings, hook scripts at `~/.claude/hooks/`
 invoked via `$HOME/.claude/…`). Install state lives at `~/.claude/.agentpack/`
 — no project is touched. `--allow-exec` is required because the pack ships
 hooks and the git source is unsigned — that consent is per-machine and
-re-required on every exec-bearing update, by design. `--allow-partial-target`
-acknowledges the imported pack's authored `partial` compatibility claim
-([#134](https://github.com/jckeen/agent-pack/issues/134)) — drop it once you
-have exercised the target and promoted the status to `supported`.
+re-required on every exec-bearing update, by design. A lossless import back
+into its source runtime is `supported`, so omit `--allow-partial-target` in
+that case. The flag acknowledges an actual `partial` or `experimental`
+compatibility claim, such as a cross-runtime or lossy import
+([#134](https://github.com/jckeen/agent-pack/issues/134)); it is separate from
+executable-content consent. Review and exercise the exported behavior
+before promoting a target to `supported`.
 
 ### User scope beyond Claude Code (#132)
 
@@ -61,13 +64,13 @@ mapping (adapter project layout → user layout):
 **Codex — root `~/.codex`** (the same home-style layout
 `import --from codex ~/.codex` reads back, closing the loop):
 
-| Adapter output (project layout) | User-scope location                                                                                                                                                                                                                                                                           |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENTS.md`                     | `~/.codex/AGENTS.md` (marker-merged with your own content)                                                                                                                                                                                                                                    |
-| `.codex/config.toml`            | `~/.codex/config.toml` — **deep-merged**: model, `[projects."…"]` trust levels, and unrelated `[mcp_servers.*]` entries survive; a colliding key refuses without `--force`, and `--force` wins only the collided keys. The merge rewrites the file canonically, so comments are not preserved |
-| `.codex/hooks.json`             | `~/.codex/hooks.json` (JSON deep-merged)                                                                                                                                                                                                                                                      |
-| `.codex/agents/<slug>.toml`     | `~/.codex/agents/<slug>.toml`                                                                                                                                                                                                                                                                 |
-| `.agents/skills/…`              | `~/.codex/skills/…` (Codex's user-level skills dir; the `AGENTS.md` skill index is rewritten to match)                                                                                                                                                                                        |
+| Adapter output (project layout) | User-scope location                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AGENTS.md`                     | `~/.codex/AGENTS.md` (marker-merged with your own content)                                                                                                                                                                                                                                                                                                                                 |
+| `.codex/config.toml`            | `~/.codex/config.toml` — **deep-merged**: model, `[projects."…"]` trust levels, and unrelated `[mcp_servers.*]` entries survive; a colliding key refuses without `--force`, and `--force` wins only the collided keys. Pack provenance lives under `[agentpack."<pack_id>"]`, so several packs coexist in one file. The merge rewrites the file canonically, so comments are not preserved |
+| `.codex/hooks.json`             | `~/.codex/hooks.json` (JSON deep-merged)                                                                                                                                                                                                                                                                                                                                                   |
+| `.codex/agents/<slug>.toml`     | `~/.codex/agents/<slug>.toml`                                                                                                                                                                                                                                                                                                                                                              |
+| `.agents/skills/…`              | `~/.codex/skills/…` (Codex's user-level skills dir; the generated `AGENTS.md` skill index is rendered for this location at build time — authored instruction text is never rewritten)                                                                                                                                                                                                      |
 
 **Antigravity — `--target generic`, root `~/.gemini/config`.** There is no
 dedicated Antigravity adapter, deliberately: Antigravity's global

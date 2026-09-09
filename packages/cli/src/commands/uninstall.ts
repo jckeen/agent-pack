@@ -5,8 +5,10 @@ import pc from "picocolors";
 import {
   allUserScopeRoots,
   InstallManifestNotFoundError,
+  planUninstall,
   uninstall,
   UninstallConflictError,
+  UninstallUnparsableConfigError,
   readInstallManifest,
   resolveAgentpackPaths,
   type InstallManifestV1,
@@ -93,6 +95,13 @@ export function registerUninstall(program: Command): void {
             ];
           }
 
+          // PHASE 1 — scan EVERY selected root before any mutation (#194).
+          // A conflict or unparsable config in a later root must refuse the
+          // whole uninstall while every root is still untouched; planning
+          // one root and applying it before scanning the next left earlier
+          // roots half-uninstalled with no way back. Every root's refusal is
+          // reported, not just the first.
+          const refusals: string[] = [];
           for (const { project, manifest } of targets) {
             const where =
               targets.length > 1 || options.scope === "user" ? ` — ${project}` : "";
@@ -124,21 +133,54 @@ export function registerUninstall(program: Command): void {
             console.log(pc.cyan(`  Restore (${restores.length}):`));
             for (const b of restores) console.log(pc.cyan(`    ↺ ${b.original}`));
 
-            if (!options.yes) {
-              const ok = await confirm(pc.bold(`\nProceed with uninstall? [y/N] `));
-              if (!ok) {
-                console.log(pc.dim("Aborted."));
-                process.exit(1);
+            try {
+              await planUninstall({
+                packId,
+                projectRoot: project,
+                force: options.force,
+                forceRestore: options.forceRestore,
+              });
+            } catch (err) {
+              if (
+                err instanceof UninstallConflictError ||
+                err instanceof UninstallUnparsableConfigError
+              ) {
+                refusals.push(`${where ? `${project}: ` : ""}${err.message}`);
+                continue;
               }
+              throw err;
             }
+          }
+          if (refusals.length > 0) {
+            for (const r of refusals) console.error(pc.red("✗ ") + r);
+            console.error(
+              pc.red(`\nNothing was uninstalled (${targets.length} root(s) unchanged).`),
+            );
+            process.exit(2);
+          }
 
+          // Confirmation covers the complete plan — every root printed above.
+          if (!options.yes) {
+            const ok = await confirm(pc.bold(`\nProceed with uninstall? [y/N] `));
+            if (!ok) {
+              console.log(pc.dim("Aborted."));
+              process.exit(1);
+            }
+          }
+
+          // PHASE 2 — apply per root. `uninstall` re-scans its own root before
+          // acting, so a file that changed between the pre-scan and the apply
+          // is still refused for THAT root (per-root safety is unchanged; the
+          // pre-scan is not a cross-root transaction).
+          for (const { project } of targets) {
             const result = await uninstall({
               packId,
               projectRoot: project,
               force: options.force,
               forceRestore: options.forceRestore,
             });
-            console.log(pc.green(`\n✓ Uninstalled ${packId}.`));
+            const where = targets.length > 1 ? ` (${project})` : "";
+            console.log(pc.green(`\n✓ Uninstalled ${packId}${where}.`));
             console.log(
               pc.dim(
                 `  • ${result.removed.length} removed, ${result.restored.length} restored, ${result.conflicts.length} conflicts.`,

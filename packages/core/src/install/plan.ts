@@ -86,6 +86,7 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       outDir: tmp,
       strict: true,
       allowMissingBodies: opts.allowMissingBodies,
+      ...(opts.scope ? { scope: opts.scope } : {}),
     });
     const planFiles = result.plan.files;
     // User scope (sync S3): remap adapter output to the ~/.claude layout

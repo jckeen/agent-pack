@@ -24,7 +24,7 @@ Curiosity-grade pings ("does it have SSO?" with no follow-up) do **not** trigger
 - No `orgs` table migration runs in production. (Schema slot reserved — see "schema continuity" below — but no live ALTER TABLE.)
 - No WorkOS account is provisioned.
 - No org-admin UI is built.
-- No audit-event row writes are wired up. (Table exists, but every state-mutating route in the registry currently writes nothing to `audit_events`.)
+- No general-purpose audit coverage across mutating routes. The admin quarantine status route and admin packs page already call `appendAuditEvent`; broader enterprise audit coverage remains gated.
 - No org-scoped publish flow in CLI.
 - No billing system, Stripe webhooks, plan logic, seat limits, anything billing-adjacent.
 

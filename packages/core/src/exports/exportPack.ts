@@ -1,10 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type {
-  AdapterOutputFile,
-  InstallPlan,
-  TargetPlatform,
-} from "../schema/types.js";
+import type { AdapterOutputFile, InstallPlan, TargetPlatform } from "../schema/types.js";
 import { getAdapter } from "../adapters/index.js";
 import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
@@ -32,6 +28,11 @@ export interface ExportPackOptions {
    * audit finding #3).
    */
   allowMissingBodies?: boolean;
+  /**
+   * Install scope the output is built for — forwarded to the adapter so
+   * generated cross-references render against the right layout (#193).
+   */
+  scope?: "project" | "user";
 }
 
 export interface ExportResult {
@@ -76,6 +77,7 @@ export async function exportPack(options: ExportPackOptions): Promise<ExportResu
     profile,
     adapter,
     onlyAtoms: options.onlyAtoms,
+    ...(options.scope ? { scope: options.scope } : {}),
   });
 
   if (strict && !allowMissing) {
@@ -97,9 +99,7 @@ export async function exportPack(options: ExportPackOptions): Promise<ExportResu
   for (const file of plan.files) {
     const absPath = path.resolve(outDir, file.path);
     if (!isInside(outDir, absPath)) {
-      throw new Error(
-        `Refusing to write file outside outDir: ${file.path} → ${absPath}`,
-      );
+      throw new Error(`Refusing to write file outside outDir: ${file.path} → ${absPath}`);
     }
     await fs.mkdir(path.dirname(absPath), { recursive: true });
     await fs.writeFile(absPath, normalizeContent(file), "utf8");

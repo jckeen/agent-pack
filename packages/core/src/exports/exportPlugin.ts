@@ -14,7 +14,11 @@ import { createInstallPlan } from "../planner/createInstallPlan.js";
 import { UnknownProfileError } from "../planner/resolveAtoms.js";
 import { stableJsonStringify } from "../adapters/types.js";
 import { summarizePortability, type PortabilitySummary } from "../portability.js";
-import { normalizeSkillSlug, renderSkillMd } from "../skills/agentskills.js";
+import {
+  normalizeSkillSlug,
+  renderSkillMd,
+  uniqueSkillSlug,
+} from "../skills/agentskills.js";
 
 export interface ExportPluginOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -98,7 +102,7 @@ export async function exportPlugin(
   }
 
   const pluginName = kebab(loaded.manifest.metadata.slug);
-  const pluginFiles = toPluginFiles(plan.files, loaded.manifest, pluginName);
+  const pluginFiles = toPluginFiles(plan.files, loaded.manifest, pluginName, plan.warnings);
   if (options.marketplace) {
     pluginFiles.push(
       mk(
@@ -140,6 +144,7 @@ function toPluginFiles(
   files: AdapterOutputFile[],
   manifest: AgentPackManifest,
   pluginName: string,
+  warnings: string[],
 ): AdapterOutputFile[] {
   const out: AdapterOutputFile[] = [];
   out.push(
@@ -148,14 +153,12 @@ function toPluginFiles(
       stableJsonStringify(pluginManifest(manifest, pluginName)),
     ),
   );
+  const guidanceName = guidanceSkillName(pluginName, files, warnings);
 
   for (const f of files) {
     if (f.path === "CLAUDE.md") {
       // Instructions/rules have no ambient home outside Claude Code. Bundle as
       // an on-invoke skill so the guidance still reaches plugin-aware surfaces.
-      // One normalized name is used for BOTH the directory and the frontmatter
-      // (Agent Skills spec: name must equal directory, ≤64 chars).
-      const guidanceName = normalizeSkillSlug(`${pluginName}-guidance`);
       out.push(
         mk(
           `skills/${guidanceName}/SKILL.md`,
@@ -184,6 +187,35 @@ function toPluginFiles(
     out.push(f);
   }
   return out;
+}
+
+/**
+ * Directory (and frontmatter) name for the bundled guidance skill. One
+ * normalized name serves both (Agent Skills spec: name must equal directory,
+ * ≤64 chars), and it must never land on a skill the pack authored itself
+ * (#220): `<plugin>-guidance` unless a pack skill already emits at that
+ * normalized path, then the first free `-2`, `-3`, … suffix. Shared with the
+ * Agent Plugins exporter, which relocates the same `.claude/skills/` output.
+ */
+export function guidanceSkillName(
+  pluginName: string,
+  files: readonly AdapterOutputFile[],
+  warnings: string[],
+): string {
+  const base = normalizeSkillSlug(`${pluginName}-guidance`);
+  const takenSkillDirs = new Set(
+    files
+      .filter((f) => f.path.startsWith(".claude/skills/"))
+      .map((f) => f.path.split("/")[2])
+      .filter((dir): dir is string => dir !== undefined),
+  );
+  const name = uniqueSkillSlug(base, takenSkillDirs);
+  if (name !== base) {
+    warnings.push(
+      `Guidance skill emitted as \`skills/${name}/\` — the pack's own skill already occupies \`skills/${base}/\`.`,
+    );
+  }
+  return name;
 }
 
 function pluginManifest(

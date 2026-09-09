@@ -6,16 +6,15 @@ computation, the install planner and WAL-protected apply/uninstall/update
 pipeline, per-target adapters (Claude Code, Codex, Cursor, ChatGPT, generic),
 lockfile + drift verification, and Sigstore signing/verification.
 
-```bash
-npm i @agentpack/core
-```
+The packages are not published on npm yet. Follow the repository's
+[source quickstart](https://github.com/jckeen/agent-pack#quickstart-5-minutes)
+to build the workspace. The engine is available to workspace consumers as:
 
 ```ts
 import { planInstall, applyInstall } from "@agentpack/core";
 ```
 
-Most users want the CLI instead: [`@agentpack/cli`](https://www.npmjs.com/package/@agentpack/cli)
-(`npm i -g @agentpack/cli`). This package is for building on the engine —
+Most users want the [CLI](../cli/README.md) instead. This package is for building on the engine —
 registries, bots, or custom install surfaces.
 
 - Repository and project README: <https://github.com/jckeen/agent-pack>

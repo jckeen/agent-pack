@@ -15,12 +15,14 @@ import { createInstallPlan } from "../planner/createInstallPlan.js";
 import { UnknownProfileError } from "../planner/resolveAtoms.js";
 import { stableJsonStringify } from "../adapters/types.js";
 import { summarizePortability, type PortabilitySummary } from "../portability.js";
-import { normalizeSkillSlug, renderSkillMd } from "../skills/agentskills.js";
+import { renderSkillMd } from "../skills/agentskills.js";
+import { guidanceSkillName } from "./exportPlugin.js";
 import {
   AGENT_PLUGIN_MANIFEST_SCHEMA_ID,
   AGENT_PLUGIN_MCP_SCHEMA_ID,
   AGENTPACK_EXTENSION_NAMESPACE,
   normalizeAgentPluginName,
+  validateAgentPluginMcpConfig,
   type AgentPluginManifest,
   type AgentPluginMcpServer,
 } from "./agentplugins.js";
@@ -194,12 +196,12 @@ function toAgentPluginFiles(
   profile: string,
 ): AdapterOutputFile[] {
   const out: AdapterOutputFile[] = [];
+  const guidanceName = guidanceSkillName(pluginName, plan.files, plan.warnings);
 
   for (const f of plan.files) {
     if (f.path === "CLAUDE.md") {
       // Instructions/rules are not a portable v1 component. Bridge as an
       // on-invoke skill (portable) — same honest ceiling as `pack plugin`.
-      const guidanceName = normalizeSkillSlug(`${pluginName}-guidance`);
       out.push(
         mk(
           `skills/${guidanceName}/SKILL.md`,
@@ -269,6 +271,12 @@ function toAgentPluginFiles(
  * and `${PLUGIN_DATA}`, so those placeholders would land as literal strings.
  * They are dropped, and the required key names are recorded as a plan warning
  * (the operator provides them through the client's own mechanism).
+ *
+ * Every candidate server is checked against the spec validator before it is
+ * emitted (#221): the Claude adapter accepts any credential-free `http:` URL,
+ * but the spec allows plaintext only for localhost — a non-loopback `http:`
+ * server is omitted with a warning rather than written into an artifact that
+ * conformant clients would reject.
  */
 function toSpecMcpJson(claudeMcpJson: string, plan: InstallPlan): string | null {
   let parsed: { mcpServers?: Record<string, Record<string, unknown>> };
@@ -280,6 +288,7 @@ function toSpecMcpJson(claudeMcpJson: string, plan: InstallPlan): string | null 
   const servers: Record<string, AgentPluginMcpServer> = {};
   for (const [name, raw] of Object.entries(parsed.mcpServers ?? {})) {
     const type = raw["type"];
+    let candidate: AgentPluginMcpServer;
     if (type === "stdio" && typeof raw["command"] === "string") {
       const envKeys = Object.keys(
         (raw["env"] as Record<string, unknown> | undefined) ?? {},
@@ -289,7 +298,7 @@ function toSpecMcpJson(claudeMcpJson: string, plan: InstallPlan): string | null 
           `MCP server \`${name}\`: env placeholder(s) ${envKeys.join(", ")} omitted from mcp.json — Agent Plugins expands only \${PLUGIN_ROOT}/\${PLUGIN_DATA}; provide these through the client's environment.`,
         );
       }
-      servers[name] = {
+      candidate = {
         type: "stdio",
         command: raw["command"],
         args: (raw["args"] as string[] | undefined) ?? [],
@@ -298,11 +307,24 @@ function toSpecMcpJson(claudeMcpJson: string, plan: InstallPlan): string | null 
       (type === "http" || type === "streamable-http" || type === "sse") &&
       typeof raw["url"] === "string"
     ) {
-      servers[name] = {
+      candidate = {
         type: type === "sse" ? "sse" : "streamable-http",
         url: raw["url"],
       };
+    } else {
+      continue;
     }
+    const { errors } = validateAgentPluginMcpConfig({
+      $schema: AGENT_PLUGIN_MCP_SCHEMA_ID,
+      mcpServers: { [name]: candidate },
+    });
+    if (errors.length > 0) {
+      plan.warnings.push(
+        `MCP server \`${name}\` omitted from mcp.json — ${errors.join("; ")}. Use an https URL (plaintext http is allowed for localhost only), or register the server in the client directly.`,
+      );
+      continue;
+    }
+    servers[name] = candidate;
   }
   if (Object.keys(servers).length === 0) return null;
   return stableJsonStringify({

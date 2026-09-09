@@ -344,6 +344,15 @@ export interface AdapterExportOptions {
   resolvedAtoms: ResolvedAtom[];
   profile: string;
   target: TargetPlatform;
+  /**
+   * Install scope the output is built for (#193). Adapters that emit
+   * generated cross-references between their own files (the codex AGENTS.md
+   * skill index) render them against the user layout when `"user"`, so the
+   * post-build path remap never has to rewrite file CONTENT — authored text
+   * that happens to mention a project-layout path stays verbatim. Defaults
+   * to `"project"`.
+   */
+  scope?: "project" | "user";
 }
 
 export interface AdapterResult {

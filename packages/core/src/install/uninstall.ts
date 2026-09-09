@@ -105,28 +105,36 @@ export class UninstallConflictError extends Error {
   }
 }
 
+export type UninstallAction =
+  | { kind: "unlink"; abs: string; rel: string }
+  | { kind: "write"; abs: string; rel: string; content: string }
+  | { kind: "restore"; abs: string; rel: string; backupAbs: string };
+
 /**
- * Uninstall a previously-installed pack. Reads the install manifest and:
- *
- *   1. For every `created[]` entry: delete the file IF its current sha256
- *      matches the manifest's recorded sha256 (proof we own it).
- *   2. For every `backups[]` entry: restore the backup over the current file
- *      IF the current file's sha256 matches the manifest's recorded `modified`
- *      sha256 (proof the user hasn't edited since).
- *   3. Remove this pack's entry from AGENTPACK.lock (multi-pack v2, #114);
- *      when the last entry goes, delete the file — the lockfile describes
- *      the currently installed set, history.jsonl keeps the audit trail.
- *   4. Delete the install manifest at `.agentpack/installed/<packId>.json`.
- *   5. Append `uninstall` history entry.
- *
- * Files where the user has edited since install are surfaced as conflicts.
+ * The scan-only half of `uninstall` (#194): everything the uninstall would
+ * do to one root, computed without touching it. A caller uninstalling from
+ * several roots (`uninstall --scope user`) plans EVERY root first so a
+ * conflict or unparsable config in a later root refuses the whole operation
+ * with all roots unchanged, instead of surfacing after earlier roots were
+ * already mutated.
  */
-export async function uninstall(opts: UninstallOptions): Promise<UninstallResult> {
+export interface UninstallPlan {
+  manifest: InstallManifestV1;
+  actions: UninstallAction[];
+  /** Conflicts the caller's `force`/`forceRestore` flags authorized. */
+  conflicts: UninstallResult["conflicts"];
+}
+
+/**
+ * Scan a root for the uninstall of `packId` without mutating it. Throws
+ * `UninstallConflictError` for user-edited content the given flags do not
+ * authorize and `UninstallUnparsableConfigError` for a merge-managed config
+ * that can no longer be parsed (fail-closed, `force` included).
+ */
+export async function planUninstall(opts: UninstallOptions): Promise<UninstallPlan> {
   const ws = await resolveAgentpackPaths(opts.projectRoot);
   const manifest = await readInstallManifest(ws, opts.packId);
 
-  const removed: string[] = [];
-  const restored: string[] = [];
   const conflicts: UninstallResult["conflicts"] = [];
   // Which flag can authorize each conflict. "force" covers tampered
   // created/merged content (and symlink escapes); "restore" covers
@@ -144,13 +152,9 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
   };
   const mergeByPath = new Map((manifest.merges ?? []).map((m) => [m.path, m]));
 
-  // PHASE 1 — scan only. A refused uninstall must touch zero files, so every
-  // conflict is discovered before any mutation (qa-lead P1-1).
-  type Action =
-    | { kind: "unlink"; abs: string; rel: string }
-    | { kind: "write"; abs: string; rel: string; content: string }
-    | { kind: "restore"; abs: string; rel: string; backupAbs: string };
-  const actions: Action[] = [];
+  // Scan only. A refused uninstall must touch zero files, so every conflict
+  // is discovered before any mutation (qa-lead P1-1).
+  const actions: UninstallAction[] = [];
   const modifiedPaths = new Set(manifest.modified.map((m) => m.path));
 
   for (const entry of [...manifest.created, ...manifest.modified]) {
@@ -313,8 +317,33 @@ export async function uninstall(opts: UninstallOptions): Promise<UninstallResult
   if (unauthorized.length > 0) {
     throw new UninstallConflictError(unauthorized);
   }
+  return { manifest, actions, conflicts };
+}
 
-  // PHASE 2 — act.
+/**
+ * Uninstall a previously-installed pack. Reads the install manifest and:
+ *
+ *   1. For every `created[]` entry: delete the file IF its current sha256
+ *      matches the manifest's recorded sha256 (proof we own it).
+ *   2. For every `backups[]` entry: restore the backup over the current file
+ *      IF the current file's sha256 matches the manifest's recorded `modified`
+ *      sha256 (proof the user hasn't edited since).
+ *   3. Remove this pack's entry from AGENTPACK.lock (multi-pack v2, #114);
+ *      when the last entry goes, delete the file — the lockfile describes
+ *      the currently installed set, history.jsonl keeps the audit trail.
+ *   4. Delete the install manifest at `.agentpack/installed/<packId>.json`.
+ *   5. Append `uninstall` history entry.
+ *
+ * Files where the user has edited since install are surfaced as conflicts.
+ * Steps 1–2 are planned by `planUninstall` (scan-only) and only then applied,
+ * so a refused uninstall touches zero files.
+ */
+export async function uninstall(opts: UninstallOptions): Promise<UninstallResult> {
+  const ws = await resolveAgentpackPaths(opts.projectRoot);
+  const { manifest, actions, conflicts } = await planUninstall(opts);
+  const removed: string[] = [];
+  const restored: string[] = [];
+
   for (const a of actions) {
     if (a.kind === "unlink") {
       await fs.unlink(a.abs);

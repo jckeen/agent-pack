@@ -21,6 +21,7 @@ import { parseClaudeCode } from "./parseClaudeCode.js";
 import {
   buildClaudeCodeManifest,
   type BuildClaudeCodeManifestOptions,
+  type ImportedMetadata,
 } from "./buildClaudeCodeManifest.js";
 import type { ImportResult } from "./index.js";
 import {
@@ -28,6 +29,7 @@ import {
   validateAgentPluginManifest,
   validateAgentPluginMcpConfig,
 } from "../exports/agentplugins.js";
+import { agentPackManifestSchema } from "../schema/agentpack.schema.js";
 
 export type ImportAgentPluginOptions = BuildClaudeCodeManifestOptions;
 
@@ -229,6 +231,44 @@ function toClaudeMcpJson(specMcpJson: string, warn: Warn): string {
   return JSON.stringify({ mcpServers });
 }
 
+const METADATA_SHAPE = agentPackManifestSchema.shape.metadata.shape;
+
+/**
+ * Carry a plugin.json's descriptive metadata into the pack manifest (#218).
+ * Only fields the manifest schema accepts as-is are taken — each candidate
+ * is parsed with the manifest's own field schema, so a non-URL `homepage` or
+ * an `author` without a `name` is reported and left out rather than invented
+ * or written into a manifest that would fail validation on install.
+ */
+function metadataFromPlugin(json: Record<string, unknown>, warn: Warn): ImportedMetadata {
+  const out: ImportedMetadata = {};
+  const take = <K extends keyof ImportedMetadata>(
+    field: K,
+    raw: unknown,
+    label: string,
+  ): void => {
+    if (raw === undefined) return;
+    const parsed = METADATA_SHAPE[field].safeParse(raw);
+    if (parsed.success) {
+      out[field] = parsed.data as ImportedMetadata[K];
+      return;
+    }
+    warn(
+      "plugin.json",
+      `\`${label}\` was not carried into the manifest — ${parsed.error.issues
+        .map((i) => i.message)
+        .join("; ")}. Set \`metadata.${field}\` by hand if wanted.`,
+    );
+  };
+  take("description", json["description"], "description");
+  take("license", json["license"], "license");
+  take("homepage", json["homepage"], "homepage");
+  take("repository", json["repository"], "repository");
+  take("tags", json["keywords"], "keywords");
+  if (json["author"] !== undefined) take("authors", [json["author"]], "author");
+  return out;
+}
+
 /** Derive an interpreter for a bundled hook script from shebang or extension. */
 function hookInterpreter(content: string, ext: string): string | undefined {
   const first = content.split("\n", 1)[0] ?? "";
@@ -416,20 +456,23 @@ export async function importAgentPluginDir(
       break;
     }
   }
+  // Spec validation above guarantees `name` is a string and the optional
+  // descriptive fields have their spec types; the manifest-schema parse in
+  // metadataFromPlugin applies AgentPack's stricter rules on top. Runs before
+  // the warning flush below so its own warnings are not lost.
+  const pluginMeta = manifestJson as Record<string, unknown> & { name: string };
+  const metadata = metadataFromPlugin(pluginMeta, warn);
+
   parsed.warnings.push(...extraWarnings);
   for (const w of manifestCheck.warnings) {
     parsed.warnings.push({ source: "plugin.json", message: w });
   }
 
-  const pluginMeta = manifestJson as {
-    name: string;
-    version?: string;
-    description?: string;
-  };
   const { manifest, files, warnings } = buildClaudeCodeManifest(parsed, {
     ...opts,
     name: opts.name ?? pluginMeta.name,
-    version: opts.version ?? pluginMeta.version,
+    version: opts.version ?? (pluginMeta["version"] as string | undefined),
+    metadata,
   });
   const manifestYaml = stringify(manifest, { lineWidth: 0 });
   return {
