@@ -1,12 +1,21 @@
 # agent-pack — STATUS
 
-Last updated: 2026-08-14 (Agent Plugins 1.0 interop shipped — `pack agent-plugin` + `import --from agent-plugin`, spec module + vendored schemas + CI conformance gate; see CHANGELOG 2026-08-14. Prior window: July reconciled — continuous-sync engine S1–S4 shipped (lockfile provenance, gated `update`, `--scope user` + `import --into`, sync-check pack + pack-repo CI action), lockfile v2 multi-pack `AGENTPACK.lock`, target-specific atom variants (#133), authored target-compat enforcement (#134), go-public hardening #63 + first-run UX #158, and the July dependency majors. See the "July 2026" section below and CHANGELOG 0.7.0-dev. Prior: repo flipped **PUBLIC** 2026-06-17 — anonymous git-source quickstart verified end-to-end.)
+Last updated: 2026-09-08. See [CHANGELOG.md](./CHANGELOG.md) for completed changes and the [issue tracker](https://github.com/jckeen/agent-pack/issues) for current work.
 
 ## Where we are
 
 **AgentPack is OPEN SOURCE.** Standard, registry, CLI, connector, and adapters are all MIT-licensed. **Git is the default distribution mechanism** as of v0.5 — `agentpack install github:owner/repo@ref` works without any hosted registry. The hosted registry stays available as an optional convenience for cross-org discovery and the enterprise self-host path (Phase 6 — gated).
 
-**Phases 1–5 are shipped in code; v0.5 git-source landed 2026-05-19; iteration-6 (2026-06-10) landed shared-file merge semantics; iteration-7 (2026-06-12) added cross-surface reach + a security/usability hardening sweep — see CHANGELOG 0.6.3→0.6.7; iteration-8 (2026-06-12) landed Agent Skills spec conformance (emit + ingest + CI gate, CHANGELOG 0.6.9); July 2026 landed the continuous-sync engine (S1–S4), lockfile v2, and atom variants (see below); v0.3.0 registry promotion held on live smoke; Phase 6 🔒 gated.**
+The install/update engine, lockfile v2, atom variants, Agent Skills, and Agent Plugins interop are implemented. Git-source installs work without a registry. Registry promotion is held on live smoke ([#63](https://github.com/jckeen/agent-pack/issues/63)); Phase 6 remains gated by [PHASE-6-GATE.md](./Plans/PHASE-6-GATE.md).
+
+Recent reliability work covers Codex pack coexistence and authored text,
+user-root uninstall preflight, and Agent Plugins metadata and output fidelity.
+Previously shipped fixes also preserve state on lockfile read/parse errors
+([#188](https://github.com/jckeen/agent-pack/pull/188)), preserve foreign
+variants during generic single-file import
+([#189](https://github.com/jckeen/agent-pack/pull/189)), and align the canonical
+JSON schema with runtime path, body, and variant validation
+([#190](https://github.com/jckeen/agent-pack/pull/190)).
 
 ## Cross-surface integration
 
@@ -37,13 +46,15 @@ user guide: `docs/sync.md`; trigger survey: `docs/sync-triggers.md`):
   upstream-unchanged local edits retained, both-changed refuses (exit 2,
   `--theirs`/`--keep-local` per-glob), exec-bearing deltas re-require
   `--allow-exec` even with `--yes`.
-- **Sync S3 — user scope (#112)**: `install`/`update --scope user` root at
-  `~/.claude` (settings deep-merge, hook-path rewrite, state in
-  `~/.claude/.agentpack/`); `import --into <pack-dir> [--diff]` folds live
+- **Sync S3 — user scope (#112, [#185](https://github.com/jckeen/agent-pack/pull/185))**: `install`/`update --scope user` use the selected runtime's
+  config root: `~/.claude`, `~/.codex`, or `~/.gemini/config` for generic.
+  Shared settings merge, including Codex TOML; state stays in that root's
+  `.agentpack/`. `import --into <pack-dir> [--diff]` folds live
   config edits back into the pack with git as the consent point.
 - **Sync S4 — triggers (#113)**: `packs/sync-check` SessionStart pack surfaces
   drift at agent-session start; a reusable pack-repo CI action (`action/`)
-  runs `validate` + `import --diff` on the pack repo.
+  validates the pack and exports a Claude plugin. The consumer-update PR
+  feature is tracked separately in [#113](https://github.com/jckeen/agent-pack/issues/113).
 - **Lockfile v2 (#114)**: `AGENTPACK.lock` is a multi-pack document — installs
   merge entries instead of last-install-wins; v1 migrates on next write.
 - **Atom variants (#133)**: one atom id carries per-target `path`/`body`

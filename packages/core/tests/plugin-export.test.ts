@@ -23,6 +23,55 @@ async function exists(dir: string, rel: string): Promise<boolean> {
   );
 }
 
+describe("exportPlugin guidance skill collision (#220)", () => {
+  it("never overwrites an authored skill at the guidance path, even when suffixes are taken", async () => {
+    const pack = await tmp();
+    const out = await tmp();
+    await fs.cp(EXAMPLE, pack, { recursive: true });
+    const manifestPath = path.join(pack, "AGENTPACK.yaml");
+    const slugs = ["pr-quality-guidance", "pr-quality-guidance-2"];
+    const atoms = slugs
+      .map(
+        (slug) => `  - id: "skill:${slug}"
+    type: skill
+    name: "Authored ${slug}"
+    description: "An authored skill named ${slug}."
+    path: "atoms/skills/${slug}"
+    skill_format: "agentskills"
+    risk_level: low
+    permissions: []
+`,
+      )
+      .join("\n");
+    const manifest = await fs.readFile(manifestPath, "utf8");
+    await fs.writeFile(
+      manifestPath,
+      manifest.replace("\nexports:\n", `\n${atoms}\nexports:\n`),
+    );
+    for (const slug of slugs) {
+      await fs.mkdir(path.join(pack, "atoms/skills", slug), { recursive: true });
+      await fs.writeFile(
+        path.join(pack, "atoms/skills", slug, "SKILL.md"),
+        `---\nname: ${slug}\ndescription: Authored ${slug}.\n---\n\n# AUTHORED ${slug}\n`,
+        "utf8",
+      );
+    }
+    const result = await exportPlugin({ source: pack, profile: "full", outDir: out });
+    expect(await read(out, "skills/pr-quality-guidance/SKILL.md")).toContain(
+      "# AUTHORED pr-quality-guidance",
+    );
+    expect(await read(out, "skills/pr-quality-guidance-2/SKILL.md")).toContain(
+      "# AUTHORED pr-quality-guidance-2",
+    );
+    const guidance = await read(out, "skills/pr-quality-guidance-3/SKILL.md");
+    expect(guidance).toMatch(/^---\nname: pr-quality-guidance-3/);
+    expect(guidance).toContain("ambient only in Claude Code");
+    expect(result.plan.warnings.join("\n")).toMatch(/pr-quality-guidance-3/);
+    await fs.rm(pack, { recursive: true, force: true });
+    await fs.rm(out, { recursive: true, force: true });
+  });
+});
+
 describe("exportPlugin", () => {
   it("emits a valid Claude Code plugin layout for the full profile", async () => {
     const out = await tmp();

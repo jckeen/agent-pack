@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.7.0-dev — 2026-09-08 (daily-use reliability batch)
+
+- **Codex: per-pack `config.toml` provenance
+  ([#192](https://github.com/jckeen/agent-pack/issues/192))**: the adapter
+  emits `[agentpack."<pack_id>"]` instead of one shared `[agentpack]` table,
+  so two disjoint packs install, verify, update, and uninstall in the same
+  `config.toml` without colliding on metadata. Install manifests written
+  before this change keep working — their recorded fragment is what verify
+  and uninstall consult, and a reinstall replaces the legacy singleton in
+  place.
+- **Codex `--scope user`: no content rewrite
+  ([#193](https://github.com/jckeen/agent-pack/issues/193))**: the adapter
+  now receives the install `scope` and renders the generated `AGENTS.md`
+  skill index against `skills/` at build time; the user-scope mapper remaps
+  paths only, so authored instruction text that mentions `.agents/skills/`
+  keeps its meaning and re-imports intact. Standalone `exportPack` user-scope
+  exports write that same mapped layout, so the generated skill links resolve.
+- **`uninstall --scope user` scans every root before touching any
+  ([#194](https://github.com/jckeen/agent-pack/issues/194))**: core exposes
+  `planUninstall` (the scan-only half of `uninstall`); the CLI plans all
+  selected roots, reports every refusal, asks one confirmation for the
+  complete plan, and only then applies — a conflict or unparsable config in
+  a later root no longer leaves earlier roots half-uninstalled.
+  `--force`/`--force-restore` keep their distinct semantics.
+- **Agent Plugins export: spec-checked MCP servers
+  ([#221](https://github.com/jckeen/agent-pack/issues/221))**: each server
+  is run through the spec validator before it lands in `mcp.json`; a
+  non-loopback plaintext `http:` URL is omitted with an actionable warning
+  (https, or localhost-only http), and no `mcp.json` is written when nothing
+  survives. Rejected atoms are reported by their original IDs as unsupported
+  and excluded from the portability summary, including non-strict exports
+  that normalize invalid server names.
+- **Guidance skill never overwrites an authored skill
+  ([#220](https://github.com/jckeen/agent-pack/issues/220))**: both
+  `pack plugin` and `pack agent-plugin` pick the first free `<plugin>-guidance`,
+  `-2`, `-3`, … directory when the pack ships a skill at the guidance path,
+  and warn about the rename.
+- **Agent Plugins import carries plugin metadata
+  ([#218](https://github.com/jckeen/agent-pack/issues/218))**:
+  `description`, `author`, `homepage`, `repository`, `license`, and
+  `keywords` from `plugin.json` land in the manifest when they pass the
+  manifest schema (a non-URL homepage or an author without a name is warned
+  about and left out, never invented); explicit `--name`/`--version` still
+  win, and API `metadata` fields override plugin values while unspecified
+  fields retain them.
+- **Source onboarding and documentation
+  ([#252](https://github.com/jckeen/agent-pack/issues/252),
+  [#155](https://github.com/jckeen/agent-pack/issues/155))**: package READMEs
+  and the install guide use the source build until npm publication; the
+  quickstart includes a persistent CLI link. The sync guide distinguishes
+  lossless same-runtime imports from compatibility overrides. Registry route, audit, test-path,
+  and Action descriptions now match the code.
+- **Previously shipped changes, recorded here to reconcile the docs**:
+  user-scope Codex and generic installs, TOML merging, and runtime-root
+  uninstall ([#185](https://github.com/jckeen/agent-pack/pull/185)); fail before
+  mutation on unexpected lockfile read/parse errors
+  ([#188](https://github.com/jckeen/agent-pack/pull/188)); preserve foreign
+  variants when folding a generic single file
+  ([#189](https://github.com/jckeen/agent-pack/pull/189)); canonical JSON schema
+  parity for paths, bodies, and variants
+  ([#190](https://github.com/jckeen/agent-pack/pull/190)).
+
 ## 0.7.0-dev — 2026-08-14 (Agent Plugins 1.0 interop)
 
 - **Agent Plugins 1.0 export — `agentpack pack agent-plugin`**: compiles a

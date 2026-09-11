@@ -203,7 +203,7 @@ create index packs_search_idx on packs using gin(search);
 ### Phase 3 deliverables
 
 - `packages/db` — new workspace package with Drizzle schema, migrations, query helpers.
-- `apps/registry` — new API routes under `app/api/{packs,publish,search,reviews,downloads,adapters,validate,plan,export}/`.
+- `apps/registry` — API routes under `app/api/{packs,publish,search}/`, with reviews nested under packs. `validate`, `plan`, and `pack export` are CLI-local capabilities; there are no standalone downloads or adapters API routes.
 - `apps/registry` — auth via NextAuth v5, GitHub OAuth provider, session pages.
 - `packages/cli` — new `publish` subcommand with two-phase flow.
 - `packages/cli` — new `login` / `whoami` / `tokens` subcommands.

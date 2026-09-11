@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { planInstall } from "../src/install/index.js";
+import { exportPack } from "../src/exports/exportPack.js";
 import {
   USER_SCOPE_TARGETS,
   userScopeRoot,
@@ -57,13 +58,159 @@ describe("mapCodexOutputToUserScope", () => {
     }
   });
 
-  it("rewrites AGENTS.md skill-index references to the mapped skills/ location", () => {
-    const mapped = mapCodexOutputToUserScope({
-      path: "AGENTS.md",
-      content: "- **Review** (`.agents/skills/code-review/SKILL.md`) — desc",
-    });
-    expect(mapped.content).toContain("`skills/code-review/SKILL.md`");
-    expect(mapped.content).not.toContain(".agents/skills/");
+  it("never rewrites AGENTS.md content — authored `.agents/skills/` text is not the mapper's to change (#193)", () => {
+    const content =
+      "Inspect the repository's `.agents/skills/security/SKILL.md` before merging.";
+    const mapped = mapCodexOutputToUserScope({ path: "AGENTS.md", content });
+    expect(mapped.content).toBe(content);
+  });
+});
+
+/** Codex pack whose instruction body deliberately names a project-layout path. */
+async function writeCodexPackWithLiteral(dir: string): Promise<void> {
+  await fs.writeFile(
+    path.join(dir, "AGENTPACK.yaml"),
+    `agentpack: "1.0"
+metadata:
+  id: "fixture.literal"
+  name: "Literal Fixture"
+  slug: "literal"
+  description: "Instruction text mentions .agents/skills/ on purpose."
+  version: "1.0.0"
+  license: "MIT"
+  publisher: "fixture"
+compatibility:
+  targets:
+    codex:
+      status: supported
+permissions:
+  filesystem:
+    read:
+      - "."
+security:
+  risk_level: low
+  risk_summary: "Low."
+  requires_review: false
+  signed: false
+profiles:
+  full:
+    description: "Everything."
+    include:
+      - "*"
+atoms:
+  - id: "instruction:house"
+    type: instruction
+    name: "House Style"
+    description: "Mentions a project-layout skill path verbatim."
+    path: "atoms/instructions/house.md"
+    risk_level: low
+    permissions: []
+  - id: "skill:security"
+    type: skill
+    name: "Security"
+    description: "A skill."
+    path: "atoms/skills/security"
+    skill_format: "agentskills"
+    risk_level: low
+    permissions: []
+exports:
+  default_profile: full
+`,
+    "utf8",
+  );
+  await fs.mkdir(path.join(dir, "atoms/instructions"), { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "atoms/instructions/house.md"),
+    "# House\n\nInspect the repository's `.agents/skills/security/SKILL.md` before merging.\n",
+    "utf8",
+  );
+  await fs.mkdir(path.join(dir, "atoms/skills/security"), { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "atoms/skills/security/SKILL.md"),
+    "---\nname: security\ndescription: Security review.\n---\n\n# Security\n",
+    "utf8",
+  );
+}
+
+describe("codex --scope user skill index (#193)", () => {
+  it("standalone user-scope export writes the paths referenced by its skill index", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-export-"));
+    const pack = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-source-"));
+    try {
+      await writeCodexPackWithLiteral(pack);
+      const result = await exportPack({
+        source: pack,
+        target: "codex",
+        scope: "user",
+        outDir: root,
+      });
+      const agents = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
+      expect(agents).toContain("(`skills/security/SKILL.md`)");
+      expect(agents).toContain(
+        "Inspect the repository's `.agents/skills/security/SKILL.md` before merging.",
+      );
+      expect(result.writtenFiles).toContain("skills/security/SKILL.md");
+      expect(result.plan.files.map((f) => f.path)).toEqual(result.writtenFiles);
+      expect(
+        await fs.readFile(path.join(root, "skills/security/SKILL.md"), "utf8"),
+      ).toContain("# Security");
+      expect(result.writtenFiles).toContain("config.toml");
+      expect(result.writtenFiles.some((p) => p.startsWith(".agents/"))).toBe(false);
+      expect(result.writtenFiles.some((p) => p.startsWith(".codex/"))).toBe(false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(pack, { recursive: true, force: true });
+    }
+  });
+
+  it("renders the generated index against skills/ at build time while authored text keeps its literal", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-literal-root-"));
+    const pack = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-literal-pack-"));
+    try {
+      await writeCodexPackWithLiteral(pack);
+      const plan = await planInstall({
+        source: pack,
+        target: "codex",
+        profile: "full" as never,
+        projectRoot: root,
+        scope: "user",
+        generator: GEN,
+      });
+      const agents = plan.created.find((f) => f.path === "AGENTS.md")!;
+      expect(agents).toBeDefined();
+      // Generated index points at the file this install actually writes.
+      expect(agents.content).toContain("(`skills/security/SKILL.md`)");
+      expect(agents.content).toContain("under `skills/`");
+      expect(agents.content).not.toContain("(`.agents/skills/security/SKILL.md`)");
+      // Authored instruction text is untouched — its meaning is the author's.
+      expect(agents.content).toContain(
+        "Inspect the repository's `.agents/skills/security/SKILL.md` before merging.",
+      );
+      expect(plan.created.some((f) => f.path === "skills/security/SKILL.md")).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(pack, { recursive: true, force: true });
+    }
+  });
+
+  it("project scope keeps the .agents/skills/ index (no regression)", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-literal-proj-"));
+    const pack = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-literal-pack2-"));
+    try {
+      await writeCodexPackWithLiteral(pack);
+      const plan = await planInstall({
+        source: pack,
+        target: "codex",
+        profile: "full" as never,
+        projectRoot: root,
+        generator: GEN,
+      });
+      const agents = plan.created.find((f) => f.path === "AGENTS.md")!;
+      expect(agents.content).toContain("(`.agents/skills/security/SKILL.md`)");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(pack, { recursive: true, force: true });
+    }
   });
 });
 
@@ -139,7 +286,7 @@ describe("planInstall --scope user (codex)", () => {
       expect(staged).toBeDefined();
       expect(staged!.content).toContain('model = "gpt-5.3-codex"');
       expect(staged!.content).toContain('trust_level = "trusted"');
-      expect(staged!.content).toContain("[agentpack]");
+      expect(staged!.content).toContain('[agentpack."agentpack.pr-quality"]');
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

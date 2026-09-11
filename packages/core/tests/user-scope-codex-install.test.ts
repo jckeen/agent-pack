@@ -81,8 +81,8 @@ describe("codex user-scope engine round trip", () => {
 
       // Tampering with the PACK's entry is drift.
       const tampered = (await fs.readFile(path.join(root, "config.toml"), "utf8")).replace(
-        /\[agentpack\]/,
-        "[agentpack]\ninjected = true",
+        `[agentpack."${PACK_ID}"]`,
+        `[agentpack."${PACK_ID}"]\ninjected = true`,
       );
       await fs.writeFile(
         path.join(root, "config.toml"),
@@ -121,10 +121,12 @@ describe("codex user-scope engine round trip", () => {
   it("a colliding key is a conflict without --force; --force deep-merges (pack wins ONLY the collided key)", async () => {
     const root = await seededCodexRoot();
     try {
-      // Seed a collision: the machine already has an [agentpack] table.
+      // Seed a collision: the machine already carries THIS pack's metadata
+      // entry with different content (metadata is per-pack since #192, so
+      // only the same pack id can collide).
       await fs.appendFile(
         path.join(root, "config.toml"),
-        `\n[agentpack]\npack_id = "someone.else"\n`,
+        `\n[agentpack."${PACK_ID}"]\npack_id = "someone.else"\n`,
         "utf8",
       );
       const plan = await planInstall({
@@ -148,7 +150,11 @@ describe("codex user-scope engine round trip", () => {
       const config = parseToml(
         await fs.readFile(path.join(root, "config.toml"), "utf8"),
       ) as Record<string, unknown>;
-      expect((config["agentpack"] as Record<string, unknown>)["pack_id"]).toBe(PACK_ID);
+      expect(
+        (config["agentpack"] as Record<string, Record<string, unknown>>)[PACK_ID][
+          "pack_id"
+        ],
+      ).toBe(PACK_ID);
       expect(config["model"]).toBe("gpt-5.3-codex");
       expect(
         (config["projects"] as Record<string, Record<string, unknown>>)[

@@ -6,24 +6,30 @@ project**, **verified** against drift, **rolled back**, and **uninstalled
 precisely** — with a write-ahead log, per-file checksums, and hash-chained
 history.
 
+AgentPack is not on npm yet. [Build and link the CLI from source](../README.md#quickstart-5-minutes)
+to make the `agentpack` command available. Run the local-path examples below
+from that checkout, or supply an absolute pack path and `--project <dir>`.
+For packs in another repository, use the supported
+[Git-source syntax](./git-source.md); the hosted registry is not live yet.
+
 ```bash
 # Preview the diff. Nothing is written.
-npx agentpack install examples/pr-quality --target claude-code --profile safe --dry-run
+agentpack install examples/pr-quality --target claude-code --profile safe --dry-run
 
 # Install for real. Prints a diff, prompts for [y/N], then writes.
-npx agentpack install examples/pr-quality --target claude-code --profile safe
+agentpack install examples/pr-quality --target claude-code --profile safe
 
 # Drift detection.
-npx agentpack verify agentpack.pr-quality
+agentpack verify agentpack.pr-quality
 
 # Undo.
-npx agentpack uninstall agentpack.pr-quality
+agentpack uninstall agentpack.pr-quality
 
 # Roll back the most recent install (idempotent).
-npx agentpack rollback
+agentpack rollback
 
 # Show every install / uninstall / rollback this project has seen.
-npx agentpack history --limit 20
+agentpack history --limit 20
 ```
 
 ## What gets written
@@ -223,7 +229,7 @@ links to the prior entry's `id`, forming a hash chain. Tampering with any
 entry is detectable by:
 
 ```bash
-npx agentpack verify <pack> --chain
+agentpack verify <pack> --chain
 ```
 
 The chain is **not** rotated in Phase 2 — the file grows monotonically. Phase 3
@@ -249,7 +255,7 @@ There is no separate `upgrade` command, by design. Installing a newer version
 of a pack over an existing install is the supported upgrade path:
 
 ```bash
-npx agentpack install publisher/pack@2.0.0 --target claude-code --profile safe
+agentpack install github:owner/repo@new-tag#path/to/pack --target claude-code --profile safe
 ```
 
 The apply step carries ownership and backups across the re-install — files the
@@ -281,9 +287,10 @@ For status and recovery around an upgrade:
   pre-upgrade content may remain on disk, but the pack is no longer
   installed.
 - To actually return to the previous version, re-install it:
-  `agentpack install publisher/pack@1.x.x`. After a rollback this recreates
-  the deleted files, adopts what is already on disk, and `verify` reports
-  clean again.
+  `agentpack install github:owner/repo@previous-tag#path/to/pack --target claude-code --profile safe`.
+  Replace the repository, tags, and pack path with your own. After a rollback
+  this recreates the deleted files, adopts what is already on disk, and
+  `verify` reports clean again.
 
 ## Anti-criteria (what install will NOT do)
 
