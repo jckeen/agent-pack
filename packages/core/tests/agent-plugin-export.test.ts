@@ -551,6 +551,34 @@ exports:
 }
 
 describe("exportAgentPlugin MCP remote URL policy (#221)", () => {
+  it("reports original atom ids when non-strict export normalizes server names", async () => {
+    const pack = await tmp();
+    const out = await tmp();
+    try {
+      await writeRemoteMcpPack(pack, [{ name: "bad_name", url: "http://example.com/mcp" }]);
+      const manifestPath = path.join(pack, "AGENTPACK.yaml");
+      await fs.writeFile(
+        manifestPath,
+        (await read(pack, "AGENTPACK.yaml")).replace(
+          'id: "mcp_server:bad_name"',
+          'id: "mcp_server:bad$name"',
+        ),
+      );
+      const result = await exportAgentPlugin({
+        source: pack,
+        outDir: out,
+        strict: false,
+      });
+      expect(result.writtenFiles).not.toContain("mcp.json");
+      expect(result.plan.warnings.join("\n")).toMatch(/`bad_name` omitted/);
+      expect(result.plan.unsupportedAtoms).toEqual(["mcp_server:bad$name"]);
+      expect(result.portability.byCeiling.universal).toEqual([]);
+    } finally {
+      await fs.rm(pack, { recursive: true, force: true });
+      await fs.rm(out, { recursive: true, force: true });
+    }
+  });
+
   it("refuses non-loopback plaintext http servers with an actionable warning; https and loopback survive", async () => {
     const pack = await tmp();
     const out = await tmp();

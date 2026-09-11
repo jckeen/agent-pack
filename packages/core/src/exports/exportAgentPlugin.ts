@@ -4,6 +4,7 @@ import * as path from "node:path";
 
 import type { AdapterOutputFile, AgentPackManifest, InstallPlan } from "../schema/types.js";
 import { getAdapter } from "../adapters/index.js";
+import { claudeCodeAtomSlug } from "../adapters/claudeCode.js";
 import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
 import { createInstallPlan } from "../planner/createInstallPlan.js";
@@ -221,7 +222,7 @@ function toAgentPluginFiles(
       continue;
     }
     if (f.path === ".mcp.json") {
-      const converted = toSpecMcpJson(f.content, plan);
+      const converted = toSpecMcpJson(f.content, plan, manifest);
       if (converted) out.push(mk("mcp.json", converted));
       continue;
     }
@@ -275,7 +276,11 @@ function toAgentPluginFiles(
  * server is omitted with a warning rather than written into an artifact that
  * conformant clients would reject.
  */
-function toSpecMcpJson(claudeMcpJson: string, plan: InstallPlan): string | null {
+function toSpecMcpJson(
+  claudeMcpJson: string,
+  plan: InstallPlan,
+  manifest: AgentPackManifest,
+): string | null {
   let parsed: { mcpServers?: Record<string, Record<string, unknown>> };
   try {
     parsed = JSON.parse(claudeMcpJson) as typeof parsed;
@@ -319,10 +324,14 @@ function toSpecMcpJson(claudeMcpJson: string, plan: InstallPlan): string | null 
       plan.warnings.push(
         `MCP server \`${name}\` omitted from mcp.json — ${errors.join("; ")}. Use an https URL (plaintext http is allowed for localhost only), or register the server in the client directly.`,
       );
-      // Server keys come from the Claude adapter's atom-id slug; the id's
-      // prefix need not match its declared type, so retain the actual id.
-      for (const atom of plan.atomTypes) {
-        if (atom.type === "mcp_server" && atom.id.split(":")[1] === name) {
+      // Use the adapter's exact naming rule, including normalization when
+      // strict:false allows an invalid id. Keep the original id in the plan.
+      for (const atom of manifest.atoms) {
+        if (
+          atom.type === "mcp_server" &&
+          plan.atoms.includes(atom.id) &&
+          claudeCodeAtomSlug(atom) === name
+        ) {
           if (!plan.unsupportedAtoms.includes(atom.id)) {
             plan.unsupportedAtoms.push(atom.id);
           }

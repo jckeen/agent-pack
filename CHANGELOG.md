@@ -29,8 +29,9 @@
   is run through the spec validator before it lands in `mcp.json`; a
   non-loopback plaintext `http:` URL is omitted with an actionable warning
   (https, or localhost-only http), and no `mcp.json` is written when nothing
-  survives. Rejected atoms are reported as unsupported and excluded from the
-  portability summary.
+  survives. Rejected atoms are reported by their original IDs as unsupported
+  and excluded from the portability summary, including non-strict exports
+  that normalize invalid server names.
 - **Guidance skill never overwrites an authored skill
   ([#220](https://github.com/jckeen/agent-pack/issues/220))**: both
   `pack plugin` and `pack agent-plugin` pick the first free `<plugin>-guidance`,
