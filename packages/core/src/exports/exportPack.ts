@@ -6,6 +6,7 @@ import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
 import { createInstallPlan } from "../planner/createInstallPlan.js";
 import { UnknownProfileError } from "../planner/resolveAtoms.js";
+import { mapOutputToUserScope, USER_SCOPE_TARGETS } from "../install/userScope.js";
 
 export interface ExportPackOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -29,8 +30,9 @@ export interface ExportPackOptions {
    */
   allowMissingBodies?: boolean;
   /**
-   * Install scope the output is built for — forwarded to the adapter so
-   * generated cross-references render against the right layout (#193).
+   * Output layout, relative to outDir. User scope maps paths into the runtime's
+   * user-config layout and renders generated references for that layout (#193).
+   * Does not select or write to the actual user-config directory.
    */
   scope?: "project" | "user";
 }
@@ -58,6 +60,11 @@ const MISSING_BODY_WARNING_PATTERNS = [
  *    unless `allowMissingBodies` is true.
  */
 export async function exportPack(options: ExportPackOptions): Promise<ExportResult> {
+  if (options.scope === "user" && !USER_SCOPE_TARGETS.includes(options.target)) {
+    throw new Error(
+      `--scope user is only supported for targets ${USER_SCOPE_TARGETS.join(", ")} (got \`${options.target}\`).`,
+    );
+  }
   const strict = options.strict ?? true;
   const allowMissing = options.allowMissingBodies ?? false;
   const loaded = await loadManifest(options.source);
@@ -90,6 +97,12 @@ export async function exportPack(options: ExportPackOptions): Promise<ExportResu
           missingBodyWarnings.map((w) => `  • ${w}`).join("\n") +
           `\nFix the manifest paths, or pass \`--allow-missing\` (CLI) / \`allowMissingBodies: true\` (API) to proceed.`,
       );
+    }
+  }
+
+  if (options.scope === "user") {
+    for (const file of plan.files) {
+      Object.assign(file, mapOutputToUserScope(options.target, file));
     }
   }
 

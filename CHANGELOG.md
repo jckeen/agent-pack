@@ -15,7 +15,8 @@
   now receives the install `scope` and renders the generated `AGENTS.md`
   skill index against `skills/` at build time; the user-scope mapper remaps
   paths only, so authored instruction text that mentions `.agents/skills/`
-  keeps its meaning and re-imports intact.
+  keeps its meaning and re-imports intact. Standalone `exportPack` user-scope
+  exports write that same mapped layout, so the generated skill links resolve.
 - **`uninstall --scope user` scans every root before touching any
   ([#194](https://github.com/jckeen/agent-pack/issues/194))**: core exposes
   `planUninstall` (the scan-only half of `uninstall`); the CLI plans all
@@ -28,7 +29,8 @@
   is run through the spec validator before it lands in `mcp.json`; a
   non-loopback plaintext `http:` URL is omitted with an actionable warning
   (https, or localhost-only http), and no `mcp.json` is written when nothing
-  survives.
+  survives. Rejected atoms are reported as unsupported and excluded from the
+  portability summary.
 - **Guidance skill never overwrites an authored skill
   ([#220](https://github.com/jckeen/agent-pack/issues/220))**: both
   `pack plugin` and `pack agent-plugin` pick the first free `<plugin>-guidance`,
@@ -40,13 +42,14 @@
   `keywords` from `plugin.json` land in the manifest when they pass the
   manifest schema (a non-URL homepage or an author without a name is warned
   about and left out, never invented); explicit `--name`/`--version` still
-  win.
+  win, and API `metadata` fields override plugin values while unspecified
+  fields retain them.
 - **Source onboarding and documentation
   ([#252](https://github.com/jckeen/agent-pack/issues/252),
   [#155](https://github.com/jckeen/agent-pack/issues/155))**: package READMEs
-  use the source build until npm publication; the quickstart includes a
-  persistent CLI link. The sync guide distinguishes lossless same-runtime
-  imports from compatibility overrides. Registry route, audit, test-path,
+  and the install guide use the source build until npm publication; the
+  quickstart includes a persistent CLI link. The sync guide distinguishes
+  lossless same-runtime imports from compatibility overrides. Registry route, audit, test-path,
   and Action descriptions now match the code.
 - **Previously shipped changes, recorded here to reconcile the docs**:
   user-scope Codex and generic installs, TOML merging, and runtime-root

@@ -31,7 +31,10 @@ import {
 } from "../exports/agentplugins.js";
 import { agentPackManifestSchema } from "../schema/agentpack.schema.js";
 
-export type ImportAgentPluginOptions = BuildClaudeCodeManifestOptions;
+export interface ImportAgentPluginOptions extends BuildClaudeCodeManifestOptions {
+  /** Caller fields override plugin.json metadata; omitted fields retain it. */
+  metadata?: ImportedMetadata;
+}
 
 const MAX_FILES = 5000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -472,7 +475,7 @@ export async function importAgentPluginDir(
     ...opts,
     name: opts.name ?? pluginMeta.name,
     version: opts.version ?? (pluginMeta["version"] as string | undefined),
-    metadata,
+    metadata: { ...metadata, ...opts.metadata },
   });
   const manifestYaml = stringify(manifest, { lineWidth: 0 });
   return {

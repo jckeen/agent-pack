@@ -567,6 +567,8 @@ describe("exportAgentPlugin MCP remote URL policy (#221)", () => {
     expect(warning).toBeDefined();
     expect(warning).toMatch(/https/i);
     expect(warning).toMatch(/localhost/i);
+    expect(result.plan.unsupportedAtoms).toEqual(["mcp_server:plain"]);
+    expect(result.portability.byCeiling.universal).toEqual(["mcp_server"]);
     await fs.rm(pack, { recursive: true, force: true });
     await fs.rm(out, { recursive: true, force: true });
   });
@@ -581,6 +583,9 @@ describe("exportAgentPlugin MCP remote URL policy (#221)", () => {
       validateAgentPluginManifest(JSON.parse(await read(out, "plugin.json"))).errors,
     ).toEqual([]);
     expect(result.plan.warnings.join("\n")).toMatch(/`plain`/);
+    expect(result.plan.unsupportedAtoms).toEqual(["mcp_server:plain"]);
+    expect(result.plan.observedFidelity).toBe("partial");
+    expect(result.portability.byCeiling.universal).toEqual([]);
     await fs.rm(pack, { recursive: true, force: true });
     await fs.rm(out, { recursive: true, force: true });
   });
@@ -641,6 +646,30 @@ describe("exportAgentPlugin guidance skill collision (#220)", () => {
 });
 
 describe("importAgentPluginDir metadata (#218)", () => {
+  it("caller metadata overrides plugin metadata while unspecified fields survive", async () => {
+    const out = await tmp();
+    try {
+      await exportAgentPlugin({ source: EXAMPLE, profile: "safe", outDir: out });
+      const metadata = {
+        license: "Apache-2.0",
+        authors: [{ name: "Caller" }],
+        homepage: "https://example.com/custom",
+        tags: [],
+      };
+      const result = await importAgentPluginDir(out, {
+        id: "acme.custom",
+        metadata,
+      });
+      expect(result.manifest.metadata).toMatchObject(metadata);
+      expect(result.manifest.metadata.description).toBe(
+        "Cross-platform pull request review workflow with code review, security review, formatting, and PR summary generation.",
+      );
+      expect(result.files[0]!.content).toContain("license: Apache-2.0");
+    } finally {
+      await fs.rm(out, { recursive: true, force: true });
+    }
+  });
+
   it("carries a foreign plugin's description/author/homepage/repository/license/keywords into the manifest", async () => {
     const dir = await tmp();
     await fs.writeFile(

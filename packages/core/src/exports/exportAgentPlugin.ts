@@ -2,12 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
-import type {
-  AdapterOutputFile,
-  AgentPackManifest,
-  AtomType,
-  InstallPlan,
-} from "../schema/types.js";
+import type { AdapterOutputFile, AgentPackManifest, InstallPlan } from "../schema/types.js";
 import { getAdapter } from "../adapters/index.js";
 import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
@@ -175,7 +170,9 @@ export async function exportAgentPlugin(
     written.push(path.relative(realOut, absPath));
   }
 
-  const types = atomTypesForPlan(plan, loaded.manifest);
+  const types = plan.atomTypes
+    .filter((atom) => !plan.unsupportedAtoms.includes(atom.id))
+    .map((atom) => atom.type);
   return {
     plan,
     writtenFiles: written,
@@ -322,6 +319,16 @@ function toSpecMcpJson(claudeMcpJson: string, plan: InstallPlan): string | null 
       plan.warnings.push(
         `MCP server \`${name}\` omitted from mcp.json — ${errors.join("; ")}. Use an https URL (plaintext http is allowed for localhost only), or register the server in the client directly.`,
       );
+      // Server keys come from the Claude adapter's atom-id slug; the id's
+      // prefix need not match its declared type, so retain the actual id.
+      for (const atom of plan.atomTypes) {
+        if (atom.type === "mcp_server" && atom.id.split(":")[1] === name) {
+          if (!plan.unsupportedAtoms.includes(atom.id)) {
+            plan.unsupportedAtoms.push(atom.id);
+          }
+        }
+      }
+      plan.observedFidelity = "partial";
       continue;
     }
     servers[name] = candidate;
@@ -409,13 +416,6 @@ function extractHooks(settingsJson: string): unknown | null {
     // Malformed settings — skip rather than emit broken hooks.
   }
   return null;
-}
-
-function atomTypesForPlan(plan: InstallPlan, manifest: AgentPackManifest): AtomType[] {
-  const typeById = new Map<string, AtomType>(manifest.atoms.map((a) => [a.id, a.type]));
-  return plan.atoms
-    .map((id) => typeById.get(id))
-    .filter((t): t is AtomType => t !== undefined);
 }
 
 function resolveProfile(

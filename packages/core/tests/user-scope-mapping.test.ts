@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { planInstall } from "../src/install/index.js";
+import { exportPack } from "../src/exports/exportPack.js";
 import {
   USER_SCOPE_TARGETS,
   userScopeRoot,
@@ -132,6 +133,36 @@ exports:
 }
 
 describe("codex --scope user skill index (#193)", () => {
+  it("standalone user-scope export writes the paths referenced by its skill index", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-export-"));
+    const pack = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-source-"));
+    try {
+      await writeCodexPackWithLiteral(pack);
+      const result = await exportPack({
+        source: pack,
+        target: "codex",
+        scope: "user",
+        outDir: root,
+      });
+      const agents = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
+      expect(agents).toContain("(`skills/security/SKILL.md`)");
+      expect(agents).toContain(
+        "Inspect the repository's `.agents/skills/security/SKILL.md` before merging.",
+      );
+      expect(result.writtenFiles).toContain("skills/security/SKILL.md");
+      expect(result.plan.files.map((f) => f.path)).toEqual(result.writtenFiles);
+      expect(
+        await fs.readFile(path.join(root, "skills/security/SKILL.md"), "utf8"),
+      ).toContain("# Security");
+      expect(result.writtenFiles).toContain("config.toml");
+      expect(result.writtenFiles.some((p) => p.startsWith(".agents/"))).toBe(false);
+      expect(result.writtenFiles.some((p) => p.startsWith(".codex/"))).toBe(false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(pack, { recursive: true, force: true });
+    }
+  });
+
   it("renders the generated index against skills/ at build time while authored text keeps its literal", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-literal-root-"));
     const pack = await fs.mkdtemp(path.join(os.tmpdir(), "agentpack-codex-literal-pack-"));

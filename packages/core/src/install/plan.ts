@@ -21,7 +21,6 @@ import {
   type MergeRecord,
 } from "./merge.js";
 import { readInstallManifest, InstallManifestNotFoundError } from "./manifest.js";
-import { mapOutputToUserScope, USER_SCOPE_TARGETS } from "./userScope.js";
 
 const BEGIN_MARKER = /<!--\s*BEGIN AGENTPACK:\s*([\w.\-/]+)\s*-->/;
 
@@ -89,30 +88,21 @@ export async function planInstall(opts: PlanInstallOptions): Promise<InstallPlan
       ...(opts.scope ? { scope: opts.scope } : {}),
     });
     const planFiles = result.plan.files;
-    // User scope (sync S3): remap adapter output to the ~/.claude layout
-    // BEFORE the pristine snapshot, so the lockfile, merge fragments, and
-    // classification all agree on the mapped paths/content. verify, uninstall,
-    // and update then work unchanged — everything stays projectRoot-relative.
+    // exportPack already maps user-scope paths before staging. Keep install
+    // advice here; lockfile, merge fragments, and classification all consume
+    // that same mapped output without remapping it a second time.
     if (opts.scope === "user") {
-      if (!USER_SCOPE_TARGETS.includes(opts.target)) {
-        throw new Error(
-          `--scope user is only supported for targets ${USER_SCOPE_TARGETS.join(", ")} (got \`${opts.target}\`).`,
-        );
-      }
       for (const f of planFiles) {
-        const mapped = mapOutputToUserScope(opts.target, f);
-        if (opts.target === "claude-code" && mapped.path === ".mcp.json") {
+        if (opts.target === "claude-code" && f.path === ".mcp.json") {
           result.plan.warnings.push(
             "User scope: `.mcp.json` is written under ~/.claude for reference, but Claude Code reads USER-scope MCP servers from ~/.claude.json — register them there yourself (AgentPack never edits ~/.claude.json).",
           );
         }
-        if (opts.target === "codex" && mapped.path === "config.toml") {
+        if (opts.target === "codex" && f.path === "config.toml") {
           result.plan.warnings.push(
             "User scope: pack entries deep-merge into ~/.codex/config.toml (your existing settings survive), but the merge rewrites the file canonically — comments in it are not preserved.",
           );
         }
-        f.path = mapped.path;
-        f.content = mapped.content;
       }
     }
     // Snapshot the pack's pristine contribution per path BEFORE any merge
