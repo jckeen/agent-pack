@@ -19,6 +19,8 @@ export interface CreateInstallPlanOptions {
   profile: string;
   adapter: AgentPackAdapter;
   onlyAtoms?: string[];
+  /** Forwarded to the adapter — see `AdapterExportOptions.scope`. */
+  scope?: "project" | "user";
 }
 
 /**
@@ -80,7 +82,7 @@ export function deriveObservedFidelity(
 export async function createInstallPlan(
   options: CreateInstallPlanOptions,
 ): Promise<InstallPlan> {
-  const { manifest, packRoot, target, profile, adapter, onlyAtoms } = options;
+  const { manifest, packRoot, target, profile, adapter, onlyAtoms, scope } = options;
 
   // Authored compatibility gate (#134): consult the manifest BEFORE resolving
   // or exporting anything. A target the author declared unsupported must not
@@ -106,6 +108,7 @@ export async function createInstallPlan(
     resolvedAtoms: variantSelection.atoms,
     profile,
     target,
+    ...(scope ? { scope } : {}),
   });
   const unsupportedAtoms = [
     ...variantSelection.unsupportedAtoms,

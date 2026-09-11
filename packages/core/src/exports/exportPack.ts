@@ -1,15 +1,12 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type {
-  AdapterOutputFile,
-  InstallPlan,
-  TargetPlatform,
-} from "../schema/types.js";
+import type { AdapterOutputFile, InstallPlan, TargetPlatform } from "../schema/types.js";
 import { getAdapter } from "../adapters/index.js";
 import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
 import { createInstallPlan } from "../planner/createInstallPlan.js";
 import { UnknownProfileError } from "../planner/resolveAtoms.js";
+import { mapOutputToUserScope, USER_SCOPE_TARGETS } from "../install/userScope.js";
 
 export interface ExportPackOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -32,6 +29,12 @@ export interface ExportPackOptions {
    * audit finding #3).
    */
   allowMissingBodies?: boolean;
+  /**
+   * Output layout, relative to outDir. User scope maps paths into the runtime's
+   * user-config layout and renders generated references for that layout (#193).
+   * Does not select or write to the actual user-config directory.
+   */
+  scope?: "project" | "user";
 }
 
 export interface ExportResult {
@@ -57,6 +60,11 @@ const MISSING_BODY_WARNING_PATTERNS = [
  *    unless `allowMissingBodies` is true.
  */
 export async function exportPack(options: ExportPackOptions): Promise<ExportResult> {
+  if (options.scope === "user" && !USER_SCOPE_TARGETS.includes(options.target)) {
+    throw new Error(
+      `--scope user is only supported for targets ${USER_SCOPE_TARGETS.join(", ")} (got \`${options.target}\`).`,
+    );
+  }
   const strict = options.strict ?? true;
   const allowMissing = options.allowMissingBodies ?? false;
   const loaded = await loadManifest(options.source);
@@ -76,6 +84,7 @@ export async function exportPack(options: ExportPackOptions): Promise<ExportResu
     profile,
     adapter,
     onlyAtoms: options.onlyAtoms,
+    ...(options.scope ? { scope: options.scope } : {}),
   });
 
   if (strict && !allowMissing) {
@@ -91,15 +100,19 @@ export async function exportPack(options: ExportPackOptions): Promise<ExportResu
     }
   }
 
+  if (options.scope === "user") {
+    for (const file of plan.files) {
+      Object.assign(file, mapOutputToUserScope(options.target, file));
+    }
+  }
+
   const outDir = path.resolve(options.outDir);
   await fs.mkdir(outDir, { recursive: true });
   const written: string[] = [];
   for (const file of plan.files) {
     const absPath = path.resolve(outDir, file.path);
     if (!isInside(outDir, absPath)) {
-      throw new Error(
-        `Refusing to write file outside outDir: ${file.path} → ${absPath}`,
-      );
+      throw new Error(`Refusing to write file outside outDir: ${file.path} → ${absPath}`);
     }
     await fs.mkdir(path.dirname(absPath), { recursive: true });
     await fs.writeFile(absPath, normalizeContent(file), "utf8");

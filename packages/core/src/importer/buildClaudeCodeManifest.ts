@@ -18,11 +18,25 @@ import { normalizeSkillSlug } from "../skills/agentskills.js";
 import type { ParsedClaudeCode } from "./parseClaudeCode.js";
 import type { ParseWarning } from "./parseClaudeMd.js";
 
+/** Manifest metadata a source format can supply beyond name/version. */
+export type ImportedMetadata = Partial<
+  Pick<
+    AgentPackManifest["metadata"],
+    "description" | "license" | "homepage" | "repository" | "authors" | "tags"
+  >
+>;
+
 export interface BuildClaudeCodeManifestOptions {
   /** `publisher.slug` — already validated by the caller. */
   id: string;
   name?: string;
   version?: string;
+  /**
+   * Source-supplied metadata (e.g. an Agent Plugins `plugin.json`), already
+   * validated against the manifest schema by the caller. Fields present here
+   * replace the importer's placeholder defaults; absent fields keep them.
+   */
+  metadata?: ImportedMetadata;
 }
 
 export interface BuildClaudeCodeManifestResult {
@@ -301,10 +315,14 @@ export function buildClaudeCodeManifest(
       id: opts.id,
       name,
       slug,
-      description: "Imported from Claude Code",
+      description: opts.metadata?.description ?? "Imported from Claude Code",
       version,
-      license: "MIT",
+      license: opts.metadata?.license ?? "MIT",
       publisher: opts.id.split(".")[0]!,
+      ...(opts.metadata?.authors ? { authors: opts.metadata.authors } : {}),
+      ...(opts.metadata?.tags ? { tags: opts.metadata.tags } : {}),
+      ...(opts.metadata?.homepage ? { homepage: opts.metadata.homepage } : {}),
+      ...(opts.metadata?.repository ? { repository: opts.metadata.repository } : {}),
     },
     compatibility: {
       targets: importedCompatibility(

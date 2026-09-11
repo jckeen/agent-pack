@@ -26,7 +26,8 @@ import {
   renderSkillMd,
 } from "../skills/agentskills.js";
 
-function slugFor(atom: Atom): string {
+/** Shared with plugin conversion so emitted server keys map back to their atoms. */
+export function claudeCodeAtomSlug(atom: Atom): string {
   // The atom-id regex guarantees a single `:`-separated slug component with
   // no path separators. Strip any defense-in-depth metacharacters anyway.
   const raw = atom.id.split(":")[1] ?? atom.name;
@@ -176,7 +177,7 @@ export const claudeCodeAdapter = defineAdapter({
     // it does for slash commands and agents.
     const skillAtoms = byType.get("skill") ?? [];
     for (const atom of skillAtoms) {
-      const slug = normalizeSkillSlug(slugFor(atom));
+      const slug = normalizeSkillSlug(claudeCodeAtomSlug(atom));
       const entries = await readAtomDirectory(packRoot, atom);
       if (entries.length === 0) {
         warnings.push(
@@ -227,7 +228,7 @@ export const claudeCodeAdapter = defineAdapter({
     // would never be invocable as `/<name>`.
     const commandAtoms = byType.get("command") ?? [];
     for (const atom of commandAtoms) {
-      const slug = slugFor(atom);
+      const slug = claudeCodeAtomSlug(atom);
       const parsed = await parseAtomYaml(packRoot, atom);
       let body: string | null = null;
       const promptPath = parsed?.["prompt"];
@@ -250,7 +251,7 @@ export const claudeCodeAdapter = defineAdapter({
     // ---------- Subagents ----------
     const subagentAtoms = byType.get("subagent") ?? [];
     for (const atom of subagentAtoms) {
-      const slug = slugFor(atom);
+      const slug = claudeCodeAtomSlug(atom);
       // Resolve the body from either a markdown agent (frontmatter + prompt) or
       // a YAML descriptor — so a manifest can reference an existing
       // `.claude/agents/*.md` in place without losing the system prompt.
@@ -391,7 +392,7 @@ export const claudeCodeAdapter = defineAdapter({
       const mcpServers: Record<string, unknown> = {};
       const declaredServers = manifest.permissions?.mcp?.servers ?? [];
       for (const atom of mcpAtoms) {
-        const slug = slugFor(atom);
+        const slug = claudeCodeAtomSlug(atom);
         const descriptor = await parseAtomYaml(packRoot, atom);
         const a = { ...(descriptor ?? {}), ...atom } as {
           transport?: string;

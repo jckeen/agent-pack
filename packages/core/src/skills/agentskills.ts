@@ -184,6 +184,23 @@ export function normalizeSkillSlug(raw: string): string {
   return normalized || "skill";
 }
 
+/**
+ * First spec-normalized slug for `base` that is not in `taken`, suffixing
+ * `-2`, `-3`, … as needed. The suffix is carved out of the 64-char budget so
+ * a long base cannot clamp back onto a name that is already taken.
+ */
+export function uniqueSkillSlug(base: string, taken: ReadonlySet<string>): string {
+  const first = normalizeSkillSlug(base);
+  if (!taken.has(first)) return first;
+  for (let n = 2; ; n += 1) {
+    const suffix = `-${n}`;
+    const candidate = normalizeSkillSlug(
+      `${first.slice(0, SKILL_NAME_MAX_LENGTH - suffix.length)}${suffix}`,
+    );
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 function clamp(value: string, max: number): string {
   return value.length > max ? value.slice(0, max) : value;
 }

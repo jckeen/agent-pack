@@ -110,12 +110,15 @@ export { applyInstall } from "./apply.js";
 export type { ApplyInstallOptions, ApplyInstallResult } from "./apply.js";
 export {
   uninstall,
+  planUninstall,
   UninstallConflictError,
   UninstallUnparsableConfigError,
 } from "./uninstall.js";
 export type {
   UninstallOptions,
   UninstallResult,
+  UninstallPlan,
+  UninstallAction,
   LockfileUninstallOutcome,
 } from "./uninstall.js";
 export { verifyInstall } from "./verify.js";

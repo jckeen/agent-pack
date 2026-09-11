@@ -34,7 +34,7 @@ The governance is the durable part — the thing the platforms are slowest to bu
 
 ## Quickstart (≤5 minutes)
 
-> AgentPack isn't on npm yet (planned for v0.3.0 promotion). For now, get the CLI by cloning + building. Once published, the same commands will work via `npx agentpack` or a global install.
+> AgentPack isn't on npm yet. Build the CLI from source; release and registry promotion are tracked in [#63](https://github.com/jckeen/agent-pack/issues/63).
 
 **1. Clone and build the CLI:**
 
@@ -43,11 +43,21 @@ git clone https://github.com/jckeen/agent-pack
 cd agent-pack
 pnpm install
 pnpm --filter @agentpack/cli... build      # builds only the CLI + its deps (skips the registry app)
-pnpm test                                  # optional: full suite — see STATUS.md for current count
+pnpm test                               # optional: full workspace suite
 
 # expose the freshly-built CLI on your PATH for the rest of this quickstart:
 alias agentpack="node $(pwd)/packages/cli/dist/index.js"
 ```
+
+For an `agentpack` command that persists across shells, link the built CLI:
+
+```bash
+(cd packages/cli && pnpm link --global)
+```
+
+If pnpm reports a missing global binary directory, run `pnpm setup`, reopen
+your shell, and link again. Keep the checkout and rebuild the CLI after
+pulling source updates: the linked command uses that checkout's built files.
 
 **2. Install a pack directly from a git ref — no registry required:**
 
