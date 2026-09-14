@@ -5,7 +5,7 @@
   "description": "AgentPack standard + AgentPack Registry \u2014 the compiler and governance layer for agent configuration.",
   "type": "module",
   "license": "MIT",
-  "packageManager": "pnpm@9.15.9",
+  "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=22"
   },
