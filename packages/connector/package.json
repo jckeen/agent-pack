@@ -28,12 +28,12 @@
     "@agentpack/core": "workspace:*",
     "@hono/node-server": "2.1.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "hono": "4.13.7",
+    "hono": "4.13.8",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "26.5.1",
-    "@vitest/coverage-v8": "5.0.0",
+    "@types/node": "26.6.2",
+    "@vitest/coverage-v8": "5.0.1",
     "tsx": "4.23.13",
     "typescript": "6.0.3",
     "vite": "8.3.0",
