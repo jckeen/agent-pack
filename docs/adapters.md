@@ -111,12 +111,12 @@ refuse the server rather than resolving a relative executable elsewhere.
 | `rule`        | `project-instructions.md` rules section              |
 | `command`     | `mcp-server/src/tools/<slug>.ts` stub (conservative) |
 | `mcp_server`  | referenced in `app-manifest.json`                    |
-| `plugin`      | `app-manifest.json` entry                            |
-| `skill`       | surfaced in `project-instructions.md`                |
+| `plugin`      | not emitted by this adapter                         |
+| `skill`       | not emitted; use `pack agent-plugin` for skills      |
 | `hook`        | unsupported warning                                  |
-| `subagent`    | surfaced as instruction note                         |
+| `subagent`    | unsupported warning                                  |
 
-The adapter generates a skeleton MCP app that must be reviewed and registered manually with ChatGPT. The CLI prints a clear warning.
+The adapter generates experimental MCP scaffolding, not a runnable app. Command handlers are inert stubs; transport and real behavior must be implemented separately. The CLI prints an export-only warning. For native skills use `pack agent-plugin`; for manual Project guidance use the emitted instruction text. See [ChatGPT and Claude onboarding](./chatgpt-claude.md).
 
 ## Generic
 

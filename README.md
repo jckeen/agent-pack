@@ -110,6 +110,14 @@ agentpack publish examples/pr-quality --sign
 agentpack verify agentpack.pr-quality --project /tmp/my-claude-project --sig
 ```
 
+### Using ChatGPT and Claude
+
+Run `agentpack guide` after building the CLI to choose a destination and see export
+commands, manual setup steps, and limitations. Start with the
+[portable research and decisions pack](./examples/portable-workflow/README.md), or
+read the [ChatGPT and Claude guide](./docs/chatgpt-claude.md). Exporting creates local
+artifacts; it does not install into an account.
+
 ### Hosted registry (optional)
 
 You don't _need_ a hosted registry to use AgentPack — git is the default distribution. The registry exists as an optional convenience for cross-org discovery, schema-validated metadata at index time, admin-side quarantine of compromised versions, and the eventual enterprise self-host path. See [`docs/registry.md`](./docs/registry.md) for when it earns its keep.
@@ -135,7 +143,7 @@ The manifest is `AGENTPACK.yaml`. Each pack is composed of **atoms** — the sma
 | `hook`         | `.claude/settings.json` hooks, `.codex/hooks.json` (high risk by policy)            |
 | `command`      | `.claude/commands/*.md` slash commands, skill folders, MCP tool stubs               |
 | `subagent`     | `.claude/agents/*.md`, `.codex/agents/*.toml`                                       |
-| `mcp_server`   | `.claude/settings.json#mcpServers`, `.codex/config.toml`, `.cursor/mcp.json`        |
+| `mcp_server`   | `.mcp.json`, `.codex/config.toml`, `.cursor/mcp.json`        |
 | `plugin`       | ChatGPT Apps SDK skeleton, editor plugin metadata                                   |
 | `workflow`     | section in `CLAUDE.md` / `AGENTS.md`                                                |
 | `context_pack` | exported context bundle (sensitivity declared)                                      |

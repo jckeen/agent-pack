@@ -18,7 +18,7 @@ const SECTIONS = [
   },
   {
     title: "CLI",
-    body: "The agentpack CLI: init, import, validate, inspect, plan, pack (export / plugin / mcpb / chat), doctor, install, uninstall, diff, history, rollback, verify, update, plus registry auth (login, whoami, tokens, publish) and cache. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.agentpack/history.jsonl` (hash-chained, WAL-protected). `import --from claude | claude-code | codex | chatgpt-gpt` compiles an existing setup into a pack.",
+    body: "The agentpack CLI: guide (ChatGPT and Claude export routes with manual setup), init, import, validate, inspect, plan, pack (export / plugin / mcpb / chat), doctor, install, uninstall, diff, history, rollback, verify, update, plus registry auth (login, whoami, tokens, publish) and cache. `pack export` is pure (writes only under --out). `install` writes into your project root after showing a diff and prompting — backs up overwritten files, writes AGENTPACK.lock with per-atom SHA-256 checksums, and tracks every action in `.agentpack/history.jsonl` (hash-chained, WAL-protected). `import --from claude | claude-code | codex | chatgpt-gpt` compiles an existing setup into a pack.",
     link: "/docs#cli",
   },
   {

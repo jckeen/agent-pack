@@ -1,6 +1,6 @@
 # `agentpack` CLI
 
-The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`validate`, `inspect`, `plan`, `diff`, `verify`, `update --check`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `pack plugin`, `pack agent-plugin`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
+The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engine as `@agentpack/core` and the registry. Read-only commands (`guide`, `validate`, `inspect`, `plan`, `diff`, `verify`, `update --check`, `history`, `whoami`, `doctor`, `cache size`) never touch your project tree. Write commands (`init`, `pack export`, `pack plugin`, `pack agent-plugin`, `install`, `uninstall`, `rollback`, `publish`, `login`, `tokens`, `cache prune|clear`) declare their write surface up front.
 
 > AgentPack isn't on npm yet (planned for v0.3.0 promotion). Until then, build the CLI locally:
 >
@@ -11,6 +11,22 @@ The CLI lives in [`../packages/cli`](../packages/cli) and exposes the same engin
 > ```
 
 ## Read-only / inspect commands
+
+### `agentpack guide [surface]`
+
+```bash
+agentpack guide
+agentpack guide chatgpt --json
+agentpack guide chatgpt-project
+agentpack guide claude
+agentpack guide claude-plugin
+```
+
+Prints export commands, expected artifacts, manual setup steps, limitations, and
+sources. Reads no project files and changes nothing; no manifest is required.
+Example commands use paths relative to the repository root. Unknown surfaces exit
+with a usage error. `--json` emits `setup` and `routes` with command argument arrays
+(executable omitted). See [consumer onboarding](./chatgpt-claude.md).
 
 ### `agentpack init`
 

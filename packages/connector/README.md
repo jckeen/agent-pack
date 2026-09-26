@@ -2,7 +2,7 @@
 
 A thin **remote MCP connector** that exposes an AgentPack's guidance to **every
 Claude surface** — claude.ai web, Desktop, Cowork, and mobile/Dispatch —
-including the surfaces a plugin can't reach (pure chat, mobile).
+through MCP prompts and resources. Host feature access and authentication compatibility must be verified separately.
 
 ## Why this exists
 

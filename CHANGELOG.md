@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-26 — ChatGPT and Claude onboarding
+
+- Added read-only `agentpack guide [surface] --json` with export commands, expected artifacts, manual setup steps, and official sources.
+- Added a portable research-brief and decision-memo starter with Project guidance for manual onboarding.
+- Added export integration tests and an evidence-backed platform research snapshot; corrected misleading ChatGPT adapter documentation.
+
 ## 0.7.0-dev — 2026-09-08 (daily-use reliability batch)
 
 - **Codex: per-pack `config.toml` provenance
