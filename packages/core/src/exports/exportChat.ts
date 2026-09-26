@@ -109,8 +109,8 @@ export interface ExportChatResult {
 
 /**
  * Compile an AgentPack into the artifacts a **claude.ai (Claude Chat)** user or
- * admin installs. Chat has no bundle format — Skills install one ZIP at a time,
- * custom MCP connectors are added by URL, and there is no ambient-instructions
+ * admin installs. This exporter emits a manual skills route: Skills install one ZIP at a time,
+ * custom MCP connectors are added by URL, and there is no repository-instructions
  * loader — so this fans one pack out into N copy-paste install steps:
  *
  *  1. `skills/<atom>.zip` — one uploadable Agent Skills ZIP per `skill` atom,
@@ -324,8 +324,8 @@ async function compileOnInvokeSkill(
   const description = clampDescription(`[on-invoke, not ambient] ${atom.description}`);
   const banner =
     `> **On-invoke skill (not ambient).** Bridged from the \`${atom.type}\` atom ` +
-    `\`${atom.id}\` in ${manifest.metadata.name}. Claude Chat has no ambient ` +
-    `instruction loader, so this guidance applies only when this skill is invoked — ` +
+    `\`${atom.id}\` in ${manifest.metadata.name}. Claude Chat does not load repository ` +
+    `instruction files, so this guidance applies only when this skill is invoked — ` +
     `it does NOT run on every message the way a CLAUDE.md rule would in Claude Code.`;
   const content = renderSkillMd(
     { name, description },
@@ -466,7 +466,7 @@ function installRecipe(
   secrets: Array<{ name: string }>,
 ): string {
   const steps = [
-    `Open claude.ai → Settings → Connectors → "Add custom connector".`,
+    `Open Claude connector settings and choose "Add custom connector"; consult the current official connector guide if your menus differ.`,
     `Name: ${atom.name}`,
     `Remote MCP server URL: ${atom.url}`,
   ];
@@ -481,7 +481,7 @@ function installRecipe(
     );
   }
   steps.push(
-    `Mobile: scan the connector QR from Settings → Connectors to add it on the Claude app (install beta).`,
+    `Current connector setup: https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp`,
   );
   return steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
 }
@@ -520,8 +520,8 @@ async function projectInstructions(
     `> ${m.description}`,
     "",
     `Paste this into a claude.ai Project's custom instructions. This is the ` +
-      `ambient-within-a-Project alternative to the on-invoke skills — Chat has no ` +
-      `global instruction loader, so ambient guidance only applies inside a Project.`,
+      `within-Project alternative to the on-invoke skills. AgentPack does not install ` +
+      `account instructions automatically; this text applies in the Project where you paste it.`,
     "",
   ];
 
@@ -572,7 +572,7 @@ function reportEntry(
         atomId: atom.id,
         type: atom.type,
         portable: true,
-        note: "Native Skill — uploadable ZIP, GA on all Chat plans (requires code execution).",
+        note: "Native Skill — uploadable ZIP; enable code execution and check account or organization controls.",
       };
     case "instruction":
     case "rule":
@@ -581,7 +581,7 @@ function reportEntry(
         type: atom.type,
         portable: true,
         downgradedTo: "skill",
-        note: "No ambient loader in Chat. Bridged to an on-invoke skill, and surfaced in project-instructions.md for within-Project ambient use.",
+        note: "Repository instructions are bridged to an on-invoke skill and surfaced in project-instructions.md for manual Project setup.",
       };
     case "mcp_server": {
       const mcp = atom as McpAtom;
@@ -627,7 +627,7 @@ function reportEntry(
           type: atom.type,
           portable: true,
           downgradedTo: "connector",
-          note: "Remote MCP — add as a custom Connector (Pro+). See connectors.json.",
+          note: "Remote MCP — manual custom connector recipe. Check host access and authentication compatibility; see connectors.json.",
         };
       }
       return {
@@ -643,7 +643,7 @@ function reportEntry(
         type: atom.type,
         portable: true,
         downgradedTo: "skill",
-        note: "No slash commands in Chat. Procedure compiled to an on-invoke skill.",
+        note: "This exporter compiles the procedure to an on-invoke skill; it does not install a native command.",
       };
     case "subagent":
       return {
@@ -664,7 +664,7 @@ function reportEntry(
         atomId: atom.id,
         type: atom.type,
         portable: false,
-        note: "Plugins are not installable in Chat. Use `agentpack pack plugin` for plugin-aware surfaces.",
+        note: "Plugin atoms are not installed by this skill-bundle exporter. Use `agentpack pack plugin` and the host plugin installation flow.",
       };
     default:
       return {
@@ -692,7 +692,7 @@ function readme(
     `> ${m.description}`,
     "",
     `Pack \`${m.id}\` v${m.version} · profile \`${profile}\`. Claude Chat (claude.ai) ` +
-      `has no bundle format, so this directory is a set of copy-paste install steps.`,
+      `setup is manual for this export: upload skills and copy Project guidance. For a plugin directory, use \`agentpack pack plugin\`.`,
     "",
     "## Install",
     "",
@@ -701,7 +701,7 @@ function readme(
   let step = 1;
   if (native.length > 0) {
     lines.push(
-      `${step++}. **Upload the skills.** In claude.ai → Settings → Skills, upload each ZIP under \`skills/\`:`,
+      `${step++}. **Upload the skills.** In Claude → Customize → Skills, create a skill and upload each ZIP under \`skills/\`:`,
     );
     for (const s of native)
       lines.push(`   - \`skills/${s.skillName}.zip\` (from ${s.atomId})`);
@@ -717,7 +717,7 @@ function readme(
   }
   if (connectors.length > 0) {
     lines.push(
-      `${step++}. **Add the connectors.** Follow \`connectors.json\` to add each remote MCP connector (Pro+; free plan allows one). AgentPack can't auto-install these — Chat has no install API.`,
+      `${step++}. **Add the connectors.** Follow \`connectors.json\` to add each remote MCP connector. Check account access and authentication support. AgentPack does not install these into your account.`,
     );
     lines.push("");
   }

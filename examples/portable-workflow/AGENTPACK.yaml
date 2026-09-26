@@ -1,0 +1,58 @@
+agentpack: "1.0"
+metadata:
+  id: agentpack.portable-workflow
+  name: Portable Research and Decisions
+  slug: portable-workflow
+  description: Turn supplied sources into an evidence-backed brief and a reviewable decision memo in ChatGPT or Claude.
+  version: "0.1.0"
+  license: MIT
+  publisher: agentpack
+  authors:
+    - name: AgentPack
+  tags: [research, decisions, onboarding]
+compatibility:
+  targets:
+    claude-code:
+      status: supported
+    codex:
+      status: supported
+    generic:
+      status: supported
+    chatgpt:
+      status: partial
+      notes: The chatgpt adapter exports shared Project instructions, not skill bodies. Use pack agent-plugin for native skills.
+permissions:
+  shell:
+    execution: forbidden
+  network:
+    access: forbidden
+profiles:
+  safe:
+    description: Guidance and native skills only; use source material supplied by the user.
+    include:
+      - instruction:shared-workflow
+      - skill:research-brief
+      - skill:decision-memo
+atoms:
+  - id: instruction:shared-workflow
+    type: instruction
+    name: Shared Research and Decision Workflow
+    description: Evidence and decision guidance for a ChatGPT or Claude Project.
+    path: atoms/shared-workflow.md
+    risk_level: low
+  - id: skill:research-brief
+    type: skill
+    name: Research Brief
+    description: Turn supplied sources into a concise brief with evidence, uncertainty, and open questions.
+    path: atoms/research-brief
+    skill_format: agentskills
+    risk_level: low
+  - id: skill:decision-memo
+    type: skill
+    name: Decision Memo
+    description: Compare options against the user's constraints and draft a decision for review.
+    path: atoms/decision-memo
+    skill_format: agentskills
+    risk_level: low
+exports:
+  default_profile: safe

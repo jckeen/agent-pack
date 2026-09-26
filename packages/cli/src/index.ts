@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { registerGuide } from "./commands/guide.js";
 import { registerInit } from "./commands/init.js";
 import { registerImport } from "./commands/import.js";
 import { registerValidate } from "./commands/validate.js";
@@ -31,6 +32,7 @@ program
   .version(CLI_VERSION, "-v, --version", "Show CLI version")
   .showHelpAfterError(true);
 
+registerGuide(program);
 registerInit(program);
 registerImport(program);
 registerValidate(program);

@@ -378,7 +378,7 @@ export function registerPack(program: Command): void {
           if (onInvoke.length > 0) {
             console.log(
               pc.yellow(
-                `  ⚠ On-invoke skills apply only when invoked — NOT ambient. There is no instruction loader in Chat.`,
+                `  ⚠ On-invoke skills apply only when invoked — NOT ambient. Project instructions require manual setup.`,
               ),
             );
           }

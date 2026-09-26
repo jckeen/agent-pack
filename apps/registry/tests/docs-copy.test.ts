@@ -22,6 +22,7 @@ const docs = fs.readFileSync(path.join(APP_DIR, "docs/page.tsx"), "utf8");
 
 // Every user-facing CLI command (one .ts per command in packages/cli/src/commands).
 const CLI_COMMANDS = [
+  "guide",
   "init",
   "import",
   "validate",
