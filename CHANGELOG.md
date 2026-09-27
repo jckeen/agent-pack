@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-26 — Cross-platform positioning
+
+- Reframed the README around ChatGPT, Claude, Codex, Cursor, and compatible tools, with separate routes for managed installs, plugin exports, and manual Project setup.
+- Removed universal-reach and unverified client claims, distinguished host capabilities from adapter behavior, and clarified the MCP connector prototype’s integration limits.
+
 ## 2026-09-26 — ChatGPT and Claude onboarding
 
 - Added read-only `agentpack guide [surface] --json` with export commands, expected artifacts, manual setup steps, and official sources.

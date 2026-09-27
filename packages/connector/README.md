@@ -1,29 +1,28 @@
 # @agentpack/connector (prototype)
 
-A thin **remote MCP connector** that exposes an AgentPack's guidance to **every
-Claude surface** — claude.ai web, Desktop, Cowork, and mobile/Dispatch —
-through MCP prompts and resources. Host feature access and authentication compatibility must be verified separately.
+A remote MCP server prototype that exposes AgentPack guidance as prompts and
+resources. It is intended for clients that support those MCP primitives and this
+server's authentication method; it is not a verified integration with every
+ChatGPT or Claude surface.
 
 ## Why this exists
 
-Of a pack's atoms, only two types travel account-level across all surfaces:
-**Skills** and **MCP servers/connectors**. A Claude Code **plugin**
-(`agentpack pack plugin`) covers the plugin-aware surfaces (Code, Cowork,
-Desktop, the web Directory). This connector covers the rest: a single remote
-MCP server reaches _every_ surface at once, including plain claude.ai chat and
-mobile.
+A pack can be presented through MCP as an alternative to generated configuration
+files or skill packages. This server makes selected kinds of guidance readable
+and invokable by a compatible client. It does not execute the pack's workflows,
+install account configuration, or grant a client new runtime capabilities.
 
 It reshapes the portable subset of a pack into MCP primitives:
 
-| Pack atom                                             | MCP primitive                                                  |
-| ----------------------------------------------------- | -------------------------------------------------------------- |
-| `skill`, `command`, `instruction`, `rule`, `subagent` | **prompt** (invokable) + **resource** (readable)               |
-| `hook`                                                | — not carried (no MCP equivalent; Claude Code event-loop only) |
-| `mcp_server`                                          | — not re-wrapped (already its own connector)                   |
+| Pack atom                                             | MCP primitive                                                |
+| ----------------------------------------------------- | ------------------------------------------------------------ |
+| `skill`, `command`, `instruction`, `rule`, `subagent` | **prompt** (invokable) + **resource** (readable)             |
+| `hook`                                                | — not carried (this server does not execute lifecycle hooks) |
+| `mcp_server`                                          | — not re-wrapped (already its own connector)                 |
 
-**Honest limit:** MCP cannot make any of this _ambient_ the way `CLAUDE.md` is
-in Claude Code — prompts are invoked, not auto-loaded. Hooks and ambient
-instructions remain Claude-Code-only. This connector bridges what is bridgeable.
+**Limit:** prompts/resources are not repository or Project instructions. The host
+decides whether to expose them and when to load them. A successful server response
+does not establish account-side installation or equivalent behavior across clients.
 
 ## Run it (local)
 
@@ -34,9 +33,12 @@ AGENTPACK_CONNECTOR_TOKEN=$(openssl rand -hex 32) \
 # MCP endpoint at http://localhost:8787/mcp ; health at /healthz
 ```
 
-Then add it as a **Custom Connector** (remote MCP) in claude.ai or Claude
-Desktop settings, pointing at the `/mcp` URL, with the same token as a
-`Authorization: Bearer` header.
+Use an MCP client that can send the required `Authorization: Bearer` header to
+test the local endpoint. Do not assume a consumer connector UI accepts arbitrary
+headers. Cloud-hosted clients cannot reach a server bound only to your machine:
+Claude's [remote connector documentation](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
+requires an endpoint reachable from its infrastructure. Hosting and native client
+authentication compatibility must be verified before recommending this route to users.
 
 ## Authentication (required, fail-closed)
 
@@ -57,14 +59,15 @@ page can't reach a locally-bound connector.
 
 ## Before hosting it
 
-The remaining gap is **hosting**: provisioning recurring hosted infra is out of
-scope here (cost policy). To deploy later, run `node dist/serve.js` on any Node
-host (Fluid Compute / a container) behind TLS, with `AGENTPACK_CONNECTOR_TOKEN`
-set and the public hostname added to `AGENTPACK_CONNECTOR_ALLOWED_HOSTS`.
+Hosting is only one requirement. A deployment needs TLS, appropriate secrets and
+hostname configuration, and a client-compatible authentication flow. This prototype
+implements bearer authentication, not an OAuth authorization server. Validate the
+intended client's tools, prompts, and resources support before deploying it.
 
 ## Status
 
-Prototype with auth. The catalog builder, MCP registration, bearer auth, and
-DNS-rebinding guard are covered by tests (50 total, incl. a bound-socket
-round-trip); a full MCP **client** handshake against a running server is not
-yet wired into CI.
+Prototype with authentication and tests for the catalog, MCP registration, bearer
+authentication, and Host/Origin checks. See [tests](./tests) for the exercised
+behavior. Passing those tests does not establish native ChatGPT or Claude account
+compatibility. The catalog currently loads the manifest's atoms without install
+profile selection; review what it exposes before sharing a server.

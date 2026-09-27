@@ -94,12 +94,16 @@ refuse the server rather than resolving a relative executable elsewhere.
 | ------------- | ---------------------------------------------------------- |
 | `instruction` | `AGENTS.md` section                                        |
 | `rule`        | `.cursor/rules/<slug>.mdc` (frontmatter + full rule body)  |
-| `skill`       | inlined into `AGENTS.md` (Cursor has no Skills format)     |
+| `skill`       | inlined into `AGENTS.md` by this adapter     |
 | `command`     | description surfaced in `AGENTS.md`                        |
 | `subagent`    | role description surfaced in `AGENTS.md`                   |
 | `hook`        | warning — no stable Cursor hook target                     |
 | `mcp_server`  | `.cursor/mcp.json` entry (declaration + shell-escape gate) |
 | `workflow`    | `AGENTS.md` workflow section                               |
+
+Cursor supports [native Agent Skills](https://cursor.com/docs/skills), but this
+adapter currently inlines skill bodies rather than emitting native skill folders.
+This table describes the adapter, not the full set of Cursor capabilities.
 
 ## ChatGPT Apps SDK
 
