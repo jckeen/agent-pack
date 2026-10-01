@@ -5,6 +5,7 @@ import { z } from "zod";
 import { tokenScopeSchema } from "@agentpack/core";
 
 import { auth } from "@/lib/auth";
+import { csrfGuard } from "@/lib/csrf";
 import { apiTokens, getDb, publishers } from "@/lib/db";
 import { findUngrantableScope, generateToken } from "@/lib/tokens";
 
@@ -43,7 +44,10 @@ export async function GET(): Promise<NextResponse> {
   return NextResponse.json({ tokens: rows });
 }
 
-export async function POST(req: Request): Promise<NextResponse> {
+export async function POST(req: Request): Promise<Response> {
+  const csrf = csrfGuard(req);
+  if (csrf) return csrf;
+
   const session = await auth();
   if (!session?.user?.id) return unauthorized();
   const db = getDb();

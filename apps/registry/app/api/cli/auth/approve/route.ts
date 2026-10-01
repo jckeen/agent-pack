@@ -5,9 +5,15 @@ import { approveUserCode } from "@/lib/cli-auth-store";
 import { apiTokens, getDb, publisherMembers, publishers, users } from "@/lib/db";
 import { generateToken } from "@/lib/tokens";
 import { auth } from "@/lib/auth";
+import { csrfGuard } from "@/lib/csrf";
 import { hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request): Promise<Response> {
+  // Approving binds a publish-capable token to the caller's account — the
+  // highest-value target for a forged request on this surface.
+  const csrf = csrfGuard(req);
+  if (csrf) return csrf;
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
