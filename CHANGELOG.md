@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-01 — Fresh-clone tests and Phase 6 doc accuracy
+
+- `pnpm test` passes on a fresh clone: `@agentpack/connector` now builds `@agentpack/core` before its suite, as the CLI and registry already did ([#266](https://github.com/jckeen/agent-pack/issues/266)).
+- The README repository table lists `packs/` and `action/`; `STATUS.md`, `Plans/PHASE-6-GATE.md`, and `Plans/ROADMAP.md` no longer describe `org_id` columns that are not in the schema (only `audit_events.org_id` exists) ([#263](https://github.com/jckeen/agent-pack/issues/263)).
+
 ## 2026-09-26 — Cross-platform positioning
 
 - Reframed the README around ChatGPT, Claude, Codex, Cursor, and compatible tools, with separate routes for managed installs, plugin exports, and manual Project setup.

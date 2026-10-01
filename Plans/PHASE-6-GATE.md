@@ -32,12 +32,12 @@ Curiosity-grade pings ("does it have SSO?" with no follow-up) do **not** trigger
 
 The Phase 3+5 scaffold quietly preserved Phase 6's schema shape so that flipping the gate is **a migration, not a re-architecture**:
 
-| Phase 6 surface       | What's already in place                                                                                                           | What's still owed at gate-flip                                                           |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Org-scoped publishers | `publishers.org_id` is nullable, no FK enforced yet                                                                               | Add FK constraint + backfill personal publishers to org_id null permanently              |
-| Audit events          | `audit_events` table exists, hash-chain primitive (`previous_entry_id`, `entry_checksum`) borrows Phase 2's `history.jsonl` shape | Wire writes from every state-mutating route; expose `GET /api/orgs/<slug>/audit?since=…` |
-| User identity         | NextAuth v5 with GitHub OAuth                                                                                                     | Add WorkOS provider alongside GitHub; org binding via Directory Sync claim               |
-| Policy fetch          | CLI already reads `agentpack.policy.json` locally (Phase 5)                                                                       | Add `GET /api/orgs/<slug>/policy` server route + CLI fallback chain                      |
+| Phase 6 surface       | What's already in place                                                                                                           | What's still owed at gate-flip                                                             |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Org-scoped publishers | Nothing on `publishers` yet — the only `org_id` column today is the nullable one on `audit_events`                                | Create `orgs`, add nullable `publishers.org_id` with its FK; personal publishers stay null |
+| Audit events          | `audit_events` table exists, hash-chain primitive (`previous_entry_id`, `entry_checksum`) borrows Phase 2's `history.jsonl` shape | Wire writes from every state-mutating route; expose `GET /api/orgs/<slug>/audit?since=…`   |
+| User identity         | NextAuth v5 with GitHub OAuth                                                                                                     | Add WorkOS provider alongside GitHub; org binding via Directory Sync claim                 |
+| Policy fetch          | CLI already reads `agentpack.policy.json` locally (Phase 5)                                                                       | Add `GET /api/orgs/<slug>/policy` server route + CLI fallback chain                        |
 
 ## The 8 decisions to revisit when triggered
 
