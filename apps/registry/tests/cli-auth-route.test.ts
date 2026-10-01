@@ -128,6 +128,33 @@ describe("POST /api/cli/auth/poll", () => {
 });
 
 describe("POST /api/cli/auth/approve", () => {
+  it("403s a cross-site approve — a device code is never bound by another origin (#268)", async () => {
+    _auth.session = { user: { id: "u1" } };
+    const init = await (await authInit(jsonReq("https://x/api/cli/auth/init"))).json();
+    const res = await authApprove(
+      new Request("https://x/api/cli/auth/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+        body: JSON.stringify({ userCode: init.userCode }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(_db.insertCount).toBe(0);
+  });
+
+  it("415s a text/plain approve (the body a cross-origin form can send)", async () => {
+    _auth.session = { user: { id: "u1" } };
+    const res = await authApprove(
+      new Request("https://x/api/cli/auth/approve", {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body: JSON.stringify({ userCode: "X" }),
+      }),
+    );
+    expect(res.status).toBe(415);
+    expect(_db.insertCount).toBe(0);
+  });
+
   it("401s without a session", async () => {
     _auth.session = null;
     const res = await authApprove(

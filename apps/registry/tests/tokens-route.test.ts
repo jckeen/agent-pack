@@ -232,6 +232,22 @@ describe("GET /api/tokens (list)", () => {
 describe("DELETE /api/tokens/[id] (revoke)", () => {
   const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
+  it("403s a cross-site DELETE before touching the session or the DB (#268)", async () => {
+    _session.value = SESSION_WITH();
+    _db.queue = [[{ id: "t1" }]];
+    const res = await revokeToken(
+      new Request("https://x/api/tokens/t1", {
+        method: "DELETE",
+        headers: { "sec-fetch-site": "cross-site" },
+      }),
+      ctx("t1"),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("csrf_origin");
+    // The scripted revoke result was never consumed — no update ran.
+    expect(_db.queue).toHaveLength(1);
+  });
+
   it("401s without a session", async () => {
     _session.value = null;
     const res = await revokeToken(new Request("https://x/api/tokens/t1"), ctx("t1"));
@@ -263,5 +279,38 @@ describe("DELETE /api/tokens/[id] (revoke)", () => {
     );
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe("not_found");
+  });
+});
+
+describe("POST /api/tokens — CSRF guard (#268)", () => {
+  const body = JSON.stringify({ name: "ci", scopes: ["read:packs"] });
+
+  it("403s a cross-site mint and inserts nothing", async () => {
+    _session.value = SESSION_WITH();
+    _db.queue = [[{ id: "tok-1" }]];
+    const res = await mintToken(
+      new Request("https://registry.example.com/api/tokens", {
+        method: "POST",
+        headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+        body,
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("csrf_origin");
+    expect(_db.queue).toHaveLength(1);
+  });
+
+  it("415s a body a cross-origin form could send (text/plain JSON)", async () => {
+    _session.value = SESSION_WITH();
+    _db.queue = [[{ id: "tok-1" }]];
+    const res = await mintToken(
+      new Request("https://registry.example.com/api/tokens", {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body,
+      }),
+    );
+    expect(res.status).toBe(415);
+    expect(_db.queue).toHaveLength(1);
   });
 });

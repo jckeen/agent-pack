@@ -49,29 +49,9 @@ vi.mock("@/lib/audit", () => ({
 
 // Imported after mocks so the stubbed modules are already in place.
 import { applyStatusChange } from "@/app/api/admin/packs/[publisher]/[pack]/versions/[version]/status/route";
-
-// ---------------------------------------------------------------------------
-// CSRF guard — extracted as a pure function so it can be unit-tested without
-// spinning up the Next.js route (which requires session + DB). This
-// implementation is kept byte-for-byte identical to the one in the route;
-// the test file is the contract that it stays that way.
-// ---------------------------------------------------------------------------
-function csrfGuard(req: Request): { status: number; error: string } | null {
-  const contentType = req.headers.get("content-type") ?? "";
-  if (!/^application\/json(\s*;|$)/i.test(contentType)) {
-    return { status: 415, error: "csrf_content_type" };
-  }
-  const fetchSite = req.headers.get("sec-fetch-site");
-  if (fetchSite && fetchSite !== "same-origin") {
-    return { status: 403, error: "csrf_origin" };
-  }
-  const origin = req.headers.get("origin");
-  const expected = process.env.NEXT_PUBLIC_REGISTRY_URL?.replace(/\/$/, "");
-  if (origin && expected && origin !== expected) {
-    return { status: 403, error: "csrf_origin" };
-  }
-  return null;
-}
+// The REAL guard (shared by every session-authenticated write route, #268) —
+// no mirror copy.
+import { csrfViolation as csrfGuard } from "@/lib/csrf";
 
 /** Build a minimal Request with the specified headers. */
 function makeReq(headers: Record<string, string>): Request {

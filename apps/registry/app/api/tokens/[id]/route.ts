@@ -2,13 +2,19 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
+import { csrfGuard } from "@/lib/csrf";
 import { apiTokens, getDb } from "@/lib/db";
 import { evictBearerTokenBySha } from "@/lib/tokens";
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
+  // No body is read, so no content-type requirement: DELETE already forces a
+  // CORS preflight. The origin checks still apply.
+  const csrf = csrfGuard(req, { requireJson: false });
+  if (csrf) return csrf;
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });

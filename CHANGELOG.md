@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-01 — Registry CSRF guard on every session write
+
+- The Origin / `Sec-Fetch-Site` / JSON-content-type guard that protected the admin status route now lives in `apps/registry/lib/csrf.ts` and also covers `POST /api/cli/auth/approve`, `POST /api/tokens`, and `DELETE /api/tokens/[id]` ([#268](https://github.com/jckeen/agent-pack/issues/268)). A `text/plain` body is rejected: `req.json()` parses it regardless of the declared type, and a cross-origin form can send it.
+
 ## 2026-10-01 — Fresh-clone tests and Phase 6 doc accuracy
 
 - `pnpm test` passes on a fresh clone: `@agentpack/connector` now builds `@agentpack/core` before its suite, as the CLI and registry already did ([#266](https://github.com/jckeen/agent-pack/issues/266)).
