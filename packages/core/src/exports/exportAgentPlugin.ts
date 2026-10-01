@@ -1,7 +1,3 @@
-import { constants as fsConstants } from "node:fs";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-
 import type { AdapterOutputFile, AgentPackManifest, InstallPlan } from "../schema/types.js";
 import { getAdapter } from "../adapters/index.js";
 import { claudeCodeAtomSlug } from "../adapters/claudeCode.js";
@@ -13,6 +9,12 @@ import { stableJsonStringify } from "../adapters/types.js";
 import { summarizePortability, type PortabilitySummary } from "../portability.js";
 import { renderSkillMd } from "../skills/agentskills.js";
 import { guidanceSkillName } from "./exportPlugin.js";
+import {
+  assertNoPathConflicts,
+  prepareOutDir,
+  removeManagedPaths,
+  writeContainedFile,
+} from "./outputSafety.js";
 import {
   AGENT_PLUGIN_MANIFEST_SCHEMA_ID,
   AGENT_PLUGIN_MCP_SCHEMA_ID,
@@ -111,64 +113,30 @@ export async function exportAgentPlugin(
   const pluginName = normalizeAgentPluginName(loaded.manifest.metadata.slug);
   const pluginFiles = toAgentPluginFiles(plan, loaded.manifest, pluginName, profile);
 
-  const outDir = path.resolve(options.outDir);
-  await fs.mkdir(outDir, { recursive: true });
-  const realOut = await fs.realpath(outDir);
+  const { outDir, realOut } = await prepareOutDir(options.outDir);
+  assertNoPathConflicts(pluginFiles.map((f) => f.path));
 
   // The managed component paths are replaced wholesale on every export —
   // otherwise re-exporting a narrower profile into the same directory would
   // retain the previous profile's hooks/commands, and a re-import of the
   // "safe" output would resurrect them. A pre-existing symlink at a managed
   // path is refused outright: it would redirect the write outside outDir.
-  const managedPaths = ["plugin.json", "mcp.json", "skills", AGENTPACK_EXTENSION_NAMESPACE];
-  for (const rel of managedPaths) {
-    const abs = path.join(realOut, rel);
-    const lstat = await fs.lstat(abs).catch(() => null);
-    if (!lstat) continue;
-    if (lstat.isSymbolicLink()) {
-      throw new Error(
-        `Refusing to export: \`${rel}\` in the output directory is a symlink — writes through it could land outside outDir. Remove it and re-run.`,
-      );
-    }
-    await fs.rm(abs, { recursive: true, force: true });
-  }
+  await removeManagedPaths(realOut, [
+    "plugin.json",
+    "mcp.json",
+    "skills",
+    AGENTPACK_EXTENSION_NAMESPACE,
+  ]);
 
   const written: string[] = [];
   for (const file of pluginFiles) {
-    const absPath = path.resolve(realOut, file.path);
-    if (!isInside(realOut, absPath)) {
-      throw new Error(`Refusing to write outside outDir: ${file.path}`);
-    }
-    await fs.mkdir(path.dirname(absPath), { recursive: true });
-    // Containment is re-checked on the REAL directory path so a symlinked
-    // intermediate directory can't redirect the write (lexical alone is not
-    // enough), and an existing symlink at the file path itself is refused.
-    const realDir = await fs.realpath(path.dirname(absPath));
-    if (!isInside(realOut, path.join(realDir, path.basename(absPath)))) {
-      throw new Error(`Refusing to write through a symlink outside outDir: ${file.path}`);
-    }
-    const existing = await fs.lstat(absPath).catch(() => null);
-    if (existing?.isSymbolicLink()) {
-      throw new Error(`Refusing to write through a symlink at ${file.path}`);
-    }
-    // O_NOFOLLOW closes the window between the lstat check and the write —
-    // a symlink appearing in between fails the open instead of redirecting it.
-    const handle = await fs.open(
-      absPath,
-      fsConstants.O_WRONLY |
-        fsConstants.O_CREAT |
-        fsConstants.O_TRUNC |
-        fsConstants.O_NOFOLLOW,
-    );
-    try {
-      await handle.writeFile(
+    written.push(
+      await writeContainedFile(
+        realOut,
+        file.path,
         file.content.endsWith("\n") ? file.content : `${file.content}\n`,
-        "utf8",
-      );
-    } finally {
-      await handle.close();
-    }
-    written.push(path.relative(realOut, absPath));
+      ),
+    );
   }
 
   const types = plan.atomTypes
@@ -449,9 +417,4 @@ function resolveProfile(
   throw new Error(
     `No profile specified and pack declares no \`exports.default_profile\` (or \`safe\`). Specify --profile <one of: ${declared}>.`,
   );
-}
-
-function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(parent, child);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }

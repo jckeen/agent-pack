@@ -1,12 +1,22 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { AdapterOutputFile, InstallPlan, TargetPlatform } from "../schema/types.js";
+import type {
+  AdapterOutputFile,
+  AgentPackManifest,
+  InstallPlan,
+  TargetPlatform,
+} from "../schema/types.js";
 import { getAdapter } from "../adapters/index.js";
 import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
 import { createInstallPlan } from "../planner/createInstallPlan.js";
 import { UnknownProfileError } from "../planner/resolveAtoms.js";
 import { mapOutputToUserScope, USER_SCOPE_TARGETS } from "../install/userScope.js";
+import {
+  assertNoPathConflicts,
+  prepareOutDir,
+  writeContainedFile,
+} from "./outputSafety.js";
 
 export interface ExportPackOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -41,6 +51,12 @@ export interface ExportResult {
   plan: InstallPlan;
   writtenFiles: string[];
   outDir: string;
+  /**
+   * Files already in `outDir` that this pack emits for the same target under
+   * another profile or atom selection, but not in this export. Reported (and
+   * mirrored into `plan.warnings`), never deleted.
+   */
+  staleFiles: string[];
 }
 
 const MISSING_BODY_WARNING_PATTERNS = [
@@ -106,19 +122,76 @@ export async function exportPack(options: ExportPackOptions): Promise<ExportResu
     }
   }
 
-  const outDir = path.resolve(options.outDir);
-  await fs.mkdir(outDir, { recursive: true });
+  const { outDir, realOut } = await prepareOutDir(options.outDir);
+  assertNoPathConflicts(plan.files.map((f) => f.path));
+
+  // A reused outDir can still hold what a wider profile wrote (#216). Unlike
+  // the plugin/chat bundles, this directory may be a live project, so nothing
+  // is deleted: paths this pack owns under another profile are reported.
+  const staleFiles = await findStaleOutputs(realOut, plan, {
+    manifest: loaded.manifest,
+    packRoot: loaded.packRoot,
+    target: options.target,
+    adapter,
+    ...(options.scope ? { scope: options.scope } : {}),
+  });
+  if (staleFiles.length > 0) {
+    plan.warnings.push(
+      `The output directory already contains ${staleFiles.length} file(s) this pack emits under another profile or atom selection, not \`${profile}\`: ${staleFiles.join(", ")}. They were left in place — remove them or export to an empty directory, or the directory will not match this profile.`,
+    );
+  }
+
   const written: string[] = [];
   for (const file of plan.files) {
-    const absPath = path.resolve(outDir, file.path);
-    if (!isInside(outDir, absPath)) {
-      throw new Error(`Refusing to write file outside outDir: ${file.path} → ${absPath}`);
-    }
-    await fs.mkdir(path.dirname(absPath), { recursive: true });
-    await fs.writeFile(absPath, normalizeContent(file), "utf8");
-    written.push(path.relative(outDir, absPath));
+    written.push(await writeContainedFile(realOut, file.path, normalizeContent(file)));
   }
-  return { plan, writtenFiles: written, outDir };
+  return { plan, writtenFiles: written, outDir, staleFiles };
+}
+
+/**
+ * Paths under `realOut` that exist on disk and that this pack would emit for
+ * the same target under SOME profile, but not in the current plan. Scoped to
+ * the pack's own outputs, so unrelated files in the directory never appear.
+ */
+async function findStaleOutputs(
+  realOut: string,
+  plan: InstallPlan,
+  ctx: {
+    manifest: AgentPackManifest;
+    packRoot: string;
+    target: TargetPlatform;
+    adapter: ReturnType<typeof getAdapter>;
+    scope?: "project" | "user";
+  },
+): Promise<string[]> {
+  const current = new Set(plan.files.map((f) => f.path));
+  const candidates = new Set<string>();
+  for (const profile of Object.keys(ctx.manifest.profiles)) {
+    let other: InstallPlan;
+    try {
+      other = await createInstallPlan({
+        manifest: ctx.manifest,
+        packRoot: ctx.packRoot,
+        target: ctx.target,
+        profile,
+        adapter: ctx.adapter,
+        ...(ctx.scope ? { scope: ctx.scope } : {}),
+      });
+    } catch {
+      // A profile that cannot be planned could not have been exported either.
+      continue;
+    }
+    for (const file of other.files) {
+      const mapped =
+        ctx.scope === "user" ? mapOutputToUserScope(ctx.target, file).path : file.path;
+      if (!current.has(mapped)) candidates.add(mapped);
+    }
+  }
+  const stale: string[] = [];
+  for (const rel of [...candidates].sort()) {
+    if (await fs.lstat(path.join(realOut, rel)).catch(() => null)) stale.push(rel);
+  }
+  return stale;
 }
 
 function resolveProfile(
@@ -151,9 +224,4 @@ function resolveProfile(
 
 function normalizeContent(file: AdapterOutputFile): string {
   return file.content.endsWith("\n") ? file.content : `${file.content}\n`;
-}
-
-function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(parent, child);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }

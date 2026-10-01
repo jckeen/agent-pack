@@ -193,4 +193,23 @@ describe("HttpRegistryClient", () => {
     const client = new HttpRegistryClient({ baseUrl, fetchImpl });
     expect(await client.getVersion("x", "y", "0.1.0")).toEqual(sampleVersion);
   });
+
+  it("getVersion rejects file paths that would escape the materialization directory", async () => {
+    // The install path joins `files[].path` onto a temp dir before writing —
+    // a registry response is untrusted input, not a pre-validated manifest.
+    for (const bad of ["../../.bashrc", "/etc/cron.d/x", "atoms/../../x", "atoms\\..\\x"]) {
+      const fetchImpl = mockFetch(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ...sampleVersion,
+              files: [{ path: bad, sha256: "b".repeat(64), bytes: 1, atomId: "skill:x" }],
+            }),
+            { status: 200 }
+          )
+      );
+      const client = new HttpRegistryClient({ baseUrl, fetchImpl });
+      await expect(client.getVersion("x", "y", "0.1.0")).rejects.toThrow(/unsafe file path/);
+    }
+  });
 });

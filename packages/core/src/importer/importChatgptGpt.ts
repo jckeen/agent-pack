@@ -16,6 +16,7 @@ import {
   type BuildChatgptManifestOptions,
 } from "./buildChatgptManifest.js";
 import type { ImportResult } from "./index.js";
+import { ImportByteBudget } from "./containedReader.js";
 
 export { parseChatgptGpt } from "./parseChatgptGpt.js";
 export {
@@ -57,6 +58,8 @@ async function readTree(root: string): Promise<Map<string, string>> {
   const realRoot = await fs.realpath(root);
   const tree = new Map<string, string>();
   let count = 0;
+  // Per-file caps alone still let many mid-sized files exhaust memory (#216).
+  const budget = new ImportByteBudget("ChatGPT-GPT bundle");
 
   async function walk(absDir: string, relDir: string): Promise<void> {
     const entries = await fs.readdir(absDir, { withFileTypes: true });
@@ -78,7 +81,9 @@ async function readTree(root: string): Promise<Map<string, string>> {
       if (!lstat || lstat.isSymbolicLink() || !lstat.isFile()) continue;
       if (lstat.size > MAX_BYTES) continue; // skip oversized blobs
       const content = await readPackRelativeFile(realRoot, rel);
-      if (content !== null) tree.set(rel, content);
+      if (content === null) continue;
+      budget.add(Buffer.byteLength(content, "utf8"));
+      tree.set(rel, content);
     }
   }
 

@@ -13,7 +13,6 @@
 // rather than corrupted through UTF-8 decoding; and both a per-file and an
 // aggregate byte budget bound what the importer will hold in memory.
 
-import { isUtf8 } from "node:buffer";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { stringify } from "yaml";
@@ -24,6 +23,7 @@ import {
   type ImportedMetadata,
 } from "./buildClaudeCodeManifest.js";
 import type { ImportResult } from "./index.js";
+import { ContainedReader, type ContainedReaderWarn } from "./containedReader.js";
 import {
   AGENTPACK_EXTENSION_NAMESPACE,
   validateAgentPluginManifest,
@@ -36,163 +36,10 @@ export interface ImportAgentPluginOptions extends BuildClaudeCodeManifestOptions
   metadata?: ImportedMetadata;
 }
 
-const MAX_FILES = 5000;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
-const SUBTREE_IGNORE = new Set([
-  ".git",
-  "node_modules",
-  ".DS_Store",
-  "__pycache__",
-  ".venv",
-]);
-
 /** A top-level directory name shaped like a reverse-domain namespace. */
 const NAMESPACE_DIR_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
-type Warn = (source: string, message: string) => void;
-
-/** True when `abs` is `root` or lexically inside it. */
-function isInsideRoot(root: string, abs: string): boolean {
-  const rel = path.relative(root, abs);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-}
-
-/** Reader with the containment/budget/binary rules applied uniformly. */
-class ContainedReader {
-  private count = 0;
-  private totalBytes = 0;
-  /** Real paths of directories already walked — breaks symlink cycles. */
-  private readonly visitedDirs = new Set<string>();
-
-  constructor(
-    private readonly realRoot: string,
-    private readonly warn: Warn,
-  ) {}
-
-  /**
-   * Resolve a directory that may be a plugin-internal symlink: returns its
-   * real path when it is a directory whose real target stays inside the
-   * plugin root; null (with a warning for escapes) otherwise.
-   */
-  async containedDir(abs: string, rel: string): Promise<string | null> {
-    const lstat = await fs.lstat(abs).catch(() => null);
-    if (!lstat) return null;
-    if (!lstat.isSymbolicLink() && !lstat.isDirectory()) return null;
-    const real = await fs.realpath(abs).catch(() => null);
-    if (real === null) return null;
-    if (!isInsideRoot(this.realRoot, real)) {
-      this.warn(
-        rel,
-        `\`${rel}\` is a symlink escaping the plugin root — not read (the Agent Plugins spec forbids symlinks that escape).`,
-      );
-      return null;
-    }
-    const stat = await fs.stat(real).catch(() => null);
-    return stat?.isDirectory() ? real : null;
-  }
-
-  /**
-   * Read one file if it passes every gate; null otherwise. Symlinks are
-   * followed but the REAL target must stay inside the plugin root — the
-   * spec allows plugin-internal symlinks and forbids escapes.
-   */
-  async read(abs: string, rel: string): Promise<string | null> {
-    const lstat = await fs.lstat(abs).catch(() => null);
-    if (!lstat) return null;
-    let target = abs;
-    if (lstat.isSymbolicLink()) {
-      const real = await fs.realpath(abs).catch(() => null);
-      if (real === null || !isInsideRoot(this.realRoot, real)) {
-        this.warn(
-          rel,
-          `\`${rel}\` is a symlink escaping the plugin root — not read (the Agent Plugins spec forbids symlinks that escape).`,
-        );
-        return null;
-      }
-      target = real;
-    }
-    const stat = await fs.stat(target).catch(() => null);
-    if (!stat?.isFile()) return null;
-    if (stat.size > MAX_FILE_BYTES) {
-      this.warn(
-        rel,
-        `\`${rel}\` exceeds the ${MAX_FILE_BYTES}-byte per-file limit — skipped.`,
-      );
-      return null;
-    }
-    if (this.count + 1 > MAX_FILES) {
-      throw new Error(
-        `Agent Plugins source has more than ${MAX_FILES} files; refusing to import.`,
-      );
-    }
-    if (this.totalBytes + stat.size > MAX_TOTAL_BYTES) {
-      throw new Error(
-        `Agent Plugins source exceeds the ${MAX_TOTAL_BYTES}-byte total budget; refusing to import.`,
-      );
-    }
-    const buf = await fs.readFile(target);
-    // Re-check the budget against the bytes actually read — the pre-read
-    // stat.size is advisory (the file may have grown in between).
-    if (buf.length > MAX_FILE_BYTES || this.totalBytes + buf.length > MAX_TOTAL_BYTES) {
-      throw new Error(
-        `Agent Plugins source exceeds the ${MAX_TOTAL_BYTES}-byte total budget; refusing to import.`,
-      );
-    }
-    // NUL check catches most binaries cheaply; isUtf8 catches the rest
-    // (e.g. Latin-1) that UTF-8 decoding would corrupt via replacement chars.
-    if (buf.includes(0) || !isUtf8(buf)) {
-      this.warn(
-        rel,
-        `\`${rel}\` is not UTF-8 text — skipped rather than corrupted (binary assets do not survive this importer).`,
-      );
-      return null;
-    }
-    this.count += 1;
-    this.totalBytes += buf.length;
-    return buf.toString("utf8");
-  }
-
-  async walkInto(tree: Map<string, string>, absDir: string, relDir: string): Promise<void> {
-    // `absDir` is already a real, contained path (callers resolve through
-    // containedDir / the recursion below). The visited set breaks cycles
-    // introduced by internal directory symlinks pointing at an ancestor.
-    if (this.visitedDirs.has(absDir)) return;
-    this.visitedDirs.add(absDir);
-    const entries = await fs.readdir(absDir, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (SUBTREE_IGNORE.has(entry.name)) continue;
-      const abs = path.join(absDir, entry.name);
-      const rel = `${relDir}/${entry.name}`;
-      const lstat = await fs.lstat(abs).catch(() => null);
-      if (!lstat) continue;
-      if (lstat.isSymbolicLink()) {
-        const real = await fs.realpath(abs).catch(() => null);
-        if (real === null || !isInsideRoot(this.realRoot, real)) {
-          this.warn(
-            rel,
-            `\`${rel}\` is a symlink escaping the plugin root — not read (the Agent Plugins spec forbids symlinks that escape).`,
-          );
-          continue;
-        }
-        const realStat = await fs.stat(real).catch(() => null);
-        if (realStat?.isDirectory()) {
-          await this.walkInto(tree, real, rel);
-          continue;
-        }
-        // A symlink to a contained file falls through to read() below.
-      } else if (lstat.isDirectory()) {
-        // Normalize to the real path so the visited set is canonical even
-        // when an ancestor was reached through an internal symlink.
-        const real = await fs.realpath(abs).catch(() => null);
-        if (real !== null) await this.walkInto(tree, real, rel);
-        continue;
-      }
-      const content = await this.read(abs, rel);
-      if (content !== null) tree.set(rel, content);
-    }
-  }
-}
+type Warn = ContainedReaderWarn;
 
 /**
  * Map a spec `mcp.json` onto the Claude Code `.mcp.json` shape the existing
@@ -300,7 +147,12 @@ export async function importAgentPluginDir(
   const realRoot = await fs.realpath(rootDir);
   const extraWarnings: Array<{ source: string; message: string }> = [];
   const warn: Warn = (source, message) => extraWarnings.push({ source, message });
-  const reader = new ContainedReader(realRoot, warn);
+  const reader = new ContainedReader(realRoot, warn, {
+    sourceLabel: "Agent Plugins source",
+    rootLabel: "plugin root",
+    escapeNote: " (the Agent Plugins spec forbids symlinks that escape)",
+    binaryNote: " (binary assets do not survive this importer)",
+  });
 
   const manifestRaw = await reader.read(path.join(realRoot, "plugin.json"), "plugin.json");
   if (manifestRaw === null) {
