@@ -11,6 +11,7 @@ import {
   type ImportFile,
 } from "./buildManifest.js";
 import type { ParseWarning } from "./parseClaudeMd.js";
+import { isInside, prepareOutDir, writeContainedFile } from "../exports/outputSafety.js";
 import type {
   AgentPackManifest,
   Atom,
@@ -291,9 +292,16 @@ export async function foldImportInto(params: {
       .filter((c) => c.kind !== "removed")
       .map((c) => ({ relativePath: c.path, content: c.after ?? "" }));
     await writeImport({ ...result, files: toWrite }, root);
+    const realRoot = await fs.realpath(root);
     for (const c of changes) {
       if (c.kind !== "removed") continue;
       try {
+        // The stale sweep walked `atoms/` as it is on disk; if a directory on
+        // the way is a symlink out of the pack, the file is not ours to delete.
+        const realDir = await fs.realpath(path.dirname(path.join(root, c.path)));
+        if (!isInside(realRoot, path.join(realDir, path.basename(c.path)))) {
+          throw new Error("resolves outside the pack directory through a symlink");
+        }
         await fs.unlink(path.join(root, c.path));
       } catch (err) {
         // ENOENT = the desired end-state already holds (the file vanished
@@ -330,21 +338,17 @@ export async function foldImportInto(params: {
  * escapes the output directory (absolute, `..`, or leading separator).
  */
 export async function writeImport(result: ImportResult, outDir: string): Promise<string[]> {
-  const root = path.resolve(outDir);
+  const { outDir: root, realOut } = await prepareOutDir(outDir);
   const written: string[] = [];
   for (const file of result.files) {
     const rel = file.relativePath;
     if (path.isAbsolute(rel) || rel.split(/[\\/]+/).includes("..") || /^[\\/]/.test(rel)) {
       throw new Error(`Refusing to write outside the output directory: ${rel}`);
     }
-    const target = path.join(root, rel);
-    // Defense in depth: confirm the resolved path is still inside root.
-    if (target !== root && !target.startsWith(root + path.sep)) {
-      throw new Error(`Refusing to write outside the output directory: ${rel}`);
-    }
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, file.content, "utf8");
-    written.push(target);
+    // Real-path containment (#216): a symlinked `atoms/` (or any other
+    // directory already in the output) must not redirect the write.
+    await writeContainedFile(realOut, rel, file.content);
+    written.push(path.join(root, rel));
   }
   return written;
 }

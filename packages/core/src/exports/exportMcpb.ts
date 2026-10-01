@@ -1,4 +1,3 @@
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { zipSync, strToU8 } from "fflate";
 
@@ -7,6 +6,7 @@ import { loadManifest } from "../parser/loadManifest.js";
 import { validateManifest } from "../validator/validateManifest.js";
 import { resolveAtoms, UnknownProfileError } from "../planner/resolveAtoms.js";
 import { isShellEscape } from "../adapters/commandGate.js";
+import { prepareOutDir, writeContainedFile } from "./outputSafety.js";
 
 export interface ExportMcpbOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -139,10 +139,9 @@ export async function exportMcpb(options: ExportMcpbOptions): Promise<ExportMcpb
     "manifest.json": strToU8(`${JSON.stringify(manifest, null, 2)}\n`),
   });
 
-  const outDir = path.resolve(options.outDir);
-  await fs.mkdir(outDir, { recursive: true });
+  const { outDir, realOut } = await prepareOutDir(options.outDir);
   const bundlePath = path.join(outDir, `${slug}.mcpb`);
-  await fs.writeFile(bundlePath, zipped);
+  await writeContainedFile(realOut, `${slug}.mcpb`, zipped);
 
   return {
     bundlePath,

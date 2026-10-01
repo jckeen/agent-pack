@@ -69,7 +69,10 @@ home-style `.codex` directory also reads sibling `.agents/skills` under a
 separate containment root.
 
 Nested skill symlinks are skipped rather than dereferenced, preventing a skill
-from absorbing unrelated project files or recursive directory cycles. Claude
+from absorbing unrelated project files or recursive directory cycles. The
+Claude Code importer follows a symlink only when its real target stays inside
+the import source (or, for your own `~/.claude`, inside your home directory),
+and walks each real directory once. Claude
 Code and Codex command hooks preserve matcher, async, timeout, Windows-command,
 and status options; non-command and malformed handlers are skipped rather than
 converted to shell execution. Alternate Windows commands are independently
@@ -94,7 +97,7 @@ refuse the server rather than resolving a relative executable elsewhere.
 | ------------- | ---------------------------------------------------------- |
 | `instruction` | `AGENTS.md` section                                        |
 | `rule`        | `.cursor/rules/<slug>.mdc` (frontmatter + full rule body)  |
-| `skill`       | inlined into `AGENTS.md` by this adapter     |
+| `skill`       | inlined into `AGENTS.md` by this adapter                   |
 | `command`     | description surfaced in `AGENTS.md`                        |
 | `subagent`    | role description surfaced in `AGENTS.md`                   |
 | `hook`        | warning — no stable Cursor hook target                     |
@@ -115,7 +118,7 @@ This table describes the adapter, not the full set of Cursor capabilities.
 | `rule`        | `project-instructions.md` rules section              |
 | `command`     | `mcp-server/src/tools/<slug>.ts` stub (conservative) |
 | `mcp_server`  | referenced in `app-manifest.json`                    |
-| `plugin`      | not emitted by this adapter                         |
+| `plugin`      | not emitted by this adapter                          |
 | `skill`       | not emitted; use `pack agent-plugin` for skills      |
 | `hook`        | unsupported warning                                  |
 | `subagent`    | unsupported warning                                  |

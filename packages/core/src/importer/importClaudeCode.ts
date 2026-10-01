@@ -15,6 +15,8 @@ import {
   type BuildClaudeCodeManifestOptions,
 } from "./buildClaudeCodeManifest.js";
 import type { ImportResult } from "./index.js";
+import type { ClaudeCodeWarning } from "./parseClaudeCode.js";
+import { ContainedReader, isInsideRoot, MAX_IMPORT_FILE_BYTES } from "./containedReader.js";
 
 export { parseClaudeCode } from "./parseClaudeCode.js";
 export {
@@ -41,66 +43,72 @@ export type ImportClaudeCodeOptions = BuildClaudeCodeManifestOptions;
 // config importer maps — by name. Everything else is never even opened.
 const CONFIG_FILES = ["CLAUDE.md", "settings.json", "settings.local.json", ".mcp.json"];
 const CONFIG_DIRS = ["skills", "agents", "commands"];
-// Skip dependency/build noise that can live inside a skill directory.
-const SUBTREE_IGNORE = new Set([
-  ".git",
-  "node_modules",
-  ".DS_Store",
-  "__pycache__",
-  ".venv",
-]);
-const MAX_FILES = 5000;
-const MAX_BYTES = 5 * 1024 * 1024;
+/** Per-file cap for a bundled hook script (see `resolveHookScript`). */
+const MAX_BYTES = MAX_IMPORT_FILE_BYTES;
+
+/**
+ * Real directories a symlink in the import source may resolve into, beyond the
+ * source itself. The operator's own `~/.claude` is routinely symlinked into a
+ * dotfiles repo or project checkouts elsewhere under `$HOME`, so links from
+ * THAT tree may land anywhere in the home tree. Any other source — a project
+ * root, a cloned third-party repo, even one that lives under `$HOME` — gets
+ * no extra roots: its symlinks must stay inside it (#216).
+ */
+async function trustedLinkRoots(realRoot: string): Promise<string[]> {
+  const home = os.homedir();
+  const ownConfig = await fs.realpath(path.join(home, ".claude")).catch(() => null);
+  if (ownConfig === null || !isInsideRoot(ownConfig, realRoot)) return [];
+  const realHome = await fs.realpath(home).catch(() => null);
+  return realHome === null ? [] : [realHome];
+}
 
 /**
  * Read a Claude Code config dir into a forward-slash relative path map. Targeted
  * (not a full tree walk): reads the known config files + the skills/agents/
  * commands subtrees, at both the root (`~/.claude` layout) and under `.claude/`
  * (project layout). `.credentials.json` and runtime caches are never touched.
+ * Every read goes through `ContainedReader`: symlinks are followed only into
+ * the source itself (plus the home tree for the operator's own `~/.claude`),
+ * binary files are skipped, and the aggregate byte budget applies.
  */
-async function readTree(root: string): Promise<Map<string, string>> {
+async function readTree(
+  root: string,
+): Promise<{ tree: Map<string, string>; warnings: ClaudeCodeWarning[] }> {
   const realRoot = await fs.realpath(root);
   const tree = new Map<string, string>();
-  let count = 0;
-
-  async function readFileInto(abs: string, rel: string): Promise<void> {
-    const stat = await fs.stat(abs).catch(() => null);
-    if (!stat?.isFile()) return;
-    if (stat.size > MAX_BYTES) return;
-    if (++count > MAX_FILES) {
-      throw new Error(
-        `Claude Code source has more than ${MAX_FILES} config files; refusing to import.`,
-      );
-    }
-    tree.set(rel, await fs.readFile(abs, "utf8"));
-  }
-
-  async function walkDir(absDir: string, relDir: string): Promise<void> {
-    const entries = await fs.readdir(absDir, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (SUBTREE_IGNORE.has(entry.name)) continue;
-      const abs = path.join(absDir, entry.name);
-      const rel = `${relDir}/${entry.name}`;
-      const stat = await fs.stat(abs).catch(() => null); // resolves symlinks
-      if (stat?.isDirectory()) await walkDir(abs, rel);
-      else if (stat?.isFile()) await readFileInto(abs, rel);
-    }
-  }
+  const warnings: ClaudeCodeWarning[] = [];
+  const extraRoots = await trustedLinkRoots(realRoot);
+  const reader = new ContainedReader(
+    realRoot,
+    (source, message) => warnings.push({ source, message }),
+    {
+      sourceLabel: "Claude Code source",
+      rootLabel: "import root",
+      escapeNote:
+        extraRoots.length > 0
+          ? " (links out of your home directory are not followed)"
+          : " (links are followed outside the source only when importing your own ~/.claude)",
+      extraRoots,
+    },
+  );
 
   // base = "" for the ~/.claude layout; base = ".claude" for a project layout.
   for (const base of ["", ".claude"]) {
-    const absBase = base ? path.join(realRoot, base) : realRoot;
+    const absBase = base
+      ? await reader.containedDir(path.join(realRoot, base), base)
+      : realRoot;
+    if (absBase === null) continue;
     const prefix = base ? `${base}/` : "";
     for (const f of CONFIG_FILES) {
-      await readFileInto(path.join(absBase, f), `${prefix}${f}`);
+      const content = await reader.read(path.join(absBase, f), `${prefix}${f}`);
+      if (content !== null) tree.set(`${prefix}${f}`, content);
     }
     for (const d of CONFIG_DIRS) {
-      const absDir = path.join(absBase, d);
-      const dirStat = await fs.stat(absDir).catch(() => null);
-      if (dirStat?.isDirectory()) await walkDir(absDir, `${prefix}${d}`);
+      const absDir = await reader.containedDir(path.join(absBase, d), `${prefix}${d}`);
+      if (absDir !== null) await reader.walkInto(tree, absDir, `${prefix}${d}`);
     }
   }
-  return tree;
+  return { tree, warnings };
 }
 
 /**
@@ -257,8 +265,9 @@ export async function importClaudeCodeDir(
   rootDir: string,
   opts: ImportClaudeCodeOptions,
 ): Promise<ImportResult> {
-  const tree = await readTree(rootDir);
+  const { tree, warnings: readWarnings } = await readTree(rootDir);
   const parsed = parseClaudeCode(tree);
+  parsed.warnings.unshift(...readWarnings);
   // Resolve hook commands that point at real scripts and bundle their bodies, so
   // an installed hook runs on a fresh machine (#90). I/O lives here, not in the
   // pure parser; unresolvable commands keep their reference (warned).

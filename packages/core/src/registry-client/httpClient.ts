@@ -7,6 +7,7 @@
 
 import { createHash } from "node:crypto";
 
+import { relativePathSchema } from "../protocol/index.js";
 import type { RegistryPack, RegistryVersion } from "../protocol/index.js";
 
 import { IntegrityError, RegistryError, VersionNotFoundError } from "./errors.js";
@@ -82,7 +83,19 @@ export class HttpRegistryClient implements RegistryClient {
         res.status,
       );
     }
-    return (await res.json()) as RegistryVersion;
+    const body = (await res.json()) as RegistryVersion;
+    // The response is untrusted: callers join `files[].path` onto a local
+    // directory before writing. Reject anything that is not a plain relative
+    // path here, at the boundary, rather than trusting every caller to check.
+    for (const file of Array.isArray(body.files) ? body.files : []) {
+      if (!relativePathSchema.safeParse(file?.path).success) {
+        throw new RegistryError(
+          `getVersion ${publisher}/${pack}@${version} → registry returned an unsafe file path: ${JSON.stringify(file?.path)}`,
+          res.status,
+        );
+      }
+    }
+    return body;
   }
 
   async fetchManifest(publisher: string, pack: string, version: string): Promise<string> {

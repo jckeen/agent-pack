@@ -981,7 +981,15 @@ async function fetchRemotePack(params: {
             file.sha256,
           )
         : await fetchManifestExtra(client, params.publisher, params.pack, version, file);
-      const dest = path.join(tmpRoot, file.path);
+      // Defense in depth behind the client's own path validation: nothing a
+      // registry names may resolve outside the materialization directory.
+      const dest = path.resolve(tmpRoot, file.path);
+      const destRel = path.relative(tmpRoot, dest);
+      if (destRel === "" || destRel.startsWith("..") || path.isAbsolute(destRel)) {
+        throw new Error(
+          `Registry returned a file path outside the pack: ${JSON.stringify(file.path)}`,
+        );
+      }
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.writeFile(dest, bytes);
       // Hash the ACTUAL bytes we wrote (#35). client.fetchAtomFile checks bytes

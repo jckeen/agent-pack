@@ -8,7 +8,7 @@ AgentPacks can alter agent behavior, expose data, run commands, install hooks, c
 2. **Never hide permissions.** The plan output names every category and the atoms that requested it.
 3. **Warn loudly** on hooks, shell execution, secrets, network, repo write, package install.
 4. **Honest about platforms** — adapter outputs for evolving platform surfaces (ChatGPT Apps SDK, Codex hooks) are marked conservative/experimental.
-5. **No silent capability escalation.** Pack-level `permissions:` declarations describe the *possible* surface; the **active** surface is determined by the resolved atom subset.
+5. **No silent capability escalation.** Pack-level `permissions:` declarations describe the _possible_ surface; the **active** surface is determined by the resolved atom subset.
 6. **Reversibility is a feature.** Every install writes a WAL-protected install manifest at `.agentpack/installed/<packId>.json` with per-file SHA-256 + backup paths, so `agentpack uninstall <packId>` restores the project to its pre-install state. The hash-chained `.agentpack/history.jsonl` lets `agentpack rollback` walk back through multiple installs.
 
 ## Permission categories
@@ -38,12 +38,12 @@ The result is `low | medium | high | critical`, with a human-readable `reasons[]
 
 ## Profiles and safety
 
-| Profile     | Allowed                                                           | Disallowed                                                     |
-|-------------|-------------------------------------------------------------------|----------------------------------------------------------------|
-| `safe`      | instructions, rules, skills (no scripts), templates, evals        | hooks, MCP-with-secrets, install scripts, shell execution      |
-| `standard`  | + commands, subagents (no privileged tools)                       | hooks, MCP-with-secrets                                        |
-| `full`      | hooks, MCP, scripts, automation (warnings required)               | —                                                              |
-| `enterprise`| `full` + policy requirements (signature, lockfile, admin approval)| —                                                              |
+| Profile      | Allowed                                                            | Disallowed                                                |
+| ------------ | ------------------------------------------------------------------ | --------------------------------------------------------- |
+| `safe`       | instructions, rules, skills (no scripts), templates, evals         | hooks, MCP-with-secrets, install scripts, shell execution |
+| `standard`   | + commands, subagents (no privileged tools)                        | hooks, MCP-with-secrets                                   |
+| `full`       | hooks, MCP, scripts, automation (warnings required)                | —                                                         |
+| `enterprise` | `full` + policy requirements (signature, lockfile, admin approval) | —                                                         |
 
 The convention is enforced by the pack author in `profiles:` blocks. The validator surfaces wildcard mismatches and unresolved references.
 
@@ -61,6 +61,7 @@ The convention is enforced by the pack author in `profiles:` blocks. The validat
 
 ## Anti-features in MVP
 
-- The CLI **never writes outside `--out`** during `pack export`. The export planner enforces this with a path-containment check.
+- The CLI **never writes outside `--out`** during `pack export`, `pack plugin`, `pack agent-plugin`, `pack chat`, `pack mcpb`, or `import`. Containment is checked on the real path of every write, so a symlink already sitting in the output directory is refused instead of followed.
+- Directory importers **never follow a symlink out of the import source**. The one exception is `import --from claude-code` on your own `~/.claude`, whose links may resolve elsewhere under your home directory (the usual dotfiles layout); a project or cloned repository gets no such allowance, even when it lives under `$HOME`.
 - The ChatGPT adapter **never claims** automatic installation; output is a skeleton that must be reviewed and registered manually.
 - No adapter silently drops dangerous atoms — they appear in `warnings[]` and `unsupportedAtoms[]` on the install plan.

@@ -123,7 +123,7 @@ Prints the total bytes + entry count of the content-addressed blob cache at `~/.
 agentpack pack export [path] [--target <target>] [--profile <profile>] [--out <dir>] [--only <ids>] [--no-strict]
 ```
 
-The same engine as `plan`, but writes the planned files to `--out`. `--no-strict` writes even when the manifest has validation errors (useful for partial-export debugging). Refuses to write outside `--out` (path-containment check in the exporter). Output is deterministic — two runs produce byte-identical files.
+The same engine as `plan`, but writes the planned files to `--out`. `--no-strict` writes even when the manifest has validation errors (useful for partial-export debugging). Refuses to write outside `--out`: containment is checked on the real path of each write, so a symlink in the output directory is an error rather than a redirect. Output is deterministic — two runs produce byte-identical files. `--out` may be a directory you already use, so nothing in it is deleted; if it still holds files this pack emits under a different profile or `--only` selection, the command lists them in a warning so a narrower export is not mistaken for a clean one.
 
 ### `agentpack pack plugin [path]`
 
@@ -136,6 +136,8 @@ Compiles a pack into a **Claude Code plugin** directory — `.claude-plugin/plug
 It reuses the `claude-code` adapter and relocates its output into plugin layout. Because instruction/rule atoms have no ambient home outside Claude Code, their content is bundled into an on-invoke `<slug>-guidance` skill — available everywhere the plugin installs, but explicitly **not ambient** the way `CLAUDE.md` is in Code. Hooks ride the plugin too: [Hooks are a Cowork-supported plugin component](https://claude.com/docs/cowork/3p/extensions), so they reach Cowork (not Code-only). The command prints a **portability** breakdown of the bundled atoms (see `inspect`).
 
 **Portability ceilings** (shown by `inspect` and `pack plugin`): `universal` (skills, MCP — reach every surface), `plugin` (commands, subagents, hooks — plugin-aware surfaces incl. Cowork), `sdk` (workflows — Agent SDK/Managed Agents only), `terminal` (instructions, rules — Claude Code only, no `CLAUDE.md` loader elsewhere). A pack's overall reach is bounded by its least-portable atom.
+
+Re-exporting into the same directory replaces the plugin's component paths (`.claude-plugin/`, `skills/`, `commands/`, `agents/`, `hooks/`, `.mcp.json`) wholesale, so a narrower profile never keeps an earlier profile's hooks, commands, or MCP servers. Other files in the directory are left alone; a symlink at a component path is refused.
 
 #### Org-governance: distributing a governed plugin org-wide
 
@@ -169,6 +171,8 @@ agentpack pack chat [path] [--profile <profile>] [--out <dir>] [--only <ids>] [-
 
 Compiles a pack into **claude.ai (Claude Chat)** install artifacts written to `--out` (default `dist-chat`): uploadable skill ZIPs (native skills plus on-invoke bridges for `instruction`/`rule`/`command` atoms), a `connectors.json` recipe for remote MCP servers, a `project-instructions.md`, and an install `README.md`. Chat has no bundle format, so this fans the pack into copy-paste install steps. The command reports native vs on-invoke skill counts and warns that on-invoke skills apply **only when invoked** — there is no ambient instruction loader in Chat — and lists any atoms not portable to Chat. Target variants ([#133](https://github.com/jckeen/agent-pack/issues/133)) are **not** resolved by this exporter: an atom with a default `path`/`body` compiles that default, while a variant-only atom degrades to its description (skills) or is skipped (`connectors.json`) with an explicit warning naming the reason.
 
+Re-exporting into the same directory replaces `skills/`, `connectors.json`, `project-instructions.md`, and `README.md`, so skill ZIPs and connectors from an earlier, wider export do not linger.
+
 ### `agentpack import <path>`
 
 ```
@@ -184,6 +188,8 @@ Compiles an existing setup into an AgentPack written to `--out` (default `agentp
 - **`codex`** — reads a Codex setup directory (shared `SKILL.md` / MCP / hooks / subagents / `AGENTS.md`); near-lossless and round-trips back through the `codex` adapter.
 - **`chatgpt-gpt`** — reads a human-assembled ChatGPT-GPT bundle directory (`gpt.json` + optional `openapi.yaml` + `knowledge/`). The OpenAPI→MCP transpiler scaffolds tools (operationId→tool, auth→secrets/scopes); the emitted MCP servers are **scaffolding**, not runnable handlers, and the command prints the human-judgment steps required before the pack is usable.
 - **`agent-plugin`** — reads an **Agent Plugins 1.0** directory (`plugin.json` + `skills/` + `mcp.json`). `plugin.json` must pass spec validation (a package conformant clients would reject is not repackaged); a spec-invalid `mcp.json` disables only MCP import (the spec's own failure boundary). AgentPack's `dev.agentpack/` extension namespace round-trips commands/subagents/hooks losslessly; foreign extension namespaces are **warned about, never dropped silently**.
+
+**Filesystem bounds.** Every directory importer reads at most 5,000 files, 5 MiB per file, and 50 MiB in total, and skips non-UTF-8 files with a warning. Symlinks are never followed out of the import source — an escaping link is skipped and named in a warning. The single exception is `--from claude-code` pointed at your own `~/.claude`: its links may resolve elsewhere under your home directory, because that directory is commonly symlinked into a dotfiles repository. A project directory or cloned repository gets no such allowance, wherever it lives. `import` also refuses to write through a symlink in `--out` or the `--into` pack directory.
 
 Prints the imported atom count + per-type summary and any warnings, then suggests `agentpack validate <out>` (and `agentpack pack chat <out>` for the `chatgpt-gpt` path). Bad `--from` or a missing/malformed `--id` is a usage error (exit 2).
 

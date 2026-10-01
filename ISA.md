@@ -1030,3 +1030,19 @@ User scope was Claude Code-only; Codex and generic targets were hard-rejected, s
 - **Single-rooted installs** — every runtime's user scope keeps files, `.agentpack/` state, and `AGENTPACK.lock` inside ONE root (`~/.codex/skills` rather than `~/.agents/skills`, which would escape the root and put state at `~/.agentpack`, colliding with the global credentials/cache home). The codex importer reads both locations, so the round trip still closes.
 - **No dedicated Antigravity adapter** — generic output already lands byte-for-byte where Antigravity's global discovery reads it; an adapter would duplicate the generic emit paths to produce identical bytes. If a future agy version diverges (e.g. GEMINI.md-only global rules), `mapGenericOutputToUserScope` is the single seam where a rename lands.
 - **TOML merge over TOML marker blocks** — a `# BEGIN AGENTPACK` comment span would preserve user bytes but produce INVALID TOML on any duplicate-table collision (Codex would fail to parse its own config); the parse/deep-merge/canonical-serialize path keeps the file always-valid at the cost of comments, matching the settings.json discipline users already have.
+
+## Exporter and importer containment sweep (2026-10-01, #216)
+
+The Agent Plugins review (#215) fixed symlink containment and stale-output handling in the new exporter/importer only. The same two categories existed in every sibling that writes into a caller-chosen directory or walks an import source.
+
+### Containment sweep ISCs
+
+- [x] ISC-377: shared write containment — `exports/outputSafety.ts` (`prepareOutDir`, `writeContainedFile`, `removeManagedPaths`, `assertNoPathConflicts`) is the single write path for `exportPack`, `exportPlugin`, `exportAgentPlugin`, `exportChat`, `exportMcpb`, and `writeImport`: lexical check, real-directory re-check, symlink-at-target refusal, `O_NOFOLLOW` open. `foldImportInto` refuses to unlink a stale atom file reached through a symlink out of the pack.
+- [x] ISC-378: stale output — `pack plugin` and `pack chat` replace their managed paths wholesale (as `pack agent-plugin` already did); `pack export` deletes nothing and instead reports, in `ExportResult.staleFiles` and a plan warning, files in `--out` that the pack emits under another profile or atom selection.
+- [x] ISC-379: shared read containment — `importer/containedReader.ts` (extracted from the Agent Plugins importer) backs `importClaudeCodeDir`: real-path containment for every file and directory, one visit per real directory, non-UTF-8 skip, per-file and aggregate byte budgets. The Codex and ChatGPT-GPT importers, which already skip symlinks, gain the aggregate budget.
+- [x] ISC-380: registry file paths — `HttpRegistryClient.getVersion` rejects any `files[].path` that fails `relativePathSchema`, and the CLI re-checks containment before materializing a registry pack into its temp directory.
+
+### Containment sweep decisions
+
+- **`pack export` reports, never deletes** — its `--out` may be a live project directory, where `.claude/settings.json` or `.mcp.json` can be the operator's own file; the plugin and chat bundles are self-contained artifacts whose component paths the exporter owns.
+- **Home-tree trust is tied to the operator's own `~/.claude`, not to location** — a cloned repository under `$HOME` is third-party input, so only an import rooted at (or inside) `~/.claude` may follow links into the rest of the home tree.

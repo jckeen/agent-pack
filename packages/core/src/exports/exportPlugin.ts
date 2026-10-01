@@ -1,6 +1,3 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-
 import type {
   AdapterOutputFile,
   AgentPackManifest,
@@ -19,6 +16,12 @@ import {
   renderSkillMd,
   uniqueSkillSlug,
 } from "../skills/agentskills.js";
+import {
+  assertNoPathConflicts,
+  prepareOutDir,
+  removeManagedPaths,
+  writeContainedFile,
+} from "./outputSafety.js";
 
 export interface ExportPluginOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -47,6 +50,16 @@ const MISSING_BODY_WARNING_PATTERNS = [
 ];
 
 /** A freshly-created plugin output file. */
+/** Every path `toPluginFiles` can emit a component under. */
+const PLUGIN_MANAGED_PATHS = [
+  ".claude-plugin",
+  "skills",
+  "commands",
+  "agents",
+  "hooks",
+  ".mcp.json",
+];
+
 function mk(filePath: string, content: string): AdapterOutputFile {
   return { path: filePath, content, action: "create" };
 }
@@ -112,21 +125,21 @@ export async function exportPlugin(
     );
   }
 
-  const outDir = path.resolve(options.outDir);
-  await fs.mkdir(outDir, { recursive: true });
+  const { outDir, realOut } = await prepareOutDir(options.outDir);
+  assertNoPathConflicts(pluginFiles.map((f) => f.path));
+  // Same rule as the Agent Plugins exporter (#216): the plugin's component
+  // paths are replaced wholesale so a narrower re-export cannot retain the
+  // wider profile's hooks/commands/MCP servers; a symlink there is refused.
+  await removeManagedPaths(realOut, PLUGIN_MANAGED_PATHS);
   const written: string[] = [];
   for (const file of pluginFiles) {
-    const absPath = path.resolve(outDir, file.path);
-    if (!isInside(outDir, absPath)) {
-      throw new Error(`Refusing to write outside outDir: ${file.path}`);
-    }
-    await fs.mkdir(path.dirname(absPath), { recursive: true });
-    await fs.writeFile(
-      absPath,
-      file.content.endsWith("\n") ? file.content : `${file.content}\n`,
-      "utf8",
+    written.push(
+      await writeContainedFile(
+        realOut,
+        file.path,
+        file.content.endsWith("\n") ? file.content : `${file.content}\n`,
+      ),
     );
-    written.push(path.relative(outDir, absPath));
   }
 
   const types = atomTypesForPlan(plan, loaded.manifest);
@@ -327,9 +340,4 @@ function resolveProfile(
   throw new Error(
     `No profile specified and pack declares no \`exports.default_profile\` (or \`safe\`). Specify --profile <one of: ${declared}>.`,
   );
-}
-
-function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(parent, child);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }

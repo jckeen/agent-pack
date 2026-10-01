@@ -11,6 +11,7 @@ import {
   type BuildCodexManifestOptions,
 } from "./buildCodexManifest.js";
 import type { ImportResult } from "./index.js";
+import { ImportByteBudget } from "./containedReader.js";
 
 export { parseCodex } from "./parseCodex.js";
 export {
@@ -78,7 +79,7 @@ function shouldTraverseCodexDirectory(rel: string, homeStyle: boolean): boolean 
 /** Recursively read a Codex dir into a forward-slash relative path map. */
 async function readTree(
   root: string,
-  options: { pathPrefix?: string; homeStyle?: boolean } = {},
+  options: { pathPrefix?: string; homeStyle?: boolean; budget?: ImportByteBudget } = {},
 ): Promise<{
   tree: Map<string, string>;
   warnings: Array<{ source: string; message: string }>;
@@ -89,6 +90,7 @@ async function readTree(
   const tree = new Map<string, string>();
   const warnings: Array<{ source: string; message: string }> = [];
   let count = 0;
+  const budget = options.budget ?? new ImportByteBudget("Codex source");
 
   async function walk(absDir: string, relDir: string): Promise<void> {
     const entries = await fs.readdir(absDir, { withFileTypes: true });
@@ -150,6 +152,7 @@ async function readTree(
         }
         continue;
       }
+      budget.add(content.length);
       tree.set(rel, content.toString("utf8"));
     }
   }
@@ -171,7 +174,12 @@ export async function importCodexDir(
   const requestedRoot = path.resolve(rootDir);
   const homeStyle = path.basename(requestedRoot) === ".codex";
   const resolvedRoot = await fs.realpath(rootDir);
-  const { tree, warnings: readWarnings } = await readTree(resolvedRoot, { homeStyle });
+  // One budget across the root and its companion skills tree (#216).
+  const budget = new ImportByteBudget("Codex source");
+  const { tree, warnings: readWarnings } = await readTree(resolvedRoot, {
+    homeStyle,
+    budget,
+  });
   if (homeStyle) {
     const companionSkills = path.join(path.dirname(requestedRoot), ".agents", "skills");
     const companionStat = await fs.lstat(companionSkills).catch(() => null);
@@ -184,6 +192,7 @@ export async function importCodexDir(
       const companion = await readTree(companionSkills, {
         pathPrefix: ".agents/skills",
         homeStyle: false,
+        budget,
       });
       for (const [rel, content] of companion.tree) tree.set(rel, content);
       readWarnings.push(...companion.warnings);

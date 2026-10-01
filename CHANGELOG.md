@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-01 — Exporter and importer containment sweep
+
+- **Writes stay inside the output directory, on real paths ([#216](https://github.com/jckeen/agent-pack/issues/216))**: `pack export`, `pack plugin`, `pack chat`, `pack mcpb`, and `import` now share the Agent Plugins exporter's write path — a symlink already in `--out` (or in an `--into` pack directory) is refused instead of followed.
+- **Reused output directories**: `pack plugin` and `pack chat` replace their own component paths on every export, so a narrower profile no longer keeps an earlier profile's hooks, commands, MCP servers, or skill ZIPs. `pack export` deletes nothing; it warns about files in `--out` that the pack emits under another profile and returns them as `staleFiles`.
+- **`import --from claude-code` no longer follows symlinks out of the source**: an escaping link is skipped with a warning. Your own `~/.claude` may still link elsewhere under your home directory. Binary files are skipped with a warning, and the Claude Code, Codex, and ChatGPT-GPT importers enforce a 50 MiB aggregate budget alongside the per-file limit.
+- **Registry file paths are validated**: the registry client rejects a version whose file list contains an absolute or `..` path before anything is written.
+
 ## 2026-09-26 — Cross-platform positioning
 
 - Reframed the README around ChatGPT, Claude, Codex, Cursor, and compatible tools, with separate routes for managed installs, plugin exports, and manual Project setup.

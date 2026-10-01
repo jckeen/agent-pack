@@ -1,4 +1,3 @@
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { parse as parseYaml } from "yaml";
@@ -26,6 +25,15 @@ import {
 } from "../skills/agentskills.js";
 import { isCredentialFreeHttpUrl } from "../adapters/commandGate.js";
 import { invalidChatMcpFields } from "../adapters/mcpValidation.js";
+import { prepareOutDir, removeManagedPaths, writeContainedFile } from "./outputSafety.js";
+
+/** Everything `exportChat` writes — replaced on every export. */
+const CHAT_MANAGED_PATHS = [
+  "skills",
+  "connectors.json",
+  "project-instructions.md",
+  "README.md",
+];
 
 export interface ExportChatOptions {
   /** Path to the pack directory or AGENTPACK.yaml file. */
@@ -143,14 +151,14 @@ export async function exportChat(options: ExportChatOptions): Promise<ExportChat
     onlyAtoms: options.onlyAtoms,
   });
 
-  const outDir = path.resolve(options.outDir);
-  await fs.mkdir(outDir, { recursive: true });
+  const { outDir, realOut } = await prepareOutDir(options.outDir);
+  // The bundle's own outputs are replaced wholesale (#216): a narrower
+  // re-export must not keep the wider profile's skill ZIPs or connectors.
+  await removeManagedPaths(realOut, CHAT_MANAGED_PATHS);
   const written: string[] = [];
 
   const write = async (relPath: string, content: string | Uint8Array) => {
-    const abs = path.join(outDir, relPath);
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, content);
+    await writeContainedFile(realOut, relPath, content);
     written.push(relPath);
   };
 
