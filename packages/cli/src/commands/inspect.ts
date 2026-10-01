@@ -113,7 +113,9 @@ export function registerInspect(program: Command): void {
           );
           console.log(renderPermissionSummary(perms));
 
-          // Portability: how far this profile's atoms travel beyond the terminal.
+          // Portability: how far this profile's atoms travel beyond the terminal
+          // ACROSS CLAUDE SURFACES. The model knows nothing about Codex, Cursor,
+          // ChatGPT, or generic output (#273) — the heading and footer say so.
           const portability = summarizePortability(resolved.map((r) => r.atom.type));
           const reach: Record<PortabilityCeiling, string> = {
             universal: "every Claude surface",
@@ -123,7 +125,7 @@ export function registerInspect(program: Command): void {
           };
           console.log(
             "\n" +
-              pc.bold("Portability") +
+              pc.bold("Portability across Claude surfaces") +
               ` — overall reach: ${portability.overall === "terminal" ? pc.yellow(reach[portability.overall]) : pc.green(reach[portability.overall])}`,
           );
           for (const ceiling of ["universal", "plugin", "sdk", "terminal"] as const) {
@@ -134,6 +136,11 @@ export function registerInspect(program: Command): void {
               );
             }
           }
+          console.log(
+            pc.dim(
+              "  Claude surfaces only, classified by atom type — not a check of MCP transport, policy fields, or account access, and not a verdict for Codex, Cursor, ChatGPT, or generic output. For another destination run `agentpack plan --target <target>`.",
+            ),
+          );
           console.log(
             pc.dim(
               "  Run `agentpack pack plugin` to compile a Directory-installable plugin.",

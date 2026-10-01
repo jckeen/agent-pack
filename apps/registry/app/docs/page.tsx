@@ -153,9 +153,11 @@ atoms:
           Cowork, Desktop, web), <code className="font-mono">pack mcpb</code> builds a{" "}
           <code className="font-mono">.mcpb</code> bundle from stdio MCP servers, and{" "}
           <code className="font-mono">pack chat</code> emits a Claude Chat project bundle.
-          Each atom carries an honest portability ceiling —{" "}
-          <code className="font-mono">inspect</code> shows what reaches every surface and
-          what stays terminal-only (hooks, ambient CLAUDE.md).
+          Each atom type carries a portability ceiling across Claude surfaces —{" "}
+          <code className="font-mono">inspect</code> shows what reaches every Claude surface
+          and what stays ambient in Claude Code only (CLAUDE.md instructions and rules). It
+          is not a verdict for other targets; use{" "}
+          <code className="font-mono">plan --target</code> for those.
         </p>
       </section>
 
