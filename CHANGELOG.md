@@ -7,6 +7,11 @@
 - **`import --from claude-code` no longer follows symlinks out of the source**: an escaping link is skipped with a warning. Your own `~/.claude` may still link elsewhere under your home directory. Binary files are skipped with a warning, and the Claude Code, Codex, and ChatGPT-GPT importers enforce a 50 MiB aggregate budget alongside the per-file limit.
 - **Registry file paths are validated**: the registry client rejects a version whose file list contains an absolute or `..` path before anything is written.
 
+## 2026-10-01 — Fresh-clone tests and Phase 6 doc accuracy
+
+- `pnpm test` passes on a fresh clone: `@agentpack/connector` now builds `@agentpack/core` before its suite, as the CLI and registry already did ([#266](https://github.com/jckeen/agent-pack/issues/266)).
+- The README repository table lists `packs/` and `action/`; `STATUS.md`, `Plans/PHASE-6-GATE.md`, and `Plans/ROADMAP.md` no longer describe `org_id` columns that are not in the schema (only `audit_events.org_id` exists) ([#263](https://github.com/jckeen/agent-pack/issues/263)).
+
 ## 2026-09-26 — Cross-platform positioning
 
 - Reframed the README around ChatGPT, Claude, Codex, Cursor, and compatible tools, with separate routes for managed installs, plugin exports, and manual Project setup.

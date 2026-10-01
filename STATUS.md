@@ -178,7 +178,7 @@ For DB-backed mode (browseable AT a public URL with real publish/install round-t
 - ~~**Repo visibility flip**~~ — ✅ done 2026-06-17; repo is public, anonymous quickstart verified (see "Open-source readiness" above).
 - **Vercel preview deploy** — Vercel project linked; `rootDirectory` must be set to `apps/registry` in the project's Settings page in the Vercel dashboard before `vercel --prod=false` from the repo root will succeed (the CLI does not expose this setting). One-click fix; documented for the operator.
 - **Phase 4 final touches** — client-side signer-identity enforcement shipped in Iteration-9 (`--expected-signer` ∪ policy `install.allowedSigners` / `requireIdentity`); admin CSRF/Origin check confirmed + tested (#16). Remaining and **gated on the live registry**: a live Sigstore round-trip from CI, and the registry serving a bound per-publisher SAN so installs auto-pin without a local allowlist.
-- **Phase 6** (enterprise) — 🔒 **Gated.** Triggers on first paying-customer conversation about enterprise self-host. Schema slots preserved (`org_id` nullable, `audit_events` table exists, audit hash-chain writer landed). See `Plans/PHASE-6-GATE.md`.
+- **Phase 6** (enterprise) — 🔒 **Gated.** Triggers on first paying-customer conversation about enterprise self-host. Schema slots preserved (`audit_events` table exists with a nullable `org_id`, audit hash-chain writer landed); `publishers.org_id` and the `orgs` tables are planned Phase 6 migrations, not yet in the schema. See `Plans/PHASE-6-GATE.md`.
 - **Phase 7** (AgentPack integration) — `POST /api/v1/import/workgraph`, trust signals, Agent Commons publish bridge. Requires AgentPack registry API + Agent Commons publishing endpoint.
 
 ## Living docs

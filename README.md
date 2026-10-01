@@ -191,6 +191,8 @@ Git-source installs do not currently establish signed publisher identity. See
 | [`packages/db`](./packages/db)               | Registry schema and queries                                                        |
 | [`apps/registry`](./apps/registry)           | Registry web application                                                           |
 | [`examples`](./examples)                     | Packs to inspect, export, and try                                                  |
+| [`packs`](./packs)                           | First-party packs, including the `sync-check` session-start drift check            |
+| [`action`](./action)                         | Reusable GitHub Action that validates a pack repo and exports a Claude plugin      |
 | [`docs`](./docs)                             | Format, adapters, CLI, installation, and security guides                           |
 
 ```bash
