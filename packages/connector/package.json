@@ -19,6 +19,8 @@
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "typecheck": "tsc -b tsconfig.json",
+    "pretest": "tsc -b tsconfig.json",
+    "pretest:coverage": "tsc -b tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "dev": "tsx src/serve.ts",
