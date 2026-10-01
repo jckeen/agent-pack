@@ -5,6 +5,14 @@ import type { AtomType } from "./schema/types.js";
  * terminal, across Claude's surfaces (claude.ai web, Desktop, Cowork,
  * Dispatch/mobile, the Agent SDK) and SKILL.md-compatible tools.
  *
+ * SCOPE (#273): this is a Claude-surface model. It says nothing about what
+ * the `codex`, `cursor`, `chatgpt`, or `generic` adapters emit — those write
+ * AGENTS.md, rules, and skills of their own — so a ceiling here is not a
+ * cross-platform verdict; per-target support comes from the install plan. It
+ * is also keyed on atom TYPE alone: MCP transport, runtime policy fields, and
+ * host/account access are not considered. Callers that print these labels
+ * must name the modeled surface.
+ *
  * This is an intrinsic property of the atom TYPE, not author-declared — like
  * risk, it's computed. It encodes the cross-surface research (June 2026):
  * Skills and MCP servers are account-level and reach every surface; commands,
@@ -68,12 +76,12 @@ const PORTABILITY: Record<AtomType, PortabilityInfo> = {
   instruction: {
     ceiling: "terminal",
     mechanism: "CLAUDE.md (Code) — bundle as a skill to reach further",
-    note: "Ambient only in Claude Code. No CLAUDE.md loader on web/Cowork; bridge as an on-invoke skill, but it won't be ambient.",
+    note: "Among Claude surfaces, ambient only in Claude Code. No CLAUDE.md loader on web/Cowork; bridge as an on-invoke skill, but it won't be ambient.",
   },
   rule: {
     ceiling: "terminal",
     mechanism: "CLAUDE.md (Code) — bundle as a skill to reach further",
-    note: "Same ceiling as instructions: ambient only in Code; on-invoke at best elsewhere.",
+    note: "Same ceiling as instructions: among Claude surfaces, ambient only in Code; on-invoke at best elsewhere.",
   },
   context_pack: {
     ceiling: "terminal",

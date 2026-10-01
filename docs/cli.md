@@ -50,7 +50,7 @@ Loads `AGENTPACK.yaml` (or the file/directory at `[path]`), runs the schema + se
 agentpack inspect [path] [--profile <name>]
 ```
 
-Prints metadata (name, id, version, publisher, tags), compatibility matrix, profiles, atoms, and a permission/risk preview for `--profile` (default `safe`).
+Prints metadata (name, id, version, publisher, tags), compatibility matrix, profiles, atoms, and a permission/risk preview for `--profile` (default `safe`). The preview's portability summary covers Claude surfaces only; see the note under `pack plugin`.
 
 ### `agentpack plan [path]`
 
@@ -135,7 +135,7 @@ Compiles a pack into a **Claude Code plugin** directory — `.claude-plugin/plug
 
 It reuses the `claude-code` adapter and relocates its output into plugin layout. Because instruction/rule atoms have no ambient home outside Claude Code, their content is bundled into an on-invoke `<slug>-guidance` skill — available everywhere the plugin installs, but explicitly **not ambient** the way `CLAUDE.md` is in Code. Hooks ride the plugin too: [Hooks are a Cowork-supported plugin component](https://claude.com/docs/cowork/3p/extensions), so they reach Cowork (not Code-only). The command prints a **portability** breakdown of the bundled atoms (see `inspect`).
 
-**Portability ceilings** (shown by `inspect` and `pack plugin`): `universal` (skills, MCP — reach every surface), `plugin` (commands, subagents, hooks — plugin-aware surfaces incl. Cowork), `sdk` (workflows — Agent SDK/Managed Agents only), `terminal` (instructions, rules — Claude Code only, no `CLAUDE.md` loader elsewhere). A pack's overall reach is bounded by its least-portable atom.
+**Portability ceilings** (shown by `inspect` and `pack plugin`) describe **Claude surfaces only** and are assigned by atom type — they do not check MCP transport, policy fields, or account access, and they are not a verdict for Codex, Cursor, ChatGPT, or generic output (use `agentpack plan --target <target>` for those): `universal` (skills, MCP — reach every Claude surface), `plugin` (commands, subagents, hooks — plugin-aware surfaces incl. Cowork), `sdk` (workflows — Agent SDK/Managed Agents only), `terminal` (instructions, rules — Claude Code only, no `CLAUDE.md` loader elsewhere). A pack's overall reach is bounded by its least-portable atom.
 
 #### Org-governance: distributing a governed plugin org-wide
 

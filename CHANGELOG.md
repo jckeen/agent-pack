@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-01 — Portability labels scoped to Claude surfaces
+
+- `agentpack inspect` now heads its reach summary "Portability across Claude surfaces" and states that the labels are assigned by atom type, do not check MCP transport, policy fields, or account access, and are not a verdict for Codex, Cursor, ChatGPT, or generic output ([#273](https://github.com/jckeen/agent-pack/issues/273)). The model itself is unchanged.
+
 ## 2026-10-01 — Fresh-clone tests and Phase 6 doc accuracy
 
 - `pnpm test` passes on a fresh clone: `@agentpack/connector` now builds `@agentpack/core` before its suite, as the CLI and registry already did ([#266](https://github.com/jckeen/agent-pack/issues/266)).
