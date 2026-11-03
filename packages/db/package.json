@@ -39,7 +39,7 @@
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
     "drizzle-orm": "0.45.4",
-    "postgres": "3.4.9"
+    "postgres": "4.0.0"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
