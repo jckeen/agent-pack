@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-17 — Owned Agent Plugins namespace
+
+- Export Agent Plugins under `to.agentpack` and identify the AgentPack schema with `agentpack.to`. Legacy `dev.agentpack` packages remain importable; ambiguous mixed namespaces are rejected. Re-export removes both managed namespaces after a complete symlink preflight, preventing stale executable components. Registry endpoints and deployment are unchanged.
+
 ## 2026-10-01 — Fresh-clone tests and Phase 6 doc accuracy
 
 - `pnpm test` passes on a fresh clone: `@agentpack/connector` now builds `@agentpack/core` before its suite, as the CLI and registry already did ([#266](https://github.com/jckeen/agent-pack/issues/266)).

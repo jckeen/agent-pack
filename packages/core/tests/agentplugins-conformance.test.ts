@@ -127,7 +127,7 @@ describe("validateAgentPluginManifest", () => {
     const bad = validateAgentPluginManifest({
       ...minimalManifest(),
       author: { name: "A", twitter: "@a" },
-      extensions: { "dev.agentpack": "not-an-object" },
+      extensions: { "to.agentpack": "not-an-object" },
     });
     expect(bad.errors.join("\n")).toMatch(/author/);
     expect(bad.warnings.join("\n")).toMatch(/extensions/);

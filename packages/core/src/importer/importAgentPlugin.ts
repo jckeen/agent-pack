@@ -26,6 +26,7 @@ import {
 import type { ImportResult } from "./index.js";
 import {
   AGENTPACK_EXTENSION_NAMESPACE,
+  LEGACY_AGENTPACK_EXTENSION_NAMESPACE,
   validateAgentPluginManifest,
   validateAgentPluginMcpConfig,
 } from "../exports/agentplugins.js";
@@ -321,6 +322,27 @@ export async function importAgentPluginDir(
     );
   }
 
+  const rootEntries = await fs.readdir(realRoot, { withFileTypes: true });
+  const extensions =
+    typeof manifestJson === "object" &&
+    manifestJson !== null &&
+    "extensions" in manifestJson
+      ? manifestJson.extensions
+      : undefined;
+  const extensionKeys =
+    typeof extensions === "object" && extensions !== null && !Array.isArray(extensions)
+      ? Object.keys(extensions)
+      : [];
+  const namespaces = new Set([...rootEntries.map((entry) => entry.name), ...extensionKeys]);
+  if (
+    namespaces.has(AGENTPACK_EXTENSION_NAMESPACE) &&
+    namespaces.has(LEGACY_AGENTPACK_EXTENSION_NAMESPACE)
+  ) {
+    throw new Error(
+      "Ambiguous AgentPack extension namespaces: use only to.agentpack or legacy dev.agentpack, not both.",
+    );
+  }
+
   // Synthesize the Claude Code config tree the existing pipeline understands.
   const tree = new Map<string, string>();
 
@@ -358,12 +380,14 @@ export async function importAgentPluginDir(
   // hook scripts); foreign ones are reported (spec: ignore unimplemented
   // namespaces — but never silently for an importer whose job is fidelity).
   const hookScripts = new Map<string, string>();
-  const rootEntries = await fs.readdir(realRoot, { withFileTypes: true }).catch(() => []);
   for (const entry of rootEntries) {
     if (!NAMESPACE_DIR_RE.test(entry.name)) continue;
     const nsDir = await reader.containedDir(path.join(realRoot, entry.name), entry.name);
     if (nsDir === null) continue;
-    if (entry.name !== AGENTPACK_EXTENSION_NAMESPACE) {
+    if (
+      entry.name !== AGENTPACK_EXTENSION_NAMESPACE &&
+      entry.name !== LEGACY_AGENTPACK_EXTENSION_NAMESPACE
+    ) {
       warn(
         entry.name,
         `Extension namespace \`${entry.name}\` is not understood by AgentPack — its contents were not imported (port them manually if needed).`,
@@ -419,7 +443,10 @@ export async function importAgentPluginDir(
     const extensions = (manifestJson as { extensions?: Record<string, unknown> })
       .extensions;
     for (const ns of Object.keys(extensions ?? {})) {
-      if (ns !== AGENTPACK_EXTENSION_NAMESPACE) {
+      if (
+        ns !== AGENTPACK_EXTENSION_NAMESPACE &&
+        ns !== LEGACY_AGENTPACK_EXTENSION_NAMESPACE
+      ) {
         warn(
           "plugin.json",
           `Extension namespace \`${ns}\` (manifest-embedded) is not understood by AgentPack — its data was not imported.`,

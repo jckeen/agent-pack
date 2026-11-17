@@ -26,13 +26,16 @@ export const AGENT_PLUGIN_MCP_SCHEMA_ID =
   "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 
 /**
- * AgentPack's reverse-domain extension namespace. `agentpack.dev` is the
+ * AgentPack's reverse-domain extension namespace. `agentpack.to` is the
  * project's canonical schema host (see schemas/AGENTPACK.schema.json `$id`),
- * so the reverse-DNS form is `dev.agentpack`. Used both as the `extensions`
+ * so the reverse-DNS form is `to.agentpack`. Used both as the `extensions`
  * key in plugin.json and as the extension directory name for non-portable
  * components (commands, subagents, hooks).
  */
-export const AGENTPACK_EXTENSION_NAMESPACE = "dev.agentpack";
+export const AGENTPACK_EXTENSION_NAMESPACE = "to.agentpack";
+
+/** Read-only compatibility for previously exported plugins. */
+export const LEGACY_AGENTPACK_EXTENSION_NAMESPACE = "dev.agentpack";
 
 export const AGENT_PLUGIN_NAME_MAX_LENGTH = 64;
 

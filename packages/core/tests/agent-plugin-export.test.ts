@@ -173,7 +173,7 @@ describe("importAgentPluginDir hardening", () => {
     const dir = await minimalPluginDir();
     const secret = path.join(dir, "..", `agentpack-secret-${path.basename(dir)}`);
     await fs.writeFile(secret, "SECRET-CONTENT-DO-NOT-PACKAGE\n", "utf8");
-    const cmdDir = path.join(dir, "dev.agentpack", "commands");
+    const cmdDir = path.join(dir, "to.agentpack", "commands");
     await fs.mkdir(cmdDir, { recursive: true });
     await fs.symlink(secret, path.join(cmdDir, "leak.md"));
     // A plugin-internal symlink is fine per the spec — it must survive.
@@ -217,7 +217,7 @@ describe("importAgentPluginDir hardening", () => {
 
   it("follows symlinked namespace directories and their symlinked subdirectories", async () => {
     const dir = await minimalPluginDir();
-    // dev.agentpack is an internal symlink; its commands/ is another one.
+    // to.agentpack is an internal symlink; its commands/ is another one.
     const realNs = path.join(dir, "real-ns");
     const realCommands = path.join(dir, "real-commands");
     await fs.mkdir(realNs, { recursive: true });
@@ -228,7 +228,7 @@ describe("importAgentPluginDir hardening", () => {
       "utf8",
     );
     await fs.symlink(realCommands, path.join(realNs, "commands"));
-    await fs.symlink(realNs, path.join(dir, "dev.agentpack"));
+    await fs.symlink(realNs, path.join(dir, "to.agentpack"));
 
     const result = await importAgentPluginDir(dir, { id: "acme.hardening" });
     expect(result.manifest.atoms.some((a) => a.type === "command")).toBe(true);
@@ -237,7 +237,7 @@ describe("importAgentPluginDir hardening", () => {
 
   it("warns on duplicate bundled hook-script basenames and keeps the first", async () => {
     const dir = await minimalPluginDir();
-    const hooksDir = path.join(dir, "dev.agentpack", "hooks");
+    const hooksDir = path.join(dir, "to.agentpack", "hooks");
     await fs.mkdir(path.join(hooksDir, "nested"), { recursive: true });
     await fs.writeFile(
       path.join(hooksDir, "hooks.json"),
@@ -278,7 +278,7 @@ describe("importAgentPluginDir hardening", () => {
 
   it("does not attach a hook script whose basename merely appears inside another filename", async () => {
     const dir = await minimalPluginDir();
-    const hooksDir = path.join(dir, "dev.agentpack", "hooks");
+    const hooksDir = path.join(dir, "to.agentpack", "hooks");
     await fs.mkdir(hooksDir, { recursive: true });
     await fs.writeFile(
       path.join(hooksDir, "hooks.json"),
@@ -378,7 +378,7 @@ describe("importAgentPluginDir hardening", () => {
 
   it("re-bundles hook scripts shipped in the extension namespace", async () => {
     const dir = await minimalPluginDir();
-    const hooksDir = path.join(dir, "dev.agentpack", "hooks");
+    const hooksDir = path.join(dir, "to.agentpack", "hooks");
     await fs.mkdir(hooksDir, { recursive: true });
     await fs.writeFile(
       path.join(hooksDir, "hooks.json"),
@@ -800,4 +800,127 @@ describe("importAgentPluginDir metadata (#218)", () => {
     expect(explicit.manifest.metadata.version).toBe("9.9.9");
     await fs.rm(out, { recursive: true, force: true });
   });
+});
+
+describe("owned namespace migration", () => {
+  async function minimalPluginDir(): Promise<string> {
+    const out = await tmp();
+    await fs.writeFile(
+      path.join(out, "plugin.json"),
+      JSON.stringify({
+        $schema: AGENT_PLUGIN_MANIFEST_SCHEMA_ID,
+        name: "migration-fixture",
+      }),
+    );
+    return out;
+  }
+
+  it("imports legacy components and hook scripts without losing content", async () => {
+    const out = await tmp();
+    try {
+      await exportAgentPlugin({ source: EXAMPLE, profile: "full", outDir: out });
+      const expected = await importAgentPluginDir(out, { id: "acme.migrated" });
+      const manifest = JSON.parse(await read(out, "plugin.json"));
+      expect(manifest.extensions["to.agentpack"]).toBeDefined();
+      expect(manifest.extensions["dev.agentpack"]).toBeUndefined();
+      manifest.extensions["dev.agentpack"] = manifest.extensions["to.agentpack"];
+      delete manifest.extensions["to.agentpack"];
+      await fs.writeFile(path.join(out, "plugin.json"), JSON.stringify(manifest));
+      await fs.rename(path.join(out, "to.agentpack"), path.join(out, "dev.agentpack"));
+      const legacy = await importAgentPluginDir(out, { id: "acme.migrated" });
+      expect(legacy.files).toEqual(expected.files);
+      expect(legacy.warnings).toEqual(expected.warnings);
+      expect(legacy.files.some((f) => f.relativePath.startsWith("atoms/hooks/"))).toBe(
+        true,
+      );
+    } finally {
+      await fs.rm(out, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["dev.agentpack", "to.agentpack"],
+    ["to.agentpack", "dev.agentpack"],
+  ])("rejects manifest %s with directory %s", async (declared, directory) => {
+    const out = await minimalPluginDir();
+    try {
+      const manifest = JSON.parse(await read(out, "plugin.json"));
+      manifest.extensions = { [declared]: {} };
+      await fs.writeFile(path.join(out, "plugin.json"), JSON.stringify(manifest));
+      await fs.mkdir(path.join(out, directory));
+      await expect(importAgentPluginDir(out, { id: "acme.mixed" })).rejects.toThrow(
+        /Ambiguous/,
+      );
+    } finally {
+      await fs.rm(out, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["manifest", "directories", "broken symlink"])(
+    "rejects dual namespaces in %s",
+    async (kind) => {
+      const out = await minimalPluginDir();
+      try {
+        if (kind === "manifest") {
+          const manifest = JSON.parse(await read(out, "plugin.json"));
+          manifest.extensions = { "dev.agentpack": {}, "to.agentpack": {} };
+          await fs.writeFile(path.join(out, "plugin.json"), JSON.stringify(manifest));
+        } else {
+          await fs.mkdir(path.join(out, "to.agentpack"));
+          if (kind === "broken symlink")
+            await fs.symlink(path.join(out, "missing"), path.join(out, "dev.agentpack"));
+          else await fs.mkdir(path.join(out, "dev.agentpack"));
+        }
+        await expect(importAgentPluginDir(out, { id: "acme.mixed" })).rejects.toThrow(
+          /Ambiguous/,
+        );
+      } finally {
+        await fs.rm(out, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("removes legacy executable content on safe re-export and preserves foreign extensions", async () => {
+    const out = await tmp();
+    try {
+      await exportAgentPlugin({ source: EXAMPLE, profile: "full", outDir: out });
+      await fs.rename(path.join(out, "to.agentpack"), path.join(out, "dev.agentpack"));
+      await fs.mkdir(path.join(out, "org.example"));
+      await fs.writeFile(path.join(out, "org.example", "keep.txt"), "keep");
+      await exportAgentPlugin({ source: EXAMPLE, profile: "safe", outDir: out });
+      expect(await exists(out, "dev.agentpack")).toBe(false);
+      expect(await exists(out, "to.agentpack/hooks/hooks.json")).toBe(false);
+      expect(await read(out, "org.example/keep.txt")).toBe("keep");
+      const result = await importAgentPluginDir(out, { id: "acme.safe" });
+      expect(result.files.some((f) => f.relativePath.startsWith("atoms/hooks/"))).toBe(
+        false,
+      );
+    } finally {
+      await fs.rm(out, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["dev.agentpack", "to.agentpack"])(
+    "refuses %s symlinks without deleting existing output",
+    async (namespace) => {
+      const out = await tmp();
+      const target = await tmp();
+      try {
+        await fs.writeFile(path.join(out, "plugin.json"), "preserve manifest");
+        await fs.mkdir(path.join(out, "skills"));
+        await fs.writeFile(path.join(out, "skills", "keep.txt"), "preserve skill");
+        await fs.writeFile(path.join(target, "keep.txt"), "preserve target");
+        await fs.symlink(target, path.join(out, namespace));
+        await expect(
+          exportAgentPlugin({ source: EXAMPLE, profile: "safe", outDir: out }),
+        ).rejects.toThrow(/symlink/);
+        expect(await read(out, "plugin.json")).toBe("preserve manifest");
+        expect(await read(out, "skills/keep.txt")).toBe("preserve skill");
+        expect(await read(target, "keep.txt")).toBe("preserve target");
+      } finally {
+        await fs.rm(out, { recursive: true, force: true });
+        await fs.rm(target, { recursive: true, force: true });
+      }
+    },
+  );
 });
