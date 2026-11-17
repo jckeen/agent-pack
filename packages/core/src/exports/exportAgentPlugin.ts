@@ -17,6 +17,7 @@ import {
   AGENT_PLUGIN_MANIFEST_SCHEMA_ID,
   AGENT_PLUGIN_MCP_SCHEMA_ID,
   AGENTPACK_EXTENSION_NAMESPACE,
+  LEGACY_AGENTPACK_EXTENSION_NAMESPACE,
   normalizeAgentPluginName,
   validateAgentPluginMcpConfig,
   type AgentPluginManifest,
@@ -120,7 +121,13 @@ export async function exportAgentPlugin(
   // retain the previous profile's hooks/commands, and a re-import of the
   // "safe" output would resurrect them. A pre-existing symlink at a managed
   // path is refused outright: it would redirect the write outside outDir.
-  const managedPaths = ["plugin.json", "mcp.json", "skills", AGENTPACK_EXTENSION_NAMESPACE];
+  const managedPaths = [
+    "plugin.json",
+    "mcp.json",
+    "skills",
+    AGENTPACK_EXTENSION_NAMESPACE,
+    LEGACY_AGENTPACK_EXTENSION_NAMESPACE,
+  ];
   for (const rel of managedPaths) {
     const abs = path.join(realOut, rel);
     const lstat = await fs.lstat(abs).catch(() => null);
@@ -130,7 +137,9 @@ export async function exportAgentPlugin(
         `Refusing to export: \`${rel}\` in the output directory is a symlink — writes through it could land outside outDir. Remove it and re-run.`,
       );
     }
-    await fs.rm(abs, { recursive: true, force: true });
+  }
+  for (const rel of managedPaths) {
+    await fs.rm(path.join(realOut, rel), { recursive: true, force: true });
   }
 
   const written: string[] = [];

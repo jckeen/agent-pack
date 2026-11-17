@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agentpack.dev/schemas/agentpack.schema.json",
+  "$id": "https://agentpack.to/schemas/agentpack.schema.json",
   "title": "AgentPack Manifest",
   "type": "object",
   "required": ["agentpack", "metadata", "compatibility", "profiles", "atoms"],
